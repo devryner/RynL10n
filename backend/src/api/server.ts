@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { Repo } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
 import { publishRelease, rollbackRelease, RangeConflictError, NotFoundError } from "../pipeline/publish.ts";
+import { buildSnapshot } from "../../../src/builder/builder.ts";
 import { authenticate, authorize, AuthError, type Capability, type TokenRegistry, type Principal } from "../auth/rbac.ts";
 import { signature } from "../../../src/core/placeholder.ts";
 import { isPluralMap, type TranslationValue, type VersionMatch, type ReleaseState } from "../../../src/core/types.ts";
@@ -177,6 +178,15 @@ const routes: Route[] = [
   // 릴리스 목록 — Viewer+
   route("GET", "/projects/:p/releases", "read", ({ params, repo }) => {
     return { status: 200, body: { releases: repo.listReleases(params.p!) } };
+  }),
+
+  // 현재 릴리스 스냅샷 조회(빌드 플러그인 fetch, 6.3) — Viewer+/머신 토큰. DB에서 결정적 빌드.
+  route("GET", "/projects/:p/releases/:r/snapshot", "read", ({ params, repo }) => {
+    const project = repo.getProject(params.p!);
+    if (!project) throw new NotFoundError(`project ${params.p}`);
+    if (!repo.getRelease(params.p!, params.r!)) throw new NotFoundError(`release ${params.r}`);
+    const catalog = repo.catalogForRelease(params.p!, params.r!);
+    return { status: 200, body: buildSnapshot({ release: params.r!, defaultLocale: project.defaultLocale, locales: catalog }) };
   }),
 
   // 배포 manifest 조회(진단용 read-through) — Viewer+

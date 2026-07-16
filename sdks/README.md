@@ -54,18 +54,21 @@ bake 코어(`Bake.swift`/`Bake.kt`)도 골든 벡터(`fixtures/golden/bake.json`
 **iOS·Android CLI가 같은 스냅샷에서 바이트 단위로 동일한 번들+lockfile을 방출**한다(크로스플랫폼 결정성 검증).
 
 ```bash
-# iOS — SPM 실행파일 (build tool plugin이 이 CLI를 래핑)
-cd sdks/ios && swift run rynl10n-bake <snapshot.json> <out-dir> [--strict]
+# vendored/에어갭 — 커밋된 스냅샷 파일 입력
+cd sdks/ios && swift run rynl10n-bake <snapshot.json> <out-dir> [--strict] [--emit-native]
+cd sdks/android && gradle rynl10nBake -Psource=<snapshot.json> -Pout=<out-dir>
 
-# Android — Gradle 태스크
-cd sdks/android && gradle rynl10nBake -Psource=<snapshot.json> -Pout=<out-dir> [-Pstrict=true]
+# 서버 fetch(6.3) — 현재 릴리스 스냅샷을 받아 캐시에 저장, 실패 시 마지막 캐시로 진행
+swift run rynl10n-bake --fetch <api>/projects/{p}/releases/{r}/snapshot --token <t> --cache <p> <out-dir>
+gradle rynl10nBake -Pfetch=<url> -Ptoken=<t> -Pcache=<p> -Pout=<out-dir>
 
 # 산출: <out-dir>/rynl10n/snapshot-<base>.json + <out-dir>/rynl10n/rynl10n.lock
 ```
 
-> **fetch·캐시 fallback**: bake 코어는 순수 함수(입력=스냅샷 파일). 서버에서 현재 릴리스 스냅샷을
-> fetch하고 실패 시 마지막 캐시로 진행하는 로직(6.3)은 이 CLI를 감싸는 플러그인/태스크 설정이 담당한다.
-> vendored/airgap 모드(시나리오 C)는 커밋된 스냅샷 파일을 그대로 입력으로 쓴다.
+> **fetch·캐시 fallback(6.3)**: `--fetch`는 관리 API의 릴리스 스냅샷 엔드포인트(`GET /projects/{p}/releases/{r}/snapshot`,
+> DB에서 결정적 빌드)를 받아 `--cache`에 저장한다. **서버 접근 실패 시 마지막 캐시로 진행** → 빌드가 서버
+> 가용성에 종속되지 않음. vendored/에어갭(시나리오 C)은 커밋된 스냅샷 파일을 그대로 입력으로 쓴다.
+> 검증: iOS·Android CLI가 서버 fetch·캐시 fallback 모두에서 바이트 동일 산출물 생성.
 
 ## 네이티브 포맷 변환 (5.3) ✅
 

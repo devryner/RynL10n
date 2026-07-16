@@ -33,5 +33,15 @@ tasks.register<JavaExec>("rynl10nBake") {
     val out = (project.findProperty("out") as String?) ?: layout.buildDirectory.dir("rynl10n-bundle").get().asFile.path
     val strict = (project.findProperty("strict") as String?) == "true"
     val emitNative = (project.findProperty("emitNative") as String?) == "true"
-    args = buildList { add(source); add(out); if (strict) add("--strict"); if (emitNative) add("--emit-native") }
+    val fetch = project.findProperty("fetch") as String?   // 서버 스냅샷 URL(6.3)
+    val cache = project.findProperty("cache") as String?   // 마지막 캐시 경로(fetch 실패 시)
+    val token = project.findProperty("token") as String?
+    args = buildList {
+        if (fetch != null) { add("--fetch"); add(fetch) } else add(source)
+        add(out)
+        if (cache != null) { add("--cache"); add(cache) }
+        if (token != null) { add("--token"); add(token) }
+        if (strict) add("--strict")
+        if (emitNative) add("--emit-native")
+    }
 }
