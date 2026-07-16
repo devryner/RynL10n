@@ -1,0 +1,175 @@
+{
+  "description": "resolveValue(bundle, overlay(from ops), key, locale) → {value, source, matchedLocale, guardFallback}",
+  "bundle": {
+    "schemaVersion": 1,
+    "release": "R42",
+    "base": "0000000000000000",
+    "defaultLocale": "en",
+    "locales": {
+      "en": {
+        "cart.title": "Cart",
+        "cart.items": {
+          "one": "{n} item",
+          "other": "{n} items"
+        },
+        "cart.empty": ""
+      },
+      "ko": {
+        "cart.title": "장바구니"
+      },
+      "ko-KR": {}
+    }
+  },
+  "cases": [
+    {
+      "name": "오버레이_우선",
+      "overlay": [
+        {
+          "locale": "ko",
+          "key": "cart.title",
+          "value": "카트"
+        }
+      ],
+      "key": "cart.title",
+      "locale": "ko",
+      "expected": {
+        "value": "카트",
+        "source": "overlay",
+        "matchedLocale": "ko",
+        "guardFallback": false
+      }
+    },
+    {
+      "name": "번들_fallback",
+      "overlay": [],
+      "key": "cart.title",
+      "locale": "ko",
+      "expected": {
+        "value": "장바구니",
+        "source": "bundle",
+        "matchedLocale": "ko",
+        "guardFallback": false
+      }
+    },
+    {
+      "name": "로케일우선_koKR→ko",
+      "overlay": [],
+      "key": "cart.title",
+      "locale": "ko-KR",
+      "expected": {
+        "value": "장바구니",
+        "source": "bundle",
+        "matchedLocale": "ko",
+        "guardFallback": false
+      }
+    },
+    {
+      "name": "로케일우선_구체적기존>일반최신",
+      "overlay": [
+        {
+          "locale": "en",
+          "key": "cart.title",
+          "value": "CART-NEW"
+        }
+      ],
+      "key": "cart.title",
+      "locale": "ko-KR",
+      "expected": {
+        "value": "장바구니",
+        "source": "bundle",
+        "matchedLocale": "ko",
+        "guardFallback": false
+      }
+    },
+    {
+      "name": "포맷가드_불일치→번들",
+      "overlay": [
+        {
+          "locale": "en",
+          "key": "cart.items",
+          "value": {
+            "one": "{n} item",
+            "other": "{count} items"
+          }
+        }
+      ],
+      "key": "cart.items",
+      "locale": "en",
+      "expected": {
+        "value": {
+          "one": "{n} item",
+          "other": "{n} items"
+        },
+        "source": "bundle",
+        "matchedLocale": "en",
+        "guardFallback": true
+      }
+    },
+    {
+      "name": "포맷가드_일치→오버레이",
+      "overlay": [
+        {
+          "locale": "en",
+          "key": "cart.items",
+          "value": {
+            "one": "{n} thing",
+            "other": "{n} things"
+          }
+        }
+      ],
+      "key": "cart.items",
+      "locale": "en",
+      "expected": {
+        "value": {
+          "one": "{n} thing",
+          "other": "{n} things"
+        },
+        "source": "overlay",
+        "matchedLocale": "en",
+        "guardFallback": false
+      }
+    },
+    {
+      "name": "tombstone_가림→다음로케일",
+      "overlay": [
+        {
+          "locale": "ko",
+          "key": "cart.title",
+          "tombstone": true
+        }
+      ],
+      "key": "cart.title",
+      "locale": "ko",
+      "expected": {
+        "value": "Cart",
+        "source": "bundle",
+        "matchedLocale": "en",
+        "guardFallback": false
+      }
+    },
+    {
+      "name": "빈문자열_유효",
+      "overlay": [],
+      "key": "cart.empty",
+      "locale": "en",
+      "expected": {
+        "value": "",
+        "source": "bundle",
+        "matchedLocale": "en",
+        "guardFallback": false
+      }
+    },
+    {
+      "name": "미해결",
+      "overlay": [],
+      "key": "no.such",
+      "locale": "ko-KR",
+      "expected": {
+        "value": null,
+        "source": "unresolved",
+        "matchedLocale": null,
+        "guardFallback": false
+      }
+    }
+  ]
+}

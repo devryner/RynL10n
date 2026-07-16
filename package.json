@@ -10,7 +10,8 @@
   "scripts": {
     "test": "node --test \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "demo": "node examples/demo.ts"
+    "demo": "node examples/demo.ts",
+    "gen:golden": "node tools/gen-golden.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

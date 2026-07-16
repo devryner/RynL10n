@@ -1,0 +1,67 @@
+{
+  "description": "versionInRange(version, range, {matchPrerelease}) === satisfies. reject[]는 parseRange가 예외.",
+  "satisfies": [
+    {
+      "version": "3.2.5",
+      "range": ">=3.2.0 <3.3.0",
+      "expected": true
+    },
+    {
+      "version": "3.3.0",
+      "range": ">=3.2.0 <3.3.0",
+      "expected": false
+    },
+    {
+      "version": "3.2.0",
+      "range": ">=3.2.0 <3.3.0",
+      "expected": true
+    },
+    {
+      "version": "9.9.9",
+      "range": ">=3.2.0",
+      "expected": true
+    },
+    {
+      "version": "3.2.0",
+      "range": "=3.2.0",
+      "expected": true
+    },
+    {
+      "version": "3.2.0-rc1",
+      "range": ">=3.2.0 <3.3.0",
+      "expected": false
+    },
+    {
+      "version": "3.2.0-rc1",
+      "range": ">=3.2.0-rc0 <3.3.0",
+      "matchPrerelease": true,
+      "expected": true
+    }
+  ],
+  "reject": [
+    {
+      "range": ">=3.2.0 || >=4.0.0",
+      "expectedThrow": true
+    },
+    {
+      "range": "^3.2.0",
+      "expectedThrow": true
+    },
+    {
+      "range": "~3.2.0",
+      "expectedThrow": true
+    },
+    {
+      "range": "3.2.x",
+      "expectedThrow": true
+    },
+    {
+      "range": "3.2.0 - 3.3.0",
+      "expectedThrow": true
+    },
+    {
+      "range": "1.2",
+      "expectedThrow": true
+    }
+  ]
+}

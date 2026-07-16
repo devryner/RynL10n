@@ -5,3 +5,8 @@ dist/
 
 # 툴 생성 아티팩트 (oh-my-claudecode 세션/상태)
 .omc/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved

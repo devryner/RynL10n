@@ -1,0 +1,246 @@
+{
+  "description": "selectRelease(releases, ctx) → {kind, releaseId}",
+  "cases": [
+    {
+      "name": "버전격리_구버전",
+      "releases": [
+        {
+          "id": "R42",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.2.0 <3.3.0"
+          },
+          "base": "r42",
+          "overlay": "r42",
+          "rollout": 100,
+          "snapshot": "releases/R42/snapshot-r42.json"
+        },
+        {
+          "id": "R50",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.3.0"
+          },
+          "base": "r50",
+          "overlay": "r50",
+          "rollout": 100,
+          "snapshot": "releases/R50/snapshot-r50.json"
+        }
+      ],
+      "ctx": {
+        "appVersion": "3.2.5"
+      },
+      "expected": {
+        "kind": "matched",
+        "releaseId": "R42"
+      }
+    },
+    {
+      "name": "버전격리_신버전",
+      "releases": [
+        {
+          "id": "R42",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.2.0 <3.3.0"
+          },
+          "base": "r42",
+          "overlay": "r42",
+          "rollout": 100,
+          "snapshot": "releases/R42/snapshot-r42.json"
+        },
+        {
+          "id": "R50",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.3.0"
+          },
+          "base": "r50",
+          "overlay": "r50",
+          "rollout": 100,
+          "snapshot": "releases/R50/snapshot-r50.json"
+        }
+      ],
+      "ctx": {
+        "appVersion": "3.3.1"
+      },
+      "expected": {
+        "kind": "matched",
+        "releaseId": "R50"
+      }
+    },
+    {
+      "name": "superseded도_후보",
+      "releases": [
+        {
+          "id": "R42",
+          "state": "superseded",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.2.0 <3.3.0"
+          },
+          "base": "r42",
+          "overlay": "r42",
+          "rollout": 100,
+          "snapshot": "releases/R42/snapshot-r42.json"
+        },
+        {
+          "id": "R50",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.3.0"
+          },
+          "base": "r50",
+          "overlay": "r50",
+          "rollout": 100,
+          "snapshot": "releases/R50/snapshot-r50.json"
+        }
+      ],
+      "ctx": {
+        "appVersion": "3.2.5"
+      },
+      "expected": {
+        "kind": "matched",
+        "releaseId": "R42"
+      }
+    },
+    {
+      "name": "archived_제외",
+      "releases": [
+        {
+          "id": "R42",
+          "state": "archived",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.2.0 <3.3.0"
+          },
+          "base": "r42",
+          "overlay": "r42",
+          "rollout": 100,
+          "snapshot": "releases/R42/snapshot-r42.json"
+        }
+      ],
+      "ctx": {
+        "appVersion": "3.2.5"
+      },
+      "expected": {
+        "kind": "bundle-only",
+        "releaseId": null
+      }
+    },
+    {
+      "name": "미매칭_bundle_only",
+      "releases": [
+        {
+          "id": "R42",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.2.0 <3.3.0"
+          },
+          "base": "r42",
+          "overlay": "r42",
+          "rollout": 100,
+          "snapshot": "releases/R42/snapshot-r42.json"
+        }
+      ],
+      "ctx": {
+        "appVersion": "5.0.0"
+      },
+      "expected": {
+        "kind": "bundle-only",
+        "releaseId": null
+      }
+    },
+    {
+      "name": "미매칭_nearest_lower",
+      "releases": [
+        {
+          "id": "R42",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.2.0 <3.3.0"
+          },
+          "base": "r42",
+          "overlay": "r42",
+          "rollout": 100,
+          "snapshot": "releases/R42/snapshot-r42.json"
+        }
+      ],
+      "ctx": {
+        "appVersion": "5.0.0",
+        "fallbackPolicy": "nearest-lower"
+      },
+      "expected": {
+        "kind": "nearest-lower",
+        "releaseId": "R42"
+      }
+    },
+    {
+      "name": "exact_label",
+      "releases": [
+        {
+          "id": "W1",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "exact-label",
+            "value": "web-stable"
+          },
+          "base": "w1",
+          "overlay": "w1",
+          "rollout": 100,
+          "snapshot": "releases/W1/snapshot-w1.json"
+        }
+      ],
+      "ctx": {
+        "releaseLabel": "web-stable"
+      },
+      "expected": {
+        "kind": "matched",
+        "releaseId": "W1"
+      }
+    },
+    {
+      "name": "방어적_가장좁은범위",
+      "releases": [
+        {
+          "id": "WIDE",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.0.0 <4.0.0"
+          },
+          "base": "wide",
+          "overlay": "wide",
+          "rollout": 100,
+          "snapshot": "releases/WIDE/snapshot-wide.json"
+        },
+        {
+          "id": "NARROW",
+          "state": "published",
+          "versionMatch": {
+            "strategy": "semver-range",
+            "value": ">=3.2.0 <3.3.0"
+          },
+          "base": "narrow",
+          "overlay": "narrow",
+          "rollout": 100,
+          "snapshot": "releases/NARROW/snapshot-narrow.json"
+        }
+      ],
+      "ctx": {
+        "appVersion": "3.2.5"
+      },
+      "expected": {
+        "kind": "matched",
+        "releaseId": "NARROW"
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "description": "NFC 정규화 후 같은 해시. Swift/Kotlin은 입력을 NFC 정규화해야 동일 해시가 나온다.",
+  "cases": [
+    {
+      "name": "café_완성형vs조합형",
+      "composed": "café",
+      "decomposed": "café",
+      "sha256": "29a60c4c0ac5bdd596156dc1d04cf73d6b9b96f8a5b3f3dde1332cd24e33dcc0"
+    },
+    {
+      "name": "한글_조합형",
+      "composed": "한글",
+      "decomposed": "한글",
+      "sha256": "d1e58bfac1a602ee9adb04c008e95bafa4a143924508eb8df5ca7302ec98db60"
+    }
+  ]
+}

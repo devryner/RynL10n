@@ -1,0 +1,72 @@
+{
+  "description": "canonicalStringify(value) === canonical, sha256(canonical UTF-8) === sha256, fileId(sha256)===fileId16",
+  "cases": [
+    {
+      "name": "정렬+삽입순서무관",
+      "value": {
+        "b": 1,
+        "a": 2,
+        "locales": {
+          "ko": {
+            "x": "1"
+          },
+          "en": {
+            "y": "2"
+          }
+        }
+      },
+      "canonical": "{\"a\":2,\"b\":1,\"locales\":{\"en\":{\"y\":\"2\"},\"ko\":{\"x\":\"1\"}}}",
+      "sha256": "8caaf3f715573ad56ff68d7922c475531115233460b4eb2fd3d471746f97cfe4",
+      "fileId16": "8caaf3f715573ad5"
+    },
+    {
+      "name": "정수키_UTF16정렬",
+      "value": {
+        "2": 4,
+        "10": 3,
+        "a": 2
+      },
+      "canonical": "{\"10\":3,\"2\":4,\"a\":2}",
+      "sha256": "9aa55956f8f605e7b4f4c23916bfba42354e84f1e95113d6295a4294bde77117",
+      "fileId16": "9aa55956f8f605e7"
+    },
+    {
+      "name": "비ASCII_UTF8리터럴",
+      "value": {
+        "k": "장바구니",
+        "j": "支払い"
+      },
+      "canonical": "{\"j\":\"支払い\",\"k\":\"장바구니\"}",
+      "sha256": "3d1c5c96cbf4099413f7e524b651726eddc51bbce56f59d6e1fad8294be3cc64",
+      "fileId16": "3d1c5c96cbf40994"
+    },
+    {
+      "name": "제어문자_이스케이프",
+      "value": {
+        "s": "a\tb\nc\"d\\e"
+      },
+      "canonical": "{\"s\":\"a\\tb\\nc\\\"d\\\\e\"}",
+      "sha256": "55e8f81e24e9b97b37aefedc9e31b3e541eca3f23cd465726dd1d50c49111ae6",
+      "fileId16": "55e8f81e24e9b97b"
+    },
+    {
+      "name": "중첩배열",
+      "value": {
+        "ops": [
+          {
+            "op": "set",
+            "k": "a"
+          },
+          {
+            "op": "delete",
+            "k": "b"
+          }
+        ],
+        "n": 1
+      },
+      "canonical": "{\"n\":1,\"ops\":[{\"k\":\"a\",\"op\":\"set\"},{\"k\":\"b\",\"op\":\"delete\"}]}",
+      "sha256": "14ddf3df2058d2fae9913cafb418bfca1ce73bbb7a125cd250278a712b72e4ae",
+      "fileId16": "14ddf3df2058d2fa"
+    }
+  ]
+}

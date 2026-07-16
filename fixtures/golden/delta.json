@@ -1,0 +1,62 @@
+{
+  "description": "buildDelta(from,to).ops === ops ((locale,key,op) 사전순). from/to는 base16.",
+  "case": {
+    "from": {
+      "schemaVersion": 1,
+      "release": "R42",
+      "base": "a1b40894b9e8e119",
+      "defaultLocale": "en",
+      "locales": {
+        "en": {
+          "a": "1",
+          "b": "2",
+          "del": "x"
+        },
+        "ko": {
+          "a": "가"
+        }
+      }
+    },
+    "to": {
+      "schemaVersion": 1,
+      "release": "R42",
+      "base": "a50c8319502d8cde",
+      "defaultLocale": "en",
+      "locales": {
+        "en": {
+          "a": "1",
+          "b": "22"
+        },
+        "ko": {
+          "a": "가",
+          "c": "다"
+        }
+      }
+    },
+    "delta": {
+      "schemaVersion": 1,
+      "release": "R42",
+      "from": "a1b40894b9e8e119",
+      "to": "a50c8319502d8cde",
+      "ops": [
+        {
+          "op": "set",
+          "key": "b",
+          "locale": "en",
+          "value": "22"
+        },
+        {
+          "op": "delete",
+          "key": "del",
+          "locale": "en"
+        },
+        {
+          "op": "set",
+          "key": "c",
+          "locale": "ko",
+          "value": "다"
+        }
+      ]
+    }
+  }
+}

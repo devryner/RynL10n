@@ -1,0 +1,61 @@
+{
+  "description": "formatValue(value, locale, args) → string",
+  "cases": [
+    {
+      "name": "en_one",
+      "value": {
+        "one": "{n} item",
+        "other": "{n} items"
+      },
+      "locale": "en",
+      "args": {
+        "n": 1
+      },
+      "expected": "1 item"
+    },
+    {
+      "name": "en_other",
+      "value": {
+        "one": "{n} item",
+        "other": "{n} items"
+      },
+      "locale": "en",
+      "args": {
+        "n": 5
+      },
+      "expected": "5 items"
+    },
+    {
+      "name": "ko_other",
+      "value": {
+        "other": "{n}개"
+      },
+      "locale": "ko",
+      "args": {
+        "n": 3
+      },
+      "expected": "3개"
+    },
+    {
+      "name": "named_치환",
+      "value": "Hello {name}",
+      "locale": "en",
+      "args": {
+        "name": "Sol"
+      },
+      "expected": "Hello Sol"
+    },
+    {
+      "name": "sharp_치환",
+      "value": {
+        "one": "# item",
+        "other": "# items"
+      },
+      "locale": "en",
+      "args": {
+        "count": 7
+      },
+      "expected": "7 items"
+    }
+  ]
+}

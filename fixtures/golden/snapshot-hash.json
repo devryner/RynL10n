@@ -1,0 +1,47 @@
+{
+  "description": "buildSnapshot(catalog).base === base16, snapshotHash===fullHash. 키 순서 무관·NFC 후 동일.",
+  "cases": [
+    {
+      "name": "cart",
+      "input": {
+        "release": "R42",
+        "defaultLocale": "en",
+        "locales": {
+          "en": {
+            "cart.title": "Cart",
+            "cart.items": {
+              "one": "{n} item",
+              "other": "{n} items"
+            },
+            "cart.empty": ""
+          },
+          "ko": {
+            "cart.title": "장바구니",
+            "cart.items": {
+              "other": "{n}개"
+            }
+          }
+        }
+      },
+      "canonical": "{\"defaultLocale\":\"en\",\"locales\":{\"en\":{\"cart.empty\":\"\",\"cart.items\":{\"one\":\"{n} item\",\"other\":\"{n} items\"},\"cart.title\":\"Cart\"},\"ko\":{\"cart.items\":{\"other\":\"{n}개\"},\"cart.title\":\"장바구니\"}},\"release\":\"R42\"}",
+      "fullHash": "1d3550c3295ef26ed6bc9ed666fccd5a8d0138ed23d7cadfde5fd656606924d5",
+      "base16": "1d3550c3295ef26e"
+    },
+    {
+      "name": "home",
+      "input": {
+        "release": "R50",
+        "defaultLocale": "en",
+        "locales": {
+          "en": {
+            "home.title": "Home",
+            "home.newBadge": "NEW"
+          }
+        }
+      },
+      "canonical": "{\"defaultLocale\":\"en\",\"locales\":{\"en\":{\"home.newBadge\":\"NEW\",\"home.title\":\"Home\"}},\"release\":\"R50\"}",
+      "fullHash": "39340e899dcadf385fffbd0813aafabde72589ec6aca223cec75e1f149c72e75",
+      "base16": "39340e899dcadf38"
+    }
+  ]
+}
