@@ -17,6 +17,8 @@ import { selectRelease } from "../src/core/matching.ts";
 import { parseRange, versionInRange } from "../src/core/semver.ts";
 import { baseLocaleCoverage, verifyBase, buildLockfile, lockfileString, bundleString } from "../src/builder/bake.ts";
 import { toAndroidStringsXml, toXcstrings, toWebJson, toArb } from "../src/builder/convert.ts";
+import { bucketOf, inRollout } from "../src/core/canary.ts";
+import { intInRange, parseIntRange } from "../src/core/intrange.ts";
 import type { ManifestRelease, Snapshot, TranslationValue } from "../src/core/types.ts";
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "golden");
@@ -242,6 +244,34 @@ write("convert.json", {
     en: toArb(convSnap.locales.en!, "en").output,
     ko: toArb(convSnap.locales.ko!, "ko").output,
   },
+});
+
+// ── 11) 카나리 버킷팅 (8.4) ───────────────────────────────────────────────────
+const installIds = ["550e8400-e29b-41d4-a716-446655440000", "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "01234567-89ab-cdef-0123-456789abcdef"];
+const releaseIds = ["R42", "R50"];
+const bucketCases: Array<{ installId: string; releaseId: string; bucket: number }> = [];
+for (const iid of installIds) for (const rid of releaseIds) bucketCases.push({ installId: iid, releaseId: rid, bucket: bucketOf(iid, rid) });
+write("canary.json", {
+  description: "bucketOf(installId, releaseId) === bucket (SHA-256 앞 32bit mod 100). inRollout 판정.",
+  buckets: bucketCases,
+  inRollout: [
+    { rollout: 100, installId: installIds[0], releaseId: "R42", expected: inRollout(100, installIds[0], "R42") },
+    { rollout: 0, installId: installIds[0], releaseId: "R42", expected: inRollout(0, installIds[0], "R42") },
+    { rollout: 50, installId: installIds[0], releaseId: "R42", expected: inRollout(50, installIds[0], "R42") },
+    { rollout: 50, installId: null, releaseId: "R42", expected: inRollout(50, undefined, "R42") },
+  ],
+});
+
+// ── 12) 정수 버전 매칭 (M4) ───────────────────────────────────────────────────
+const intSat = [
+  { n: 42, range: ">=42 <50" }, { n: 50, range: ">=42 <50" }, { n: 41, range: ">=42 <50" },
+  { n: 100, range: ">=42" }, { n: 42, range: "=42" }, { n: 43, range: "=42" },
+];
+const intReject = [">=42 || >=100", "^42", "~42", "42 - 50", "1.2"];
+write("intrange.json", {
+  description: "intInRange(n, range) === satisfies. reject[]는 parseIntRange가 예외.",
+  satisfies: intSat.map((c) => ({ ...c, expected: intInRange(c.n, c.range) })),
+  reject: intReject.map((range) => { let t = false; try { parseIntRange(range); } catch { t = true; } return { range, expectedThrow: t }; }),
 });
 
 console.log("golden vectors 생성 완료 →", OUT);

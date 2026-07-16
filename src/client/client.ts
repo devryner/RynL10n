@@ -16,6 +16,7 @@ import {
   type ResolveOptions,
   type ResolveResult,
 } from "../core/resolve.ts";
+import { inRollout } from "../core/canary.ts";
 
 /** 배포 플레인(CDN/스토리지)을 흉내내는 정적 파일 저장소. path → 파일 내용. */
 export interface DeliveryStore {
@@ -40,6 +41,8 @@ export interface ClientConfig {
   readonly resolveOptions?: ResolveOptions;
   /** 텔레메트리(9.3): 기본 off. 'aggregate'는 익명 카운트만 집계(값·키명·기기 식별자 없음). */
   readonly telemetry?: "off" | "aggregate";
+  /** 카나리 버킷 판정용 기기 로컬 익명 installId(8.4). 서버 미전송. 없으면 rollout<100 미수신. */
+  readonly installId?: string;
 }
 
 /** 배포 건전성 익명 집계 카운트(9.3). 카나리 판정(8.4) 입력. */
@@ -116,6 +119,12 @@ export class RynL10nClient {
 
     // 2) 오버레이 결정: overlay 포인터가 base와 같으면 오버레이 없음.
     if (release.overlay === release.base || release.delta === undefined) {
+      return this.swap(bundle, new OverlayLayer(), release.id, release.base);
+    }
+
+    // 카나리 게이트(8.4): rollout 대상이 아니면 오버레이 미수신 → base(번들)만 사용.
+    // 기본 rollout 100 = 전체 배포. 같은 기기·릴리스는 항상 같은 판정(배포 중 번역 안 흔들림).
+    if (!inRollout(release.rollout, this.config.installId, release.id)) {
       return this.swap(bundle, new OverlayLayer(), release.id, release.base);
     }
 

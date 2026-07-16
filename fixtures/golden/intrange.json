@@ -1,0 +1,57 @@
+{
+  "description": "intInRange(n, range) === satisfies. reject[]는 parseIntRange가 예외.",
+  "satisfies": [
+    {
+      "n": 42,
+      "range": ">=42 <50",
+      "expected": true
+    },
+    {
+      "n": 50,
+      "range": ">=42 <50",
+      "expected": false
+    },
+    {
+      "n": 41,
+      "range": ">=42 <50",
+      "expected": false
+    },
+    {
+      "n": 100,
+      "range": ">=42",
+      "expected": true
+    },
+    {
+      "n": 42,
+      "range": "=42",
+      "expected": true
+    },
+    {
+      "n": 43,
+      "range": "=42",
+      "expected": false
+    }
+  ],
+  "reject": [
+    {
+      "range": ">=42 || >=100",
+      "expectedThrow": true
+    },
+    {
+      "range": "^42",
+      "expectedThrow": true
+    },
+    {
+      "range": "~42",
+      "expectedThrow": true
+    },
+    {
+      "range": "42 - 50",
+      "expectedThrow": true
+    },
+    {
+      "range": "1.2",
+      "expectedThrow": true
+    }
+  ]
+}

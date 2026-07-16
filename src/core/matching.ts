@@ -4,6 +4,7 @@
 
 import type { Comparator, SemVer } from "./semver.ts";
 import { compare, parseRange, parseVersion, satisfies } from "./semver.ts";
+import { intInRange, intInterval, intIntervalsOverlap, parseIntRange } from "./intrange.ts";
 import type { ManifestRelease, VersionMatch, FallbackPolicy } from "./types.ts";
 
 // ── 구간(interval) 표현: semver-range를 [lower, upper) 명시 구간으로 환원 ──────────
@@ -109,6 +110,14 @@ export function findRangeConflicts(releases: readonly ConflictInput[]): Array<[s
   for (const ids of byLabel.values()) {
     for (let i = 1; i < ids.length; i++) conflicts.push([ids[0]!, ids[i]!]);
   }
+  // 정수 범위(M4): 자기 전략끼리만 구간 교집합 검사.
+  const ints = releases.filter((r) => r.versionMatch.strategy === "integer-range");
+  const intIvs = ints.map((r) => intInterval(parseIntRange(r.versionMatch.value)));
+  for (let i = 0; i < ints.length; i++) {
+    for (let j = i + 1; j < ints.length; j++) {
+      if (intIntervalsOverlap(intIvs[i]!, intIvs[j]!)) conflicts.push([ints[i]!.id, ints[j]!.id]);
+    }
+  }
   return conflicts;
 }
 
@@ -117,6 +126,7 @@ export function findRangeConflicts(releases: readonly ConflictInput[]): Array<[s
 export interface ClientContext {
   readonly appVersion?: string; // semver-range 후보 평가용
   readonly releaseLabel?: string; // exact-label 후보 평가용
+  readonly buildNumber?: number; // integer-range 후보 평가용(M4)
   readonly matchPrerelease?: boolean;
   readonly fallbackPolicy?: FallbackPolicy; // 미매칭 시 (기본 bundle-only)
 }
@@ -145,6 +155,8 @@ export function selectRelease(
   for (const r of published) {
     if (r.versionMatch.strategy === "exact-label") {
       if (ctx.releaseLabel !== undefined && ctx.releaseLabel === r.versionMatch.value) matched.push(r);
+    } else if (r.versionMatch.strategy === "integer-range") {
+      if (ctx.buildNumber !== undefined && intInRange(ctx.buildNumber, r.versionMatch.value)) matched.push(r);
     } else {
       if (ctx.appVersion === undefined) continue;
       const opts = ctx.matchPrerelease === undefined ? {} : { matchPrerelease: ctx.matchPrerelease };

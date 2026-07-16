@@ -1,0 +1,61 @@
+{
+  "description": "bucketOf(installId, releaseId) === bucket (SHA-256 앞 32bit mod 100). inRollout 판정.",
+  "buckets": [
+    {
+      "installId": "550e8400-e29b-41d4-a716-446655440000",
+      "releaseId": "R42",
+      "bucket": 25
+    },
+    {
+      "installId": "550e8400-e29b-41d4-a716-446655440000",
+      "releaseId": "R50",
+      "bucket": 61
+    },
+    {
+      "installId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "releaseId": "R42",
+      "bucket": 98
+    },
+    {
+      "installId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+      "releaseId": "R50",
+      "bucket": 52
+    },
+    {
+      "installId": "01234567-89ab-cdef-0123-456789abcdef",
+      "releaseId": "R42",
+      "bucket": 64
+    },
+    {
+      "installId": "01234567-89ab-cdef-0123-456789abcdef",
+      "releaseId": "R50",
+      "bucket": 33
+    }
+  ],
+  "inRollout": [
+    {
+      "rollout": 100,
+      "installId": "550e8400-e29b-41d4-a716-446655440000",
+      "releaseId": "R42",
+      "expected": true
+    },
+    {
+      "rollout": 0,
+      "installId": "550e8400-e29b-41d4-a716-446655440000",
+      "releaseId": "R42",
+      "expected": false
+    },
+    {
+      "rollout": 50,
+      "installId": "550e8400-e29b-41d4-a716-446655440000",
+      "releaseId": "R42",
+      "expected": true
+    },
+    {
+      "rollout": 50,
+      "installId": null,
+      "releaseId": "R42",
+      "expected": false
+    }
+  ]
+}

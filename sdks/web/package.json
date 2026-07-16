@@ -1,0 +1,12 @@
+{
+  "name": "@rynl10n/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "RynL10n Web SDK (M4 α) — 프레임워크 무관 코어 + fetch/ETag 폴링 + React 어댑터",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

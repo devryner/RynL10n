@@ -36,10 +36,11 @@ export interface Delta {
   readonly ops: readonly DeltaOp[];
 }
 
-/** 버전 매칭 규칙 — 11.3. MVP는 두 전략만. */
+/** 버전 매칭 규칙 — 11.3 + 정수 빌드 넘버(M4). */
 export type VersionMatch =
   | { readonly strategy: "semver-range"; readonly value: string }
-  | { readonly strategy: "exact-label"; readonly value: string };
+  | { readonly strategy: "exact-label"; readonly value: string }
+  | { readonly strategy: "integer-range"; readonly value: string }; // 빌드 넘버 정수 비교(M4)
 
 /** 릴리스 라이프사이클 상태 — 8.1. */
 export type ReleaseState = "draft" | "published" | "superseded" | "archived";
