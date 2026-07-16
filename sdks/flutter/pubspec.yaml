@@ -1,0 +1,14 @@
+name: rynl10n
+description: RynL10n Flutter/Dart SDK (M4 alpha) — 2계층 resolve + 버전 격리 + 카나리
+version: 0.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  crypto: ^3.0.0        # SHA-256
+  unorm_dart: ^0.3.0    # 유니코드 NFC 정규화(JCS 결정성)
+
+dev_dependencies:
+  test: ^1.24.0

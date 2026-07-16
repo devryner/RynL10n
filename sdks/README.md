@@ -1,7 +1,8 @@
 # RynL10n SDK (M1 α)
 
-iOS(Swift/SPM)·Android(Kotlin/JVM) 플랫폼 SDK. **조회 API + 런타임 로딩 + 버전 격리**를 제공하며,
-코어 알고리즘은 M0 TS 참조 구현과 **골든 벡터(`fixtures/golden`)로 바이트·해시·동작 단위 정합성**을 보장한다.
+iOS(Swift/SPM)·Android(Kotlin/JVM)·**Web(TS)**·**Flutter(Dart)** 플랫폼 SDK. **조회 API + 런타임 로딩 +
+버전 격리 + 카나리 + 실시간 푸시**를 제공하며, 코어 알고리즘은 M0 TS 참조 구현과 **골든 벡터(`fixtures/golden`)로
+4개 언어 모두 바이트·해시·동작 단위 정합성**을 보장한다. (Web=`sdks/web`, Flutter=`sdks/flutter`.)
 
 ## 정합성 전략 — 골든 벡터
 

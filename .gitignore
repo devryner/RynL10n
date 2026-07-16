@@ -15,6 +15,10 @@ Package.resolved
 .gradle/
 build/
 
+# Dart / Flutter
+.dart_tool/
+pubspec.lock
+
 # 백엔드 런타임 산출물
 .rynl10n-storage/
 *.db

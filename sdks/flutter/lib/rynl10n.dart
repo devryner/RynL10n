@@ -1,0 +1,12 @@
+/// RynL10n Flutter/Dart SDK (M4 α) 공개 표면.
+/// 코어 알고리즘은 M0 TS 참조 구현과 골든 벡터(fixtures/golden)로 정합성 보장.
+library rynl10n;
+
+export 'src/types.dart';
+export 'src/jcs.dart' show canonicalString, sha256Hex, fileId, snapshotHash;
+export 'src/semver.dart' show versionInRange, parseVersion, parseRange, satisfies;
+export 'src/intrange.dart' show intInRange, parseIntRange;
+export 'src/canary.dart' show bucketOf, inRollout;
+export 'src/matching.dart' show selectRelease, findRangeConflicts, ClientContext, ConflictInput, Selection, Matched, NearestLower, BundleOnly;
+export 'src/resolve.dart' show OverlayLayer, resolveValue, format, fallbackChain, ResolveResult;
+export 'src/client.dart';
