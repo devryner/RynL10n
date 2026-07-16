@@ -45,4 +45,17 @@ do {
 } catch {
     fail("산출물 쓰기 실패: \(error)")
 }
+
+// --emit-native: OS 표준 로컬라이제이션 fallback용 .xcstrings 방출(5.3, 선택).
+if args.contains("--emit-native") {
+    let xcstrings = Convert.toXcstrings(snapshot)
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    let xcPath = (bundleDir as NSString).appendingPathComponent("Localizable.xcstrings")
+    do {
+        try encoder.encode(xcstrings).write(to: URL(fileURLWithPath: xcPath))
+        print("[rynl10n] .xcstrings 방출 → \(xcPath)")
+    } catch { fail(".xcstrings 쓰기 실패: \(error)") }
+}
+
 print("[rynl10n] bake 완료: release=\(snapshot.release) base=\(snapshot.base) keys=\(result.lockfile.keyCount) → \(bundleDir)")

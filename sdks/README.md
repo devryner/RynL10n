@@ -66,8 +66,21 @@ cd sdks/android && gradle rynl10nBake -Psource=<snapshot.json> -Pout=<out-dir> [
 > fetch하고 실패 시 마지막 캐시로 진행하는 로직(6.3)은 이 CLI를 감싸는 플러그인/태스크 설정이 담당한다.
 > vendored/airgap 모드(시나리오 C)는 커밋된 스냅샷 파일을 그대로 입력으로 쓴다.
 
+## 네이티브 포맷 변환 (5.3) ✅
+
+내부 표준(ICU MessageFormat + CLDR 복수형 맵)을 플랫폼 네이티브 포맷으로 변환한다 — OS 표준
+로컬라이제이션(`String(localized:)`/`getString`)에도 fallback을 제공하는 **선택 산출물**. `bake --emit-native`.
+
+- **iOS `.xcstrings`** (Xcode String Catalog, 전 로케일 1파일): `stringUnit` / 복수형 `variations.plural`. `{name}` → `%1$@`·`%1$lld`.
+- **Android `strings.xml`** (로케일별 `values-<locale>/`): `<string>` / `<plurals>`. `{name}` → `%1$s`·`%1$d`. 리소스명 sanitize(`cart.title`→`cart_title`), XML 이스케이프.
+- **Web JSON / Flutter `.arb`**: TS 참조가 방출(`{name}` 보존 / ICU plural in-string + `@key` 메타).
+- 손실 규칙(5.3): 미지원 CLDR 카테고리는 other 병합 + 경고. 이름 sanitize·변환 손실은 warnings로 표면화.
+
+변환기(`Convert.swift`/`Convert.kt`)도 골든 벡터(`fixtures/golden/convert.json`)로 참조 구현과 정합
+(Android는 strings.xml 정확 문자열, iOS는 .xcstrings 구조). `swift run rynl10n-bake ... --emit-native`,
+`gradle rynl10nBake ... -PemitNative=true`로 실제 네이티브 파일 방출.
+
 ## M1 남은 작업
 
 - **플러그인 프로덕션화**: 위 CLI를 빌드 그래프에 자동 연결 — SPM build tool plugin(iOS), AGP preBuild 의존(Android). 서버 fetch + 마지막 캐시 fallback 배선.
-- **네이티브 포맷 변환 (5.3, 선택)**: 내부 표준(ICU+CLDR) → `.xcstrings`/`strings.xml`/`JSON`/`.arb` (OS 표준 로컬라이제이션 fallback용 별도 산출물).
 - **Android 플랫폼 바인딩**: AGP 모듈 + `Context.getString` 래퍼 + Compose `stringResource`/`StateFlow` 어댑터.

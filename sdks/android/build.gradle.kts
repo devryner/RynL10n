@@ -32,5 +32,6 @@ tasks.register<JavaExec>("rynl10nBake") {
     val source = (project.findProperty("source") as String?) ?: "release-snapshot.json"
     val out = (project.findProperty("out") as String?) ?: layout.buildDirectory.dir("rynl10n-bundle").get().asFile.path
     val strict = (project.findProperty("strict") as String?) == "true"
-    args = buildList { add(source); add(out); if (strict) add("--strict") }
+    val emitNative = (project.findProperty("emitNative") as String?) == "true"
+    args = buildList { add(source); add(out); if (strict) add("--strict"); if (emitNative) add("--emit-native") }
 }

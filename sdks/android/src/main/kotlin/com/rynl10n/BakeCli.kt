@@ -39,5 +39,17 @@ fun main(args: Array<String>) {
     val bundleDir = File(outDir, "rynl10n").apply { mkdirs() }
     File(bundleDir, "snapshot-${snap.base}.json").writeText(result.bundle)
     File(bundleDir, "rynl10n.lock").writeText(result.lockfileText)
+
+    // --emit-native: OS 표준 로컬라이제이션 fallback용 로케일별 strings.xml 방출(5.3, 선택).
+    // 기본 로케일 → res/values/, 그 외 → res/values-<locale>/ (간소화: BCP47 region 표기 미정규화).
+    if (args.contains("--emit-native")) {
+        for ((locale, catalog) in snap.locales) {
+            val valuesDir = if (locale == snap.defaultLocale) "values" else "values-$locale"
+            val resDir = File(bundleDir, "res/$valuesDir").apply { mkdirs() }
+            File(resDir, "strings.xml").writeText(Convert.toAndroidStringsXml(catalog).output)
+        }
+        println("[rynl10n] strings.xml 방출 → ${File(bundleDir, "res").path}")
+    }
+
     println("[rynl10n] bake 완료: release=${snap.release} base=${snap.base} keys=${result.lockfile.keyCount} → ${bundleDir.path}")
 }

@@ -12,6 +12,21 @@ public enum JSONValue: Equatable, Sendable {
     case object([String: JSONValue])
 }
 
+extension JSONValue: Encodable {
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .null: try c.encodeNil()
+        case .bool(let b): try c.encode(b)
+        case .int(let i): try c.encode(i)
+        case .double(let d): try c.encode(d)
+        case .string(let s): try c.encode(s)
+        case .array(let a): try c.encode(a)
+        case .object(let o): try c.encode(o)
+        }
+    }
+}
+
 extension JSONValue: Decodable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()

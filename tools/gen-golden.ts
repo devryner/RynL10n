@@ -16,6 +16,7 @@ import { OverlayLayer, resolveValue, formatValue } from "../src/core/resolve.ts"
 import { selectRelease } from "../src/core/matching.ts";
 import { parseRange, versionInRange } from "../src/core/semver.ts";
 import { baseLocaleCoverage, verifyBase, buildLockfile, lockfileString, bundleString } from "../src/builder/bake.ts";
+import { toAndroidStringsXml, toXcstrings, toWebJson, toArb } from "../src/builder/convert.ts";
 import type { ManifestRelease, Snapshot, TranslationValue } from "../src/core/types.ts";
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "golden");
@@ -207,6 +208,40 @@ write("bake.json", {
       lockfileText: lockfileString(buildLockfile(bakeBadBase)),
       bundle: bundleString(bakeBadBase) },
   ],
+});
+
+// ── 10) 네이티브 포맷 변환 (5.3) ──────────────────────────────────────────────
+const convSnap: Snapshot = {
+  schemaVersion: 1, release: "R1", base: "x", defaultLocale: "en",
+  locales: {
+    en: {
+      "home.title": "Home",
+      "greet": "Hello {name}",
+      "cart.items": { one: "{n} item", other: "{n} items" },
+      "files": "{count, number} files in {folder}",
+    },
+    ko: {
+      "home.title": "홈",
+      "cart.items": { other: "{n}개" },
+    },
+  },
+};
+write("convert.json", {
+  description: "toAndroidStringsXml(로케일별 정확 문자열) · toXcstrings(구조) · toWebJson · toArb",
+  snapshot: convSnap,
+  androidXml: {
+    en: toAndroidStringsXml(convSnap.locales.en!).output,
+    ko: toAndroidStringsXml(convSnap.locales.ko!).output,
+  },
+  xcstrings: toXcstrings(convSnap).output,
+  webJson: {
+    en: toWebJson(convSnap.locales.en!).output,
+    ko: toWebJson(convSnap.locales.ko!).output,
+  },
+  arb: {
+    en: toArb(convSnap.locales.en!, "en").output,
+    ko: toArb(convSnap.locales.ko!, "ko").output,
+  },
 });
 
 console.log("golden vectors 생성 완료 →", OUT);
