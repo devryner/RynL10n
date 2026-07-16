@@ -70,6 +70,30 @@ gradle rynl10nBake -Pfetch=<url> -Ptoken=<t> -Pcache=<p> -Pout=<out-dir>
 > 가용성에 종속되지 않음. vendored/에어갭(시나리오 C)은 커밋된 스냅샷 파일을 그대로 입력으로 쓴다.
 > 검증: iOS·Android CLI가 서버 fetch·캐시 fallback 모두에서 바이트 동일 산출물 생성.
 
+### 빌드 그래프 자동 연결 (플러그인 한 줄, 차별점 ①)
+
+**iOS — SPM build tool plugin.** 소비 패키지가 vendored 스냅샷(`Sources/<Target>/rynl10n/release-snapshot.json`)을
+두고 플러그인 한 줄만 추가하면 `swift build`가 자동으로 bake해 **앱 리소스 번들에 포함**한다(에어갭·샌드박스 적합):
+
+```swift
+.executableTarget(
+    name: "App",
+    dependencies: [.product(name: "RynL10n", package: "ios")],
+    plugins: [.plugin(name: "RynL10nBakePlugin", package: "ios")]   // ← 이 한 줄
+)
+```
+검증: `examples/ios-consumer`를 `swift build`하면 `[rynl10n] bake 완료` 후 `Consumer_Consumer.bundle`에
+`snapshot.json`+`rynl10n.lock`이 자동 포함된다(커밋할 파일도, 잊어버릴 릴리스 단계도 없음).
+
+**Android — Gradle 태스크(AGP preBuild 연결).** `rynl10nBake` 태스크를 앱 모듈의 `preBuild`에 의존시키고
+출력을 `assets/`(또는 res)로 지정한다. CI에서는 `--fetch`로 최신 스냅샷을 받고, 앱 빌드는 로컬 캐시로 진행:
+
+```kotlin
+// 앱 build.gradle.kts
+tasks.named("preBuild").configure { dependsOn(":rynl10nBake") }
+// gradle rynl10nBake -Pfetch=<url> -Ptoken=<t> -Pcache=<p> -Pout=src/main/assets -PstableName=true
+```
+
 ## 네이티브 포맷 변환 (5.3) ✅
 
 내부 표준(ICU MessageFormat + CLDR 복수형 맵)을 플랫폼 네이티브 포맷으로 변환한다 — OS 표준

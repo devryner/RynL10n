@@ -36,6 +36,7 @@ tasks.register<JavaExec>("rynl10nBake") {
     val fetch = project.findProperty("fetch") as String?   // 서버 스냅샷 URL(6.3)
     val cache = project.findProperty("cache") as String?   // 마지막 캐시 경로(fetch 실패 시)
     val token = project.findProperty("token") as String?
+    val stableName = (project.findProperty("stableName") as String?) == "true"
     args = buildList {
         if (fetch != null) { add("--fetch"); add(fetch) } else add(source)
         add(out)
@@ -43,5 +44,6 @@ tasks.register<JavaExec>("rynl10nBake") {
         if (token != null) { add("--token"); add(token) }
         if (strict) add("--strict")
         if (emitNative) add("--emit-native")
+        if (stableName) add("--stable-name")
     }
 }

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "release": "R42",
+  "base": "6143bdb72ca86f17",
+  "defaultLocale": "en",
+  "locales": {
+    "en": {
+      "home.title": "Home",
+      "cart.items": {
+        "one": "{n} item",
+        "other": "{n} items"
+      }
+    },
+    "ko": {
+      "home.title": "홈",
+      "cart.items": {
+        "other": "{n}개"
+      }
+    }
+  }
+}

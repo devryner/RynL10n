@@ -21,7 +21,7 @@ do {
     var i = 0
     while i < args.count {
         let a = args[i]
-        if a == "--strict" || a == "--emit-native" { bools.insert(String(a.dropFirst(2))) }
+        if a == "--strict" || a == "--emit-native" || a == "--stable-name" { bools.insert(String(a.dropFirst(2))) }
         else if a.hasPrefix("--"), i + 1 < args.count { flags[String(a.dropFirst(2))] = args[i + 1]; i += 1 }
         else { positionals.append(a) }
         i += 1
@@ -81,8 +81,10 @@ for w in result.warnings { FileHandle.standardError.write(Data("[rynl10n] 경고
 
 let bundleDir = (outDir as NSString).appendingPathComponent("rynl10n")
 try? FileManager.default.createDirectory(atPath: bundleDir, withIntermediateDirectories: true)
+// --stable-name: 내용해시 대신 고정 파일명(빌드 그래프 output 선언용). 번들은 base 필드로 자기식별.
+let bundleName = bools.contains("stable-name") ? "snapshot.json" : "snapshot-\(snapshot.base).json"
 do {
-    try result.bundle.write(toFile: (bundleDir as NSString).appendingPathComponent("snapshot-\(snapshot.base).json"), atomically: true, encoding: .utf8)
+    try result.bundle.write(toFile: (bundleDir as NSString).appendingPathComponent(bundleName), atomically: true, encoding: .utf8)
     try result.lockfileText.write(toFile: (bundleDir as NSString).appendingPathComponent("rynl10n.lock"), atomically: true, encoding: .utf8)
 } catch { fail("산출물 쓰기 실패: \(error)") }
 

@@ -25,7 +25,7 @@ fun main(args: Array<String>) {
     while (i < args.size) {
         val a = args[i]
         when {
-            a == "--strict" || a == "--emit-native" -> bools.add(a.removePrefix("--"))
+            a == "--strict" || a == "--emit-native" || a == "--stable-name" -> bools.add(a.removePrefix("--"))
             a.startsWith("--") && i + 1 < args.size -> { flags[a.removePrefix("--")] = args[i + 1]; i++ }
             else -> positionals.add(a)
         }
@@ -58,7 +58,9 @@ fun main(args: Array<String>) {
     result.warnings.forEach { System.err.println("[rynl10n] 경고: $it") }
 
     val bundleDir = File(outDir, "rynl10n").apply { mkdirs() }
-    File(bundleDir, "snapshot-${snap.base}.json").writeText(result.bundle)
+    // --stable-name: 내용해시 대신 고정 파일명(빌드 그래프 output 선언용). 번들은 base 필드로 자기식별.
+    val bundleName = if ("stable-name" in bools) "snapshot.json" else "snapshot-${snap.base}.json"
+    File(bundleDir, bundleName).writeText(result.bundle)
     File(bundleDir, "rynl10n.lock").writeText(result.lockfileText)
 
     if (emitNative) {
