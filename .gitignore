@@ -23,3 +23,6 @@ pubspec.lock
 .rynl10n-storage/
 *.db
 *.db-journal
+
+# 핸드오버 문서(SoT=Craft 기획서에 유지)
+HANDOVER.md
