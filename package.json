@@ -11,7 +11,10 @@
     "test": "node --test \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "demo": "node examples/demo.ts",
-    "gen:golden": "node tools/gen-golden.ts"
+    "gen:golden": "node tools/gen-golden.ts",
+    "test:backend": "node --test \"backend/test/*.test.ts\"",
+    "typecheck:backend": "tsc --noEmit -p backend/tsconfig.json",
+    "backend": "node backend/src/main.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

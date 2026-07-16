@@ -14,3 +14,8 @@ Package.resolved
 # Gradle / Kotlin
 .gradle/
 build/
+
+# 백엔드 런타임 산출물
+.rynl10n-storage/
+*.db
+*.db-journal

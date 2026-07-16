@@ -1,0 +1,19 @@
+# 단일 노드 셀프호스트 (9.1) — `docker compose up` 원커맨드.
+# β는 DB=내장 SQLite, 스토리지=로컬 볼륨, 빌더=인프로세스로 축약(플레인 분리는 유지).
+# 프로덕션(대규모)은 Postgres·MinIO/S3·별도 빌더 워커·대시보드로 대체(9.1) — Helm/K8s.
+services:
+  rynl10n:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8787:8787"   # 관리 API (쓰기, 인증)
+      - "8788:8788"   # 배포 플레인 (정적 산출물, 읽기 전용) — 프로덕션은 CDN이 앞단
+    environment:
+      # 최초 부트스트랩 admin 토큰(운영 시 반드시 교체·시크릿 주입).
+      RYNL10N_ADMIN_TOKEN: "${RYNL10N_ADMIN_TOKEN:-change-me-admin-token}"
+    volumes:
+      - rynl10n-data:/data   # DB + 산출물 영속화
+
+volumes:
+  rynl10n-data:
