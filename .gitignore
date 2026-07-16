@@ -10,3 +10,7 @@ dist/
 .build/
 .swiftpm/
 Package.resolved
+
+# Gradle / Kotlin
+.gradle/
+build/
