@@ -1,0 +1,19 @@
+{
+  "name": "rynl10n-m0-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "RynL10n M0 spike — 2계층 resolve + 버전 격리 정적 manifest 라우팅 PoC (기획서 3.1/4.3/11)",
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "demo": "node examples/demo.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.7.2"
+  }
+}
