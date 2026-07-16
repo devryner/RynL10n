@@ -114,7 +114,15 @@ TS·Swift·Kotlin·Dart 모두 동일 골든 벡터로 다음을 검증: JCS·�
 (integer-range)**·**카나리 버킷팅(8.4)**·**텔레메트리 카운터(9.3, overlay_applied/format_guard_rejected/
 key_unresolved/delta_failed)**. 클라이언트 `installId`(카나리)·`telemetry` 옵션 4개 언어 공통.
 
-## 남은 작업
+## 반응형 바인딩 (6.2)
 
-- **플러그인 프로덕션화**: 위 CLI를 빌드 그래프에 자동 연결 — SPM build tool plugin(iOS), AGP preBuild 의존(Android). 서버 fetch + 마지막 캐시 fallback 배선.
-- **Android/iOS 반응형·위젯 바인딩**: Compose `stringResource`/`StateFlow`, SwiftUI `@Observable`/Combine 어댑터.
+- **iOS**: `RynL10nObservable`(Combine `ObservableObject`) — 갱신 시 `version` 증가 + `objectWillChange` 발화.
+  `@StateObject var l10n = RynL10nObservable(client:)` 후 `Text(l10n.t("key"))`.
+- **Android**: `RynL10nState`(kotlinx `StateFlow<Int>`) — 갱신 시 `version` 증가. Compose에서
+  `state.version.collectAsState()`로 구독 → 리컴포지션. (Compose `stringResource` 얇은 래퍼는 앱 모듈.)
+- **Web**: `createStore`(`useSyncExternalStore` 계약) — README 상단 참조.
+
+## 남은 작업 (앱 환경 필요)
+
+- 실제 Xcode 앱 타깃·AGP 앱 모듈에서의 end-to-end 통합(위젯 렌더·리소스 병합)은 각 플랫폼 앱 프로젝트에서.
+- 카나리 실제 활성화(rollout<100)는 8.4 프라이버시 법무 승인 대기 — 코드 완비, 안전 기본값 rollout 100.
