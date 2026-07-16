@@ -83,6 +83,19 @@ public enum Matching {
         for ids in byLabel.values where ids.count > 1 {
             for i in 1..<ids.count { conflicts.append((ids[0], ids[i])) }
         }
+        // 정수 범위(M4): 자기 전략끼리만 구간 교집합 검사.
+        let ints = releases.filter { $0.versionMatch.strategy == "integer-range" }
+        let intIvs = ints.compactMap { r -> IntRange.Interval? in
+            guard let c = try? IntRange.parse(r.versionMatch.value) else { return nil }
+            return IntRange.interval(c)
+        }
+        if intIvs.count == ints.count {
+            for i in 0..<ints.count {
+                for j in (i + 1)..<ints.count where IntRange.overlaps(intIvs[i], intIvs[j]) {
+                    conflicts.append((ints[i].id, ints[j].id))
+                }
+            }
+        }
         return conflicts
     }
 
@@ -91,11 +104,12 @@ public enum Matching {
     public struct ClientContext: Sendable {
         public var appVersion: String?
         public var releaseLabel: String?
+        public var buildNumber: Int? // integer-range 후보 평가용(M4)
         public var matchPrerelease: Bool
         public var fallbackPolicy: FallbackPolicy
-        public init(appVersion: String? = nil, releaseLabel: String? = nil,
+        public init(appVersion: String? = nil, releaseLabel: String? = nil, buildNumber: Int? = nil,
                     matchPrerelease: Bool = false, fallbackPolicy: FallbackPolicy = .bundleOnly) {
-            self.appVersion = appVersion; self.releaseLabel = releaseLabel
+            self.appVersion = appVersion; self.releaseLabel = releaseLabel; self.buildNumber = buildNumber
             self.matchPrerelease = matchPrerelease; self.fallbackPolicy = fallbackPolicy
         }
     }
@@ -128,6 +142,8 @@ public enum Matching {
         for r in serving {
             if r.versionMatch.strategy == "exact-label" {
                 if let label = ctx.releaseLabel, label == r.versionMatch.value { matched.append(r) }
+            } else if r.versionMatch.strategy == "integer-range" {
+                if let bn = ctx.buildNumber, IntRange.inRange(bn, r.versionMatch.value) { matched.append(r) }
             } else {
                 guard let appVersion = ctx.appVersion,
                       let v = try? SemVerParser.parseVersion(appVersion),

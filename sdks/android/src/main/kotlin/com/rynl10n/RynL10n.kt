@@ -26,11 +26,19 @@ data class ClientStatus(val selection: String, val releaseId: String?, val activ
  * RynL10n SDK 런타임 — 기획서 6.1 / 6.4.
  * 부팅 시 번들 즉시 로드(네트워크 대기 없음), `t`는 항상 번들 fallback이 있어 동기.
  */
+/** 배포 건전성 익명 집계 카운트(9.3). */
+data class TelemetryCounts(
+    var overlayApplied: Int = 0, var formatGuardRejected: Int = 0,
+    var keyUnresolved: Int = 0, var deltaFailed: Int = 0,
+)
+
 class RynL10nClient(
     private val bundle: Snapshot,
     private val store: DeliveryStore,
     private val context: Matching.ClientContext,
     private val localeOverrides: Map<String, String> = emptyMap(),
+    private val installId: String? = null,       // 카나리(8.4) — 서버 미전송
+    private val telemetry: String = "off",        // off | aggregate
 ) {
     private val lock = ReentrantLock()
     private var activeBundle: Snapshot = bundle
@@ -38,6 +46,24 @@ class RynL10nClient(
     private var selection: Matching.Selection = Matching.Selection.BundleOnly
     private var overlayTarget: String? = null
     private val listeners = mutableListOf<(UpdateInfo) -> Unit>()
+    private var tel = TelemetryCounts()
+
+    private fun bump(event: String) {
+        if (telemetry != "aggregate") return
+        lock.withLock {
+            when (event) {
+                "overlay_applied" -> tel.overlayApplied++
+                "format_guard_rejected" -> tel.formatGuardRejected++
+                "key_unresolved" -> tel.keyUnresolved++
+                "delta_failed" -> tel.deltaFailed++
+            }
+        }
+    }
+
+    /** 누적 텔레메트리 카운트 반환 + 리셋. */
+    fun drainTelemetry(): TelemetryCounts = lock.withLock {
+        val s = tel.copy(); tel = TelemetryCounts(); s
+    }
 
     fun onCatalogUpdated(listener: (UpdateInfo) -> Unit): Int = lock.withLock {
         listeners.add(listener); listeners.size - 1
@@ -62,9 +88,15 @@ class RynL10nClient(
                 if (release.overlay == release.base || release.delta == null) {
                     return swap(active, OverlayLayer(), release.id, release.base)
                 }
-                val d = store.delta(release.delta) ?: return false
-                if (d.from != active.base) return false // 체크섬 가드
-                swap(active, OverlayLayer.from(d), release.id, release.overlay)
+                // 카나리 게이트(8.4): rollout 대상이 아니면 오버레이 미수신 → base만.
+                if (!Canary.inRollout(release.rollout, installId, release.id)) {
+                    return swap(active, OverlayLayer(), release.id, release.base)
+                }
+                val d = store.delta(release.delta) ?: run { bump("delta_failed"); return false }
+                if (d.from != active.base) { bump("delta_failed"); return false } // 체크섬 가드
+                val changed = swap(active, OverlayLayer.from(d), release.id, release.overlay)
+                if (changed) bump("overlay_applied")
+                changed
             }
         }
     }
@@ -74,7 +106,8 @@ class RynL10nClient(
         val (b, o) = lock.withLock { activeBundle to overlay }
         val loc = locale ?: context.releaseLabel ?: b.defaultLocale
         val r = Resolve.resolveValue(b, o, key, loc, localeOverrides)
-        val value = r.value ?: return "⟪$key⟫"
+        if (r.guardFallback) bump("format_guard_rejected")
+        val value = r.value ?: run { bump("key_unresolved"); return "⟪$key⟫" }
         return Resolve.format(value, r.matchedLocale ?: loc, args)
     }
 

@@ -81,8 +81,13 @@ cd sdks/android && gradle rynl10nBake -Psource=<snapshot.json> -Pout=<out-dir> [
 (Android는 strings.xml 정확 문자열, iOS는 .xcstrings 구조). `swift run rynl10n-bake ... --emit-native`,
 `gradle rynl10nBake ... -PemitNative=true`로 실제 네이티브 파일 방출.
 
+## 코어 파리티 (4개 언어)
+
+TS·Swift·Kotlin·Dart 모두 동일 골든 벡터로 다음을 검증: JCS·해시·resolve·매칭·**정수 버전 매칭
+(integer-range)**·**카나리 버킷팅(8.4)**·**텔레메트리 카운터(9.3, overlay_applied/format_guard_rejected/
+key_unresolved/delta_failed)**. 클라이언트 `installId`(카나리)·`telemetry` 옵션 4개 언어 공통.
+
 ## 남은 작업
 
 - **플러그인 프로덕션화**: 위 CLI를 빌드 그래프에 자동 연결 — SPM build tool plugin(iOS), AGP preBuild 의존(Android). 서버 fetch + 마지막 캐시 fallback 배선.
-- **Android 플랫폼 바인딩**: AGP 모듈 + `Context.getString` 래퍼 + Compose `stringResource`/`StateFlow` 어댑터.
-- **iOS·Android 텔레메트리(9.3)**: 옵트인 카운터(overlay_applied/format_guard_rejected/key_unresolved/delta_failed) + drain. 참조 TS 클라이언트(`src/client/client.ts`)에 구현·검증됨 — 두 플랫폼에 동일 패턴으로 미러링 예정.
+- **Android/iOS 반응형·위젯 바인딩**: Compose `stringResource`/`StateFlow`, SwiftUI `@Observable`/Combine 어댑터.

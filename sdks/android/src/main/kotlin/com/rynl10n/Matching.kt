@@ -72,6 +72,12 @@ object Matching {
         for (ids in byLabel.values) if (ids.size > 1) {
             for (i in 1 until ids.size) conflicts.add(ids[0] to ids[i])
         }
+        // 정수 범위(M4): 자기 전략끼리만 구간 교집합 검사.
+        val ints = releases.filter { it.versionMatch.strategy == "integer-range" }
+        val intIvs = ints.map { IntRangeMatch.interval(IntRangeMatch.parse(it.versionMatch.value)) }
+        for (i in ints.indices) for (j in i + 1 until ints.size) {
+            if (IntRangeMatch.overlaps(intIvs[i], intIvs[j])) conflicts.add(ints[i].id to ints[j].id)
+        }
         return conflicts
     }
 
@@ -80,6 +86,7 @@ object Matching {
     data class ClientContext(
         val appVersion: String? = null,
         val releaseLabel: String? = null,
+        val buildNumber: Int? = null, // integer-range 후보 평가용(M4)
         val matchPrerelease: Boolean = false,
         val fallbackPolicy: FallbackPolicy = FallbackPolicy.BUNDLE_ONLY,
     )
@@ -97,6 +104,8 @@ object Matching {
         for (r in serving) {
             if (r.versionMatch.strategy == "exact-label") {
                 if (ctx.releaseLabel != null && ctx.releaseLabel == r.versionMatch.value) matched.add(r)
+            } else if (r.versionMatch.strategy == "integer-range") {
+                if (ctx.buildNumber != null && IntRangeMatch.inRange(ctx.buildNumber, r.versionMatch.value)) matched.add(r)
             } else {
                 val appVersion = ctx.appVersion ?: continue
                 val v = runCatching { SemVerParser.parseVersion(appVersion) }.getOrNull() ?: continue

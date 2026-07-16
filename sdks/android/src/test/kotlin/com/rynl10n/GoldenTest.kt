@@ -145,7 +145,7 @@ class GoldenTest {
     @Test fun routing() {
         for (c in load<RouteFile>("routing.json").cases) {
             val policy = if (c.ctx.fallbackPolicy == "nearest-lower") FallbackPolicy.NEAREST_LOWER else FallbackPolicy.BUNDLE_ONLY
-            val ctx = Matching.ClientContext(c.ctx.appVersion, c.ctx.releaseLabel, c.ctx.matchPrerelease ?: false, policy)
+            val ctx = Matching.ClientContext(appVersion = c.ctx.appVersion, releaseLabel = c.ctx.releaseLabel, matchPrerelease = c.ctx.matchPrerelease ?: false, fallbackPolicy = policy)
             val sel = Matching.selectRelease(c.releases, ctx)
             assertEquals(c.expected.kind, sel.kind, "kind: ${c.name}")
             assertEquals(c.expected.releaseId, sel.releaseId, "releaseId: ${c.name}")

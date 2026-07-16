@@ -32,21 +32,40 @@ public final class RynL10nClient: @unchecked Sendable {
     private let store: DeliveryStore
     private let context: Matching.ClientContext
     private let localeOverrides: [String: String]
+    private let installId: String?      // 카나리(8.4) — 서버 미전송
+    private let telemetryMode: String   // "off" | "aggregate"
 
     private var activeBundle: Snapshot
     private var overlay = OverlayLayer()
     private var selection: Matching.Selection = .bundleOnly
     private var overlayTarget: String?
     private var listeners: [(UpdateInfo) -> Void] = []
+    private var tel = TelemetryCounts()
     private let lock = NSLock()
 
     public init(bundle: Snapshot, store: DeliveryStore, context: Matching.ClientContext,
-                localeOverrides: [String: String] = [:]) {
+                localeOverrides: [String: String] = [:], installId: String? = nil, telemetry: String = "off") {
         self.bundle = bundle
         self.store = store
         self.context = context
         self.localeOverrides = localeOverrides
+        self.installId = installId
+        self.telemetryMode = telemetry
         self.activeBundle = bundle
+    }
+
+    /// 배포 건전성 익명 집계 카운트(9.3).
+    public struct TelemetryCounts: Sendable, Equatable {
+        public var overlayApplied = 0, formatGuardRejected = 0, keyUnresolved = 0, deltaFailed = 0
+    }
+    private func bump(_ kp: WritableKeyPath<TelemetryCounts, Int>) {
+        guard telemetryMode == "aggregate" else { return }
+        lock.lock(); tel[keyPath: kp] += 1; lock.unlock()
+    }
+    /// 누적 텔레메트리 카운트 반환 + 리셋(옵트인 리포터가 배치 전송).
+    public func drainTelemetry() -> TelemetryCounts {
+        lock.lock(); defer { tel = TelemetryCounts(); lock.unlock() }
+        return tel
     }
 
     @discardableResult
@@ -76,9 +95,15 @@ public final class RynL10nClient: @unchecked Sendable {
             if release.overlay == release.base || release.delta == nil {
                 return swap(bundle: active, overlay: OverlayLayer(), releaseId: release.id, overlayTarget: release.base)
             }
-            guard let deltaPath = release.delta, let d = store.delta(deltaPath) else { return false }
-            guard d.from == active.base else { return false } // 체크섬 가드
-            return swap(bundle: active, overlay: OverlayLayer.from(delta: d), releaseId: release.id, overlayTarget: release.overlay)
+            // 카나리 게이트(8.4): rollout 대상이 아니면 오버레이 미수신 → base만.
+            if !Canary.inRollout(release.rollout, installId: installId, releaseId: release.id) {
+                return swap(bundle: active, overlay: OverlayLayer(), releaseId: release.id, overlayTarget: release.base)
+            }
+            guard let deltaPath = release.delta, let d = store.delta(deltaPath) else { bump(\.deltaFailed); return false }
+            guard d.from == active.base else { bump(\.deltaFailed); return false } // 체크섬 가드
+            let changed = swap(bundle: active, overlay: OverlayLayer.from(delta: d), releaseId: release.id, overlayTarget: release.overlay)
+            if changed { bump(\.overlayApplied) }
+            return changed
         }
     }
 
@@ -90,7 +115,8 @@ public final class RynL10nClient: @unchecked Sendable {
         lock.unlock()
         let loc = locale ?? context.releaseLabel ?? bundleRef.defaultLocale
         let r = Resolve.resolveValue(bundle: bundleRef, overlay: overlayRef, key: key, locale: loc, localeOverrides: localeOverrides)
-        guard let value = r.value else { return "⟪\(key)⟫" }
+        if r.guardFallback { bump(\.formatGuardRejected) }
+        guard let value = r.value else { bump(\.keyUnresolved); return "⟪\(key)⟫" }
         return Resolve.format(value, locale: r.matchedLocale ?? loc, args: args)
     }
 
