@@ -1,0 +1,83 @@
+{
+  "description": "baseLocaleCoverage/verifyBase/buildLockfile/lockfileString/bundleString 정합성",
+  "cases": [
+    {
+      "name": "valid",
+      "snapshot": {
+        "schemaVersion": 1,
+        "release": "R42",
+        "base": "484755047735ef11",
+        "defaultLocale": "en",
+        "locales": {
+          "en": {
+            "a": "A",
+            "b": "B"
+          },
+          "ko": {
+            "a": "가"
+          }
+        }
+      },
+      "coverageGaps": [],
+      "baseOk": true,
+      "lockfileText": "{\"base\":\"484755047735ef11\",\"keyCount\":2,\"locales\":[\"en\",\"ko\"],\"release\":\"R42\",\"schemaVersion\":1}",
+      "bundle": "{\"base\":\"484755047735ef11\",\"defaultLocale\":\"en\",\"locales\":{\"en\":{\"a\":\"A\",\"b\":\"B\"},\"ko\":{\"a\":\"가\"}},\"release\":\"R42\",\"schemaVersion\":1}"
+    },
+    {
+      "name": "coverage-gap",
+      "snapshot": {
+        "schemaVersion": 1,
+        "release": "R7",
+        "base": "f814a10337050191",
+        "defaultLocale": "en",
+        "locales": {
+          "en": {
+            "a": "A"
+          },
+          "ko": {
+            "a": "가",
+            "ko.only": "코"
+          },
+          "ja": {
+            "ko.only": "コ"
+          }
+        }
+      },
+      "coverageGaps": [
+        {
+          "key": "ko.only",
+          "presentIn": [
+            "ja",
+            "ko"
+          ]
+        }
+      ],
+      "baseOk": true,
+      "lockfileText": "{\"base\":\"f814a10337050191\",\"keyCount\":2,\"locales\":[\"en\",\"ja\",\"ko\"],\"release\":\"R7\",\"schemaVersion\":1}",
+      "bundle": "{\"base\":\"f814a10337050191\",\"defaultLocale\":\"en\",\"locales\":{\"en\":{\"a\":\"A\"},\"ja\":{\"ko.only\":\"コ\"},\"ko\":{\"a\":\"가\",\"ko.only\":\"코\"}},\"release\":\"R7\",\"schemaVersion\":1}"
+    },
+    {
+      "name": "bad-base",
+      "snapshot": {
+        "schemaVersion": 1,
+        "release": "R42",
+        "base": "deadbeefdeadbeef",
+        "defaultLocale": "en",
+        "locales": {
+          "en": {
+            "a": "A",
+            "b": "B"
+          },
+          "ko": {
+            "a": "가"
+          }
+        }
+      },
+      "coverageGaps": [],
+      "baseOk": false,
+      "expectedBase": "484755047735ef11",
+      "lockfileText": "{\"base\":\"deadbeefdeadbeef\",\"keyCount\":2,\"locales\":[\"en\",\"ko\"],\"release\":\"R42\",\"schemaVersion\":1}",
+      "bundle": "{\"base\":\"deadbeefdeadbeef\",\"defaultLocale\":\"en\",\"locales\":{\"en\":{\"a\":\"A\",\"b\":\"B\"},\"ko\":{\"a\":\"가\"}},\"release\":\"R42\",\"schemaVersion\":1}"
+    }
+  ]
+}

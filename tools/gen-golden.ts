@@ -15,6 +15,7 @@ import { buildDelta, buildSnapshot } from "../src/builder/builder.ts";
 import { OverlayLayer, resolveValue, formatValue } from "../src/core/resolve.ts";
 import { selectRelease } from "../src/core/matching.ts";
 import { parseRange, versionInRange } from "../src/core/semver.ts";
+import { baseLocaleCoverage, verifyBase, buildLockfile, lockfileString, bundleString } from "../src/builder/bake.ts";
 import type { ManifestRelease, Snapshot, TranslationValue } from "../src/core/types.ts";
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "golden");
@@ -174,6 +175,38 @@ write("routing.json", {
     const r = selectRelease(c.releases, c.ctx);
     return { name: c.name, releases: c.releases, ctx: c.ctx, expected: { kind: r.kind, releaseId: r.kind === "bundle-only" ? null : r.release.id } };
   }),
+});
+
+// ── 9) bake (빌드타임 자동 번들링 코어) ───────────────────────────────────────
+const bakeValid = buildSnapshot({
+  release: "R42", defaultLocale: "en",
+  locales: { en: { "a": "A", "b": "B" }, ko: { "a": "가" } },
+});
+const bakeGap = buildSnapshot({
+  release: "R7", defaultLocale: "en",
+  locales: { en: { "a": "A" }, ko: { "a": "가", "ko.only": "코" }, ja: { "ko.only": "コ" } },
+});
+const bakeBadBase: Snapshot = { ...bakeValid, base: "deadbeefdeadbeef" };
+write("bake.json", {
+  description: "baseLocaleCoverage/verifyBase/buildLockfile/lockfileString/bundleString 정합성",
+  cases: [
+    { name: "valid", snapshot: bakeValid,
+      coverageGaps: baseLocaleCoverage(bakeValid),
+      baseOk: verifyBase(bakeValid).ok,
+      lockfileText: lockfileString(buildLockfile(bakeValid)),
+      bundle: bundleString(bakeValid) },
+    { name: "coverage-gap", snapshot: bakeGap,
+      coverageGaps: baseLocaleCoverage(bakeGap),
+      baseOk: verifyBase(bakeGap).ok,
+      lockfileText: lockfileString(buildLockfile(bakeGap)),
+      bundle: bundleString(bakeGap) },
+    { name: "bad-base", snapshot: bakeBadBase,
+      coverageGaps: baseLocaleCoverage(bakeBadBase),
+      baseOk: verifyBase(bakeBadBase).ok,
+      expectedBase: verifyBase(bakeBadBase).expected,
+      lockfileText: lockfileString(buildLockfile(bakeBadBase)),
+      bundle: bundleString(bakeBadBase) },
+  ],
 });
 
 console.log("golden vectors 생성 완료 →", OUT);

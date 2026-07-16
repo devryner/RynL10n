@@ -20,3 +20,17 @@ tasks.test {
     useJUnitPlatform()
     testLogging { events("passed", "failed", "skipped") }
 }
+
+// 빌드타임 자동 번들링(6.3) — 현재 릴리스 스냅샷을 SDK 번들 리소스로 bake.
+// 실제 프로젝트에서는 android { } 빌드 그래프에 preBuild 의존으로 엮인다(M1 α는 수동 실행 태스크).
+// 사용: gradle rynl10nBake -Psource=<snapshot.json> -Pout=<dir> [-Pstrict=true]
+tasks.register<JavaExec>("rynl10nBake") {
+    group = "rynl10n"
+    description = "현재 릴리스 스냅샷을 SDK 번들(snapshot-<base>.json)+lockfile로 bake"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.rynl10n.BakeCliKt")
+    val source = (project.findProperty("source") as String?) ?: "release-snapshot.json"
+    val out = (project.findProperty("out") as String?) ?: layout.buildDirectory.dir("rynl10n-bundle").get().asFile.path
+    val strict = (project.findProperty("strict") as String?) == "true"
+    args = buildList { add(source); add(out); if (strict) add("--strict") }
+}

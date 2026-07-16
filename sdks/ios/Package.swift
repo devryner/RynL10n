@@ -9,9 +9,12 @@ let package = Package(
     platforms: [.macOS(.v13), .iOS(.v15)],
     products: [
         .library(name: "RynL10n", targets: ["RynL10n"]),
+        .executable(name: "rynl10n-bake", targets: ["rynl10n-bake"]),
     ],
     targets: [
         .target(name: "RynL10n"),
+        // 빌드타임 자동 번들링 CLI(6.3). SPM build tool plugin이 이 실행파일을 래핑한다(M1 α는 CLI).
+        .executableTarget(name: "rynl10n-bake", dependencies: ["RynL10n"]),
         .testTarget(name: "RynL10nTests", dependencies: ["RynL10n"]),
     ]
 )

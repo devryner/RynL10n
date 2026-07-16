@@ -42,9 +42,32 @@ let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallbac
 | 2계층 resolve·포맷 가드 | 3.1 | `Resolve.swift` `Placeholder.swift` | `Resolve.kt` `Placeholder.kt` |
 | 런타임 클라이언트 | 6.1/6.4 | `RynL10n.swift` | `RynL10n.kt` |
 
+## 빌드타임 자동 번들링 (6.3, 차별점 ①) ✅
+
+빌드마다 현재 릴리스 스냅샷을 SDK 번들로 bake한다. **1차 산출물은 우리 스냅샷 JSON**(SDK의 2계층
+resolve가 그대로 읽는 번들). bake 코어가 ① 기본 로케일 100% 커버리지 검증(strict 모드는 빌드 실패, 3.1)
+② base 해시 무결성 확인 ③ 번들 리소스(`snapshot-<base>.json`) + lockfile(`rynl10n.lock`, release·base 기록)
+방출을 담당한다. lockfile·번들은 JCS 정규화라 **결정적** — 같은 소스 → 같은 바이트(CI 재현성).
+
+bake 코어(`Bake.swift`/`Bake.kt`)도 골든 벡터(`fixtures/golden/bake.json`)로 참조 구현과 정합. 실제로
+**iOS·Android CLI가 같은 스냅샷에서 바이트 단위로 동일한 번들+lockfile을 방출**한다(크로스플랫폼 결정성 검증).
+
+```bash
+# iOS — SPM 실행파일 (build tool plugin이 이 CLI를 래핑)
+cd sdks/ios && swift run rynl10n-bake <snapshot.json> <out-dir> [--strict]
+
+# Android — Gradle 태스크
+cd sdks/android && gradle rynl10nBake -Psource=<snapshot.json> -Pout=<out-dir> [-Pstrict=true]
+
+# 산출: <out-dir>/rynl10n/snapshot-<base>.json + <out-dir>/rynl10n/rynl10n.lock
+```
+
+> **fetch·캐시 fallback**: bake 코어는 순수 함수(입력=스냅샷 파일). 서버에서 현재 릴리스 스냅샷을
+> fetch하고 실패 시 마지막 캐시로 진행하는 로직(6.3)은 이 CLI를 감싸는 플러그인/태스크 설정이 담당한다.
+> vendored/airgap 모드(시나리오 C)는 커밋된 스냅샷 파일을 그대로 입력으로 쓴다.
+
 ## M1 남은 작업
 
-- **빌드타임 자동 번들링 플러그인 (6.3, 차별점 ①)**: SPM build tool plugin(iOS) / Gradle task(Android).
-  빌드마다 현재 릴리스 스냅샷 fetch → 번들 리소스로 bake + 네이티브 포맷 변환(5.3) → base 해시를 lockfile에 기록.
-- **네이티브 포맷 변환 (5.3)**: 내부 표준(ICU+CLDR) → `.xcstrings`/`strings.xml`/`JSON`/`.arb`.
-- **Android 플랫폼 바인딩**: AGP 모듈 + Compose/StateFlow 어댑터.
+- **플러그인 프로덕션화**: 위 CLI를 빌드 그래프에 자동 연결 — SPM build tool plugin(iOS), AGP preBuild 의존(Android). 서버 fetch + 마지막 캐시 fallback 배선.
+- **네이티브 포맷 변환 (5.3, 선택)**: 내부 표준(ICU+CLDR) → `.xcstrings`/`strings.xml`/`JSON`/`.arb` (OS 표준 로컬라이제이션 fallback용 별도 산출물).
+- **Android 플랫폼 바인딩**: AGP 모듈 + `Context.getString` 래퍼 + Compose `stringResource`/`StateFlow` 어댑터.
