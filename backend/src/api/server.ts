@@ -12,6 +12,7 @@ import { authenticate, authorize, AuthError, type Capability, type TokenRegistry
 import { signature } from "../../../src/core/placeholder.ts";
 import { isPluralMap, type TranslationValue, type VersionMatch, type ReleaseState } from "../../../src/core/types.ts";
 import { Metrics, METRIC } from "../observability/metrics.ts";
+import { Notifier } from "../observability/notifier.ts";
 import { ingest, releaseHealth } from "../observability/telemetry.ts";
 import { rebuildAllArtifacts } from "../admin/rebuild.ts";
 import type { ProjectExport } from "../db/repo.ts";
@@ -30,6 +31,7 @@ interface Ctx {
   readonly repo: Repo;
   readonly store: ArtifactStore;
   readonly metrics: Metrics;
+  readonly notifier: Notifier;
 }
 type Handler = (ctx: Ctx) => { status: number; body?: unknown };
 
@@ -118,7 +120,7 @@ const routes: Route[] = [
   }),
 
   // publish — Maintainer+ (202 잡 / 409 충돌)
-  route("POST", "/projects/:p/releases/:r/publish", "manage_release", ({ params, repo, store, principal, metrics }) => {
+  route("POST", "/projects/:p/releases/:r/publish", "manage_release", ({ params, repo, store, principal, metrics, notifier }) => {
     const jobId = randomUUID();
     repo.createJob(jobId, params.p!, "publish");
     const started = performance.now();
@@ -127,6 +129,7 @@ const routes: Route[] = [
       repo.finishJob(jobId, "done", { base: result.base, overlay: result.overlay });
       metrics.inc(METRIC.publishTotal, { result: "success" });
       metrics.observe(METRIC.publishDuration, (performance.now() - started) / 1000);
+      notifier.emit(params.p!); // 실시간 푸시 신호(manifest 변경)
       return { status: 202, body: { jobId } };
     } catch (e) {
       repo.finishJob(jobId, "failed", { error: (e as Error).message });
@@ -144,9 +147,10 @@ const routes: Route[] = [
   }),
 
   // 롤백 — Maintainer+ (8.3)
-  route("POST", "/projects/:p/releases/:r/rollback", "manage_release", ({ params, body, repo, store, principal }) => {
+  route("POST", "/projects/:p/releases/:r/rollback", "manage_release", ({ params, body, repo, store, principal, notifier }) => {
     if (!body?.to) throw new BadRequestError("to(이전 overlay target) 필요");
     rollbackRelease(repo, store, params.p!, params.r!, body.to, principal!.actor);
+    notifier.emit(params.p!); // 실시간 푸시 신호
     return { status: 200, body: { ok: true, to: body.to } };
   }),
 
@@ -223,6 +227,7 @@ export interface ServerDeps {
   readonly store: ArtifactStore;
   readonly tokens: TokenRegistry;
   readonly metrics?: Metrics;
+  readonly notifier?: Notifier;
   readonly log?: (entry: Record<string, unknown>) => void;
 }
 
@@ -234,6 +239,7 @@ function defaultLog(entry: Record<string, unknown>): void {
 /** node:http 서버 생성. 프레임워크 의존성 없음. metrics/log 주입 가능. */
 export function createManagementServer(deps: ServerDeps) {
   const metrics = deps.metrics ?? new Metrics();
+  const notifier = deps.notifier ?? new Notifier();
   const log = deps.log ?? defaultLog;
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const started = performance.now();
@@ -254,6 +260,19 @@ export function createManagementServer(deps: ServerDeps) {
       return send(200, metrics.render(), "text/plain; version=0.0.4");
     }
 
+    // 실시간 푸시 SSE(옵트인, 인증 없음, manifest 변경 신호만) — M4/8.4.
+    const sse = /^\/projects\/([^/]+)\/events$/.exec(path);
+    if (req.method === "GET" && sse) {
+      const projectId = decodeURIComponent(sse[1]!);
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+      res.write("retry: 3000\n\n"); // 재연결 힌트
+      const unsub = notifier.subscribe(projectId, (seq) => {
+        res.write(`event: manifest\ndata: {"seq":${seq}}\n\n`);
+      });
+      req.on("close", () => unsub());
+      return;
+    }
+
     try {
       const match = routes.find((r) => r.method === req.method && r.pattern.test(path));
       if (!match) return send(404, { error: { code: "not_found", message: `${req.method} ${path}` } });
@@ -269,7 +288,7 @@ export function createManagementServer(deps: ServerDeps) {
       }
 
       const body = req.method === "GET" ? {} : await readBody(req);
-      const result = match.handler({ params, body, principal, repo: deps.repo, store: deps.store, metrics });
+      const result = match.handler({ params, body, principal, repo: deps.repo, store: deps.store, metrics, notifier });
       send(result.status, result.body ?? null);
     } catch (e) {
       const err = e as { status?: number; message?: string; name?: string };

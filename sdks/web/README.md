@@ -24,6 +24,14 @@ sdk.t("cart.title");                       // 동기 — 항상 번들 fallback
 - 갱신 = manifest 조건부 요청(If-None-Match) → 변경 시 필요한 델타/스냅샷만 프리페치 → 동기 코어 적용.
 - 플레인 분리 준수: 배포 플레인의 정적 파일만 읽는다.
 
+### 실시간 푸시 (옵트인, M4)
+
+```ts
+const sdk = new HttpRynL10n({ ...cfg, pushEndpoint: "https://api.example.com" });
+sdk.connectServerPush(() => rerender());  // SSE 'manifest' 신호 → 즉시 refresh(폴링 지연 0)
+```
+신호는 캐시 무효화용일 뿐(번역 데이터 없음) — 데이터는 여전히 배포 플레인에서 fetch. 연결 실패 시 폴링으로 폴백.
+
 ## React 어댑터 (peer, 3줄)
 
 `createStore`는 `useSyncExternalStore` 계약(subscribe + getVersion)과 호환된다:

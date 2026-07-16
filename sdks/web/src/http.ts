@@ -26,6 +26,8 @@ export interface WebConfig {
   readonly installId?: string;
   readonly telemetry?: "off" | "aggregate";
   readonly pollIntervalMs?: number;
+  /** 실시간 푸시(옵트인) 알림 채널 base URL(관리/알림 플레인). 없으면 폴링만. */
+  readonly pushEndpoint?: string;
   /** 테스트/커스텀용 fetch 주입(기본 전역 fetch). */
   readonly fetchImpl?: typeof fetch;
 }
@@ -100,5 +102,39 @@ export class HttpRynL10n {
     void this.refresh();
     this.timer = setInterval(() => void this.refresh(), iv);
   }
-  stop(): void { if (this.timer) clearInterval(this.timer); }
+  stop(): void { if (this.timer) clearInterval(this.timer); this.disconnectServerPush(); }
+
+  private pushAbort: AbortController | undefined;
+
+  /**
+   * 실시간 푸시 연결(옵트인, M4). SSE 'manifest' 신호 수신 시 즉시 refresh → 폴링 지연 없이 갱신.
+   * 신호는 캐시 무효화용일 뿐, 번역 데이터는 여전히 배포 플레인에서 fetch한다.
+   */
+  async connectServerPush(onEvent?: () => void): Promise<void> {
+    if (!this.cfg.pushEndpoint) return;
+    this.pushAbort = new AbortController();
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${this.cfg.pushEndpoint}/projects/${this.cfg.projectKey}/events`,
+        { signal: this.pushAbort.signal, headers: { accept: "text/event-stream" } });
+    } catch { return; }
+    if (!res.body) return;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buf.indexOf("\n\n")) >= 0) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          if (/(^|\n)event: manifest/.test(frame)) { await this.refresh(); onEvent?.(); }
+        }
+      }
+    } catch { /* abort/네트워크 종료 → 폴링으로 폴백 */ }
+  }
+  disconnectServerPush(): void { this.pushAbort?.abort(); this.pushAbort = undefined; }
 }
