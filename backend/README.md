@@ -55,11 +55,26 @@ publish 시: ① 버전 범위 충돌·자동 상한 닫힘 검증(쓰기 전, 4
 **롤백** = overlay 포인터를 이전 target으로 되돌리고 재게시(산출물 불변, 즉시·무손실).
 **보존 창** = 최근 20개 published manifest(8.3).
 
+## 관측성 (9.3, M3)
+
+- `GET /metrics` — Prometheus 노출: `rynl10n_publish_total{result}` · `rynl10n_publish_duration_seconds` ·
+  `rynl10n_api_requests_total` · `rynl10n_telemetry_events_total{event}`. 구조화 JSON 로그(stdout).
+- `POST /projects/{p}/telemetry` — 옵트인·익명·집계 수집(인증 없음). **정의된 5개 필드 외 유입은 거부**(프라이버시 가드).
+  이벤트 ∈ {overlay_applied, format_guard_rejected, key_unresolved, delta_failed}.
+- `GET /projects/{p}/releases/{r}/health` — 카나리 판정(8.4) 입력: 포맷 가드 거부율·미해결율·델타 실패율.
+
+## 데이터 이식성 · 재해 복구 (9.2 / 9.4, M3)
+
+- `GET /projects/{p}/export` / `POST /projects/import` — 전체 export/import(락인 없음).
+- `POST /projects/{p}/rebuild` — DB(SoT)만으로 산출물 재생성(결정적). 스토리지 유실 복구.
+- 운영 절차 전체는 [`../OPERATIONS.md`](../OPERATIONS.md).
+
 ## 검증 (DoD)
 
 - `pipeline.test.ts` — publish → **M0 SDK 클라이언트가 백엔드 산출물 소비**(M2→M1 연결) → 편집·델타 →
   롤백 → 버전 격리(자동 상한 닫힘+superseded) → 409 충돌 → 보존 창 → **백엔드 base 해시 = 참조 빌더 일치**.
 - `api.test.ts` — 실제 HTTP 서버 기동 후 401/403/422/409/404/202/207 + 전체 워크플로.
+- `m3.test.ts` — 메트릭 노출 · 텔레메트리 집계/PII 거부 · **export→import→rebuild 바이트 동일**(이식성+결정성).
 
 ## 프로덕션 경로 (M3)
 

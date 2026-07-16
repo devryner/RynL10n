@@ -11,6 +11,10 @@ import { publishRelease, rollbackRelease, RangeConflictError, NotFoundError } fr
 import { authenticate, authorize, AuthError, type Capability, type TokenRegistry, type Principal } from "../auth/rbac.ts";
 import { signature } from "../../../src/core/placeholder.ts";
 import { isPluralMap, type TranslationValue, type VersionMatch, type ReleaseState } from "../../../src/core/types.ts";
+import { Metrics, METRIC } from "../observability/metrics.ts";
+import { ingest, releaseHealth } from "../observability/telemetry.ts";
+import { rebuildAllArtifacts } from "../admin/rebuild.ts";
+import type { ProjectExport } from "../db/repo.ts";
 
 class HttpError extends Error {
   readonly status: number;
@@ -22,9 +26,10 @@ class BadRequestError extends HttpError { constructor(m: string) { super(400, m)
 interface Ctx {
   readonly params: Record<string, string>;
   readonly body: any;
-  readonly principal: Principal;
+  readonly principal: Principal | null;
   readonly repo: Repo;
   readonly store: ArtifactStore;
+  readonly metrics: Metrics;
 }
 type Handler = (ctx: Ctx) => { status: number; body?: unknown };
 
@@ -32,12 +37,12 @@ interface Route {
   readonly method: string;
   readonly pattern: RegExp;
   readonly keys: string[];
-  readonly cap: Capability;
+  readonly cap: Capability | "public"; // public: 인증 없음(텔레메트리·메트릭)
   readonly projectParam: string | undefined;
   readonly handler: Handler;
 }
 
-function route(method: string, template: string, cap: Capability, handler: Handler): Route {
+function route(method: string, template: string, cap: Capability | "public", handler: Handler): Route {
   const keys: string[] = [];
   const pattern = new RegExp(
     "^" + template.replace(/:([A-Za-z]+)/g, (_m, k) => { keys.push(k); return "([^/]+)"; }) + "$",
@@ -113,15 +118,19 @@ const routes: Route[] = [
   }),
 
   // publish — Maintainer+ (202 잡 / 409 충돌)
-  route("POST", "/projects/:p/releases/:r/publish", "manage_release", ({ params, repo, store, principal }) => {
+  route("POST", "/projects/:p/releases/:r/publish", "manage_release", ({ params, repo, store, principal, metrics }) => {
     const jobId = randomUUID();
     repo.createJob(jobId, params.p!, "publish");
+    const started = performance.now();
     try {
-      const result = publishRelease(repo, store, params.p!, params.r!, principal.actor);
+      const result = publishRelease(repo, store, params.p!, params.r!, principal!.actor);
       repo.finishJob(jobId, "done", { base: result.base, overlay: result.overlay });
+      metrics.inc(METRIC.publishTotal, { result: "success" });
+      metrics.observe(METRIC.publishDuration, (performance.now() - started) / 1000);
       return { status: 202, body: { jobId } };
     } catch (e) {
       repo.finishJob(jobId, "failed", { error: (e as Error).message });
+      metrics.inc(METRIC.publishTotal, { result: e instanceof RangeConflictError ? "conflict" : "error" });
       throw e;
     }
   }),
@@ -137,7 +146,7 @@ const routes: Route[] = [
   // 롤백 — Maintainer+ (8.3)
   route("POST", "/projects/:p/releases/:r/rollback", "manage_release", ({ params, body, repo, store, principal }) => {
     if (!body?.to) throw new BadRequestError("to(이전 overlay target) 필요");
-    rollbackRelease(repo, store, params.p!, params.r!, body.to, principal.actor);
+    rollbackRelease(repo, store, params.p!, params.r!, body.to, principal!.actor);
     return { status: 200, body: { ok: true, to: body.to } };
   }),
 
@@ -172,6 +181,33 @@ const routes: Route[] = [
     if (!m) throw new NotFoundError(`manifest ${params.p}`);
     return { status: 200, body: m };
   }),
+
+  // 텔레메트리 수집(옵트인·익명·집계, 9.3) — 인증 없음, 엄격 스키마 검증(프라이버시 가드)
+  route("POST", "/projects/:p/telemetry", "public", ({ body, repo, metrics }) => {
+    const { accepted, rejected } = ingest(repo, metrics, body);
+    return { status: 200, body: { accepted, rejected } };
+  }),
+
+  // 배포 건전성(카나리 8.4 입력) — Viewer+
+  route("GET", "/projects/:p/releases/:r/health", "read", ({ params, repo }) => {
+    return { status: 200, body: releaseHealth(repo, params.p!, params.r!) };
+  }),
+
+  // 데이터 이식성 export(9.2) / 백업(9.4) — Admin
+  route("GET", "/projects/:p/export", "admin", ({ params, repo }) => {
+    return { status: 200, body: repo.exportProject(params.p!) };
+  }),
+  // import — Admin (빈 프로젝트로 복원)
+  route("POST", "/projects/import", "admin", ({ body, repo }) => {
+    repo.importProject(body as ProjectExport);
+    return { status: 201, body: { id: (body as ProjectExport).project.id } };
+  }),
+
+  // 산출물 재생성(재해 복구, 9.4) — Maintainer+
+  route("POST", "/projects/:p/rebuild", "manage_release", ({ params, repo, store }) => {
+    const manifest = rebuildAllArtifacts(repo, store, params.p!);
+    return { status: 200, body: { rebuilt: manifest.releases.length } };
+  }),
 ];
 
 async function readBody(req: IncomingMessage): Promise<any> {
@@ -186,19 +222,39 @@ export interface ServerDeps {
   readonly repo: Repo;
   readonly store: ArtifactStore;
   readonly tokens: TokenRegistry;
+  readonly metrics?: Metrics;
+  readonly log?: (entry: Record<string, unknown>) => void;
 }
 
-/** node:http 서버 생성. 프레임워크 의존성 없음. */
+/** 구조화 JSON 로그(9.3) 기본 구현. */
+function defaultLog(entry: Record<string, unknown>): void {
+  process.stdout.write(JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n");
+}
+
+/** node:http 서버 생성. 프레임워크 의존성 없음. metrics/log 주입 가능. */
 export function createManagementServer(deps: ServerDeps) {
+  const metrics = deps.metrics ?? new Metrics();
+  const log = deps.log ?? defaultLog;
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    const send = (status: number, body: unknown) => {
-      const payload = JSON.stringify(body ?? null);
-      res.writeHead(status, { "content-type": "application/json" });
+    const started = performance.now();
+    const send = (status: number, body: unknown, contentType = "application/json") => {
+      const payload = contentType === "application/json" ? JSON.stringify(body ?? null) : String(body);
+      res.writeHead(status, { "content-type": contentType });
       res.end(payload);
+      const durSec = (performance.now() - started) / 1000;
+      metrics.inc(METRIC.apiRequests, { method: req.method ?? "?", status });
+      metrics.observe(METRIC.apiDuration, durSec);
+      if (status >= 500) log({ level: "error", method: req.method, path: req.url, status });
     };
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const path = url.pathname;
+
+    // Prometheus 스크레이프 엔드포인트(인증 없음, text 노출).
+    if (req.method === "GET" && path === "/metrics") {
+      return send(200, metrics.render(), "text/plain; version=0.0.4");
+    }
+
     try {
-      const url = new URL(req.url ?? "/", "http://localhost");
-      const path = url.pathname;
       const match = routes.find((r) => r.method === req.method && r.pattern.test(path));
       if (!match) return send(404, { error: { code: "not_found", message: `${req.method} ${path}` } });
 
@@ -206,11 +262,14 @@ export function createManagementServer(deps: ServerDeps) {
       const params: Record<string, string> = {};
       match.keys.forEach((k, i) => { params[k] = decodeURIComponent(m[i + 1]!); });
 
-      const principal = authenticate(deps.tokens, req.headers.authorization);
-      authorize(principal, match.cap, match.projectParam ? params[match.projectParam] : undefined);
+      let principal: Principal | null = null;
+      if (match.cap !== "public") {
+        principal = authenticate(deps.tokens, req.headers.authorization);
+        authorize(principal, match.cap, match.projectParam ? params[match.projectParam] : undefined);
+      }
 
       const body = req.method === "GET" ? {} : await readBody(req);
-      const result = match.handler({ params, body, principal, repo: deps.repo, store: deps.store });
+      const result = match.handler({ params, body, principal, repo: deps.repo, store: deps.store, metrics });
       send(result.status, result.body ?? null);
     } catch (e) {
       const err = e as { status?: number; message?: string; name?: string };
@@ -225,4 +284,4 @@ export function createManagementServer(deps: ServerDeps) {
   });
 }
 
-export { HttpError };
+export { HttpError, Metrics };

@@ -38,6 +38,16 @@ export interface ClientConfig {
   readonly store: DeliveryStore;
   readonly context: ClientContext;
   readonly resolveOptions?: ResolveOptions;
+  /** 텔레메트리(9.3): 기본 off. 'aggregate'는 익명 카운트만 집계(값·키명·기기 식별자 없음). */
+  readonly telemetry?: "off" | "aggregate";
+}
+
+/** 배포 건전성 익명 집계 카운트(9.3). 카나리 판정(8.4) 입력. */
+export interface TelemetryCounts {
+  overlay_applied: number;
+  format_guard_rejected: number;
+  key_unresolved: number;
+  delta_failed: number;
 }
 
 export type UpdateListener = (info: { readonly release: string; readonly overlayTarget: string }) => void;
@@ -58,10 +68,23 @@ export class RynL10nClient {
   private overlayTarget: string | undefined;
   private readonly listeners = new Set<UpdateListener>();
 
+  private tel: TelemetryCounts = { overlay_applied: 0, format_guard_rejected: 0, key_unresolved: 0, delta_failed: 0 };
+
   constructor(config: ClientConfig) {
     this.config = config;
     this.activeBundle = config.bundle; // 부팅 = 번들 즉시 로드
     this.selection = { kind: "bundle-only" };
+  }
+
+  private bump(event: keyof TelemetryCounts): void {
+    if (this.config.telemetry === "aggregate") this.tel[event]++;
+  }
+
+  /** 누적된 익명 텔레메트리 카운트를 반환하고 리셋(옵트인 리포터가 배치 전송, 9.3). */
+  drainTelemetry(): TelemetryCounts {
+    const snapshot = { ...this.tel };
+    this.tel = { overlay_applied: 0, format_guard_rejected: 0, key_unresolved: 0, delta_failed: 0 };
+    return snapshot;
   }
 
   onCatalogUpdated(listener: UpdateListener): () => void {
@@ -97,19 +120,22 @@ export class RynL10nClient {
     }
 
     const delta = this.config.store.getDelta(release.delta);
-    if (delta === undefined) return false; // 못 받으면 이전 상태 유지
+    if (delta === undefined) { this.bump("delta_failed"); return false; } // 못 받으면 이전 상태 유지
     // 체크섬 가드: 델타의 from이 활성 번들 base와 일치해야 적용(6.4 원자성).
-    if (delta.from !== bundle.base) return false;
+    if (delta.from !== bundle.base) { this.bump("delta_failed"); return false; }
 
     const overlay = buildOverlay(delta);
-    return this.swap(bundle, overlay, release.id, release.overlay);
+    const changed = this.swap(bundle, overlay, release.id, release.overlay);
+    if (changed) this.bump("overlay_applied");
+    return changed;
   }
 
   /** 동기 조회 — 항상 번들 fallback이 있어 블로킹 네트워크 없음(6.1). */
   t(key: string, args?: Readonly<Record<string, unknown>>, locale?: string): string {
     const loc = locale ?? this.config.context.releaseLabel ?? this.activeBundle.defaultLocale;
     const r = this.resolve(key, loc);
-    if (r.value === undefined) return `⟪${key}⟫`; // 개발 모드 미해결 표면화(3.1)
+    if (r.guardFallback) this.bump("format_guard_rejected");
+    if (r.value === undefined) { this.bump("key_unresolved"); return `⟪${key}⟫`; } // 개발 모드 미해결 표면화(3.1)
     return formatValue(r.value, r.matchedLocale ?? loc, args ?? {});
   }
 

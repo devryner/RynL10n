@@ -24,6 +24,20 @@ export interface ReleaseRow {
 }
 export type Catalog = Record<string, Record<string, TranslationValue>>;
 
+/** 프로젝트 전체 export(데이터 이식성 9.2 / 백업 9.4) — id 비의존, 참조는 이름 기반. */
+export interface ProjectExport {
+  readonly project: ProjectRow;
+  readonly locales: ReadonlyArray<{ tag: string; fallbackParent: string | null }>;
+  readonly keys: ReadonlyArray<{
+    name: string; signature: string; isPlural: boolean;
+    translations: ReadonlyArray<{ locale: string; value: TranslationValue; state: string }>;
+  }>;
+  readonly releases: ReadonlyArray<{
+    id: string; name: string; versionMatch: VersionMatch; state: ReleaseState;
+    base: string | null; overlay: string | null; rollout: number; keys: readonly string[];
+  }>;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -167,6 +181,63 @@ export class Repo {
     return (this.db.prepare("SELECT seq,manifest_json,created_at FROM published_manifests WHERE project_id=? ORDER BY seq DESC")
       .all(projectId) as { seq: number; manifest_json: string; created_at: string }[])
       .map((r) => ({ seq: r.seq, manifestJson: r.manifest_json, createdAt: r.created_at }));
+  }
+
+  // ── Telemetry(9.3) ───────────────────────────────────────────────────────────
+  addTelemetry(projectId: string, releaseId: string, event: string, bucket: string, count: number): void {
+    this.db.prepare(
+      `INSERT INTO telemetry(project_id,release_id,event,app_version_bucket,count) VALUES(?,?,?,?,?)
+       ON CONFLICT(project_id,release_id,event,app_version_bucket) DO UPDATE SET count = count + excluded.count`,
+    ).run(projectId, releaseId, event, bucket, count);
+  }
+  /** (release,event)별 집계 카운트. 카나리 건전성(8.4) 입력. */
+  telemetryByEvent(projectId: string, releaseId: string): Record<string, number> {
+    const rows = this.db.prepare(
+      "SELECT event, SUM(count) AS n FROM telemetry WHERE project_id=? AND release_id=? GROUP BY event",
+    ).all(projectId, releaseId) as { event: string; n: number }[];
+    const out: Record<string, number> = {};
+    for (const r of rows) out[r.event] = r.n;
+    return out;
+  }
+
+  // ── 데이터 이식성(9.2) / 백업(9.4) ───────────────────────────────────────────
+  /** 프로젝트 전체를 id 비의존 구조로 export(키·번역·릴리스·매핑). 락인 없음을 보증. */
+  exportProject(projectId: string): ProjectExport {
+    const project = this.getProject(projectId);
+    if (!project) throw new Error(`없는 프로젝트: ${projectId}`);
+    const locales = (this.db.prepare("SELECT tag,fallback_parent FROM locales WHERE project_id=? ORDER BY tag").all(projectId) as any[])
+      .map((r) => ({ tag: r.tag, fallbackParent: r.fallback_parent ?? null }));
+    const keyRows = this.db.prepare("SELECT id,name,placeholder_signature,is_plural FROM keys WHERE project_id=? ORDER BY name").all(projectId) as any[];
+    const keys = keyRows.map((k) => ({
+      name: k.name, signature: k.placeholder_signature, isPlural: !!k.is_plural,
+      translations: (this.db.prepare("SELECT locale,value_json,state FROM translations WHERE key_id=? ORDER BY locale").all(k.id) as any[])
+        .map((t) => ({ locale: t.locale, value: JSON.parse(t.value_json) as TranslationValue, state: t.state })),
+    }));
+    const releases = this.listReleases(projectId).map((r) => ({
+      id: r.id, name: r.name, versionMatch: r.versionMatch, state: r.state,
+      base: r.base, overlay: r.overlay, rollout: r.rollout,
+      keys: (this.db.prepare(
+        "SELECT k.name AS name FROM release_keys rk JOIN keys k ON k.id=rk.key_id WHERE rk.project_id=? AND rk.release_id=? ORDER BY k.name",
+      ).all(projectId, r.id) as any[]).map((x) => x.name),
+    }));
+    return { project, locales, keys, releases };
+  }
+
+  /** export 구조를 (빈) DB에 import. 키 id는 새로 부여, 참조는 이름 기반으로 복원. */
+  importProject(data: ProjectExport): void {
+    this.createProject(data.project.id, data.project.name, data.project.defaultLocale, []);
+    for (const l of data.locales) this.addLocale(data.project.id, l.tag, l.fallbackParent ?? undefined);
+    const keyId = new Map<string, number>();
+    for (const k of data.keys) {
+      const id = this.upsertKey(data.project.id, k.name, k.signature, k.isPlural);
+      keyId.set(k.name, id);
+      for (const t of k.translations) this.putTranslation(data.project.id, id, t.locale, t.value, t.state);
+    }
+    for (const r of data.releases) {
+      this.createRelease(data.project.id, r.id, r.name, r.versionMatch, r.state);
+      if (r.base !== null && r.overlay !== null) this.updateReleasePointers(data.project.id, r.id, r.base, r.overlay);
+      for (const name of r.keys) { const id = keyId.get(name); if (id !== undefined) this.addReleaseKey(data.project.id, r.id, id); }
+    }
   }
 
   // ── Audit ────────────────────────────────────────────────────────────────────

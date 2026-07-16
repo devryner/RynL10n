@@ -1,0 +1,11 @@
+RynL10n
+Copyright 2026 RynL10n contributors
+
+This product is licensed under the Apache License, Version 2.0 (the "License");
+you may not use this software except in compliance with the License.
+You may obtain a copy of the License in the LICENSE file or at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+SDK, 서버, 어드민 앱 전체가 단일 Apache-2.0 라이선스로 공개됩니다.
+기능 게이팅·엔터프라이즈 전용 기능은 없습니다 (기획서 9.2).

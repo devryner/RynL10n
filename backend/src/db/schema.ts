@@ -94,6 +94,17 @@ CREATE TABLE IF NOT EXISTS published_manifests (
   PRIMARY KEY (project_id, seq)
 );
 
+-- 텔레메트리 집계(9.3): 옵트인·익명·집계만. 번역 값·키명·기기 식별자 없음.
+-- 배포 건전성(카나리 판정 8.4 입력): 이벤트별 count를 (project,release,event,bucket)로 누적.
+CREATE TABLE IF NOT EXISTS telemetry (
+  project_id         TEXT NOT NULL,
+  release_id         TEXT NOT NULL,
+  event              TEXT NOT NULL,
+  app_version_bucket TEXT NOT NULL,
+  count              INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (project_id, release_id, event, app_version_bucket)
+);
+
 -- 감사 로그(7.3): 누가·언제·무엇을(릴리스 단위).
 CREATE TABLE IF NOT EXISTS audit_log (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
