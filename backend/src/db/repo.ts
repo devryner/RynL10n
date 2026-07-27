@@ -24,12 +24,25 @@ export interface ReleaseRow {
 }
 export type Catalog = Record<string, Record<string, TranslationValue>>;
 
+/** 대시보드 편집 그리드용 — 키 1개 + 로케일별 번역 전체(7.1). refCount는 키 삭제 가드(5.2) 표시. */
+export interface KeyDetail {
+  readonly name: string;
+  readonly signature: string;
+  readonly isPlural: boolean;
+  /** 번역자 참고용 설명(5.1). 키 단위 — 로케일이 늘어도 같은 '의미'를 설명한다. */
+  readonly description: string;
+  readonly refCount: number;
+  readonly translations: Record<string, { value: TranslationValue; state: string; updatedAt: string }>;
+}
+
 /** 프로젝트 전체 export(데이터 이식성 9.2 / 백업 9.4) — id 비의존, 참조는 이름 기반. */
 export interface ProjectExport {
   readonly project: ProjectRow;
   readonly locales: ReadonlyArray<{ tag: string; fallbackParent: string | null }>;
   readonly keys: ReadonlyArray<{
     name: string; signature: string; isPlural: boolean;
+    /** 구 export에는 없을 수 있다(하위호환) — import 시 빈 문자열로 취급. */
+    description?: string;
     translations: ReadonlyArray<{ locale: string; value: TranslationValue; state: string }>;
   }>;
   readonly releases: ReadonlyArray<{
@@ -57,6 +70,11 @@ export class Repo {
       | { id: string; name: string; default_locale: string } | undefined;
     return r ? { id: r.id, name: r.name, defaultLocale: r.default_locale } : undefined;
   }
+  listProjects(): ProjectRow[] {
+    return (this.db.prepare("SELECT id,name,default_locale FROM projects ORDER BY id").all() as
+      { id: string; name: string; default_locale: string }[])
+      .map((r) => ({ id: r.id, name: r.name, defaultLocale: r.default_locale }));
+  }
   addLocale(projectId: string, tag: string, fallbackParent?: string): void {
     this.db.prepare("INSERT OR REPLACE INTO locales(project_id,tag,fallback_parent) VALUES(?,?,?)")
       .run(projectId, tag, fallbackParent ?? null);
@@ -74,10 +92,14 @@ export class Repo {
     ).run(projectId, name, signature, isPlural ? 1 : 0);
     return (this.db.prepare("SELECT id FROM keys WHERE project_id=? AND name=?").get(projectId, name) as { id: number }).id;
   }
-  getKeyByName(projectId: string, name: string): { id: number; signature: string; isPlural: boolean } | undefined {
-    const r = this.db.prepare("SELECT id,placeholder_signature,is_plural FROM keys WHERE project_id=? AND name=?")
-      .get(projectId, name) as { id: number; placeholder_signature: string; is_plural: number } | undefined;
-    return r ? { id: r.id, signature: r.placeholder_signature, isPlural: !!r.is_plural } : undefined;
+  getKeyByName(projectId: string, name: string): { id: number; signature: string; isPlural: boolean; description: string } | undefined {
+    const r = this.db.prepare("SELECT id,placeholder_signature,is_plural,description FROM keys WHERE project_id=? AND name=?")
+      .get(projectId, name) as { id: number; placeholder_signature: string; is_plural: number; description: string } | undefined;
+    return r ? { id: r.id, signature: r.placeholder_signature, isPlural: !!r.is_plural, description: r.description } : undefined;
+  }
+  /** 번역자 참고용 설명 갱신(5.1). 서명·복수형 메타와 독립적으로 다룬다. */
+  setKeyDescription(projectId: string, name: string, description: string): void {
+    this.db.prepare("UPDATE keys SET description=? WHERE project_id=? AND name=?").run(description, projectId, name);
   }
   putTranslation(projectId: string, keyId: number, locale: string, value: TranslationValue, state: string): void {
     this.db.prepare(
@@ -89,6 +111,33 @@ export class Repo {
     const r = this.db.prepare("SELECT value_json,state,updated_at FROM translations WHERE key_id=? AND locale=?")
       .get(keyId, locale) as { value_json: string; state: string; updated_at: string } | undefined;
     return r ? { value: JSON.parse(r.value_json) as TranslationValue, state: r.state, updatedAt: r.updated_at } : undefined;
+  }
+
+  /** 프로젝트의 전체 키 + 로케일별 번역(대시보드 편집 그리드). 키 이름 사전순, 쿼리 3회 고정. */
+  listKeyDetails(projectId: string): KeyDetail[] {
+    const keyRows = this.db.prepare(
+      "SELECT id,name,placeholder_signature,is_plural,description FROM keys WHERE project_id=? ORDER BY name",
+    ).all(projectId) as { id: number; name: string; placeholder_signature: string; is_plural: number; description: string }[];
+    const transRows = this.db.prepare(
+      "SELECT key_id,locale,value_json,state,updated_at FROM translations WHERE project_id=?",
+    ).all(projectId) as { key_id: number; locale: string; value_json: string; state: string; updated_at: string }[];
+    const refRows = this.db.prepare(
+      "SELECT key_id, COUNT(*) AS n FROM release_keys WHERE project_id=? GROUP BY key_id",
+    ).all(projectId) as { key_id: number; n: number }[];
+
+    const byKey = new Map<number, KeyDetail["translations"]>();
+    for (const t of transRows) {
+      let bucket = byKey.get(t.key_id);
+      if (!bucket) { bucket = {}; byKey.set(t.key_id, bucket); }
+      (bucket as Record<string, unknown>)[t.locale] = {
+        value: JSON.parse(t.value_json) as TranslationValue, state: t.state, updatedAt: t.updated_at,
+      };
+    }
+    const refs = new Map(refRows.map((r) => [r.key_id, r.n]));
+    return keyRows.map((k) => ({
+      name: k.name, signature: k.placeholder_signature, isPlural: !!k.is_plural, description: k.description,
+      refCount: refs.get(k.id) ?? 0, translations: byKey.get(k.id) ?? {},
+    }));
   }
 
   // ── Release ────────────────────────────────────────────────────────────────
@@ -130,6 +179,13 @@ export class Repo {
   }
   keyRefCount(keyId: number): number {
     return (this.db.prepare("SELECT COUNT(*) AS n FROM release_keys WHERE key_id=?").get(keyId) as { n: number }).n;
+  }
+  /** 릴리스에 포함된 키 이름 목록(대시보드 릴리스 상세·백포트 대상 선택). */
+  listReleaseKeys(projectId: string, releaseId: string): string[] {
+    return (this.db.prepare(
+      `SELECT k.name AS name FROM release_keys rk JOIN keys k ON k.id=rk.key_id
+       WHERE rk.project_id=? AND rk.release_id=? ORDER BY k.name`,
+    ).all(projectId, releaseId) as { name: string }[]).map((r) => r.name);
   }
 
   /** 릴리스에 속한 키들의 (locale→key→value) 카탈로그. 지원 로케일로 제한. */
@@ -207,9 +263,9 @@ export class Repo {
     if (!project) throw new Error(`없는 프로젝트: ${projectId}`);
     const locales = (this.db.prepare("SELECT tag,fallback_parent FROM locales WHERE project_id=? ORDER BY tag").all(projectId) as any[])
       .map((r) => ({ tag: r.tag, fallbackParent: r.fallback_parent ?? null }));
-    const keyRows = this.db.prepare("SELECT id,name,placeholder_signature,is_plural FROM keys WHERE project_id=? ORDER BY name").all(projectId) as any[];
+    const keyRows = this.db.prepare("SELECT id,name,placeholder_signature,is_plural,description FROM keys WHERE project_id=? ORDER BY name").all(projectId) as any[];
     const keys = keyRows.map((k) => ({
-      name: k.name, signature: k.placeholder_signature, isPlural: !!k.is_plural,
+      name: k.name, signature: k.placeholder_signature, isPlural: !!k.is_plural, description: k.description,
       translations: (this.db.prepare("SELECT locale,value_json,state FROM translations WHERE key_id=? ORDER BY locale").all(k.id) as any[])
         .map((t) => ({ locale: t.locale, value: JSON.parse(t.value_json) as TranslationValue, state: t.state })),
     }));
@@ -230,6 +286,7 @@ export class Repo {
     const keyId = new Map<string, number>();
     for (const k of data.keys) {
       const id = this.upsertKey(data.project.id, k.name, k.signature, k.isPlural);
+      if (k.description) this.setKeyDescription(data.project.id, k.name, k.description);
       keyId.set(k.name, id);
       for (const t of k.translations) this.putTranslation(data.project.id, id, t.locale, t.value, t.state);
     }

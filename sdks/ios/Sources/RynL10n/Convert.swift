@@ -85,7 +85,9 @@ public enum Convert {
     }
 
     /// 전 로케일 카탈로그 → .xcstrings 객체(JSONValue 구조).
-    public static func toXcstrings(_ snap: Snapshot) -> JSONValue {
+    /// `descriptions`(키 → 번역자용 설명, 5.1)를 주면 각 키에 .xcstrings 표준 필드 `comment`를 단다.
+    /// 생략하면 산출물은 설명 도입 이전과 동일하다.
+    public static func toXcstrings(_ snap: Snapshot, descriptions: [String: String] = [:]) -> JSONValue {
         var allKeys = Set<String>()
         for keys in snap.locales.values { allKeys.formUnion(keys.keys) }
         var strings: [String: JSONValue] = [:]
@@ -106,7 +108,11 @@ public enum Convert {
                     localizations[locale] = .object(["stringUnit": .object(["state": .string("translated"), "value": .string(iosValue(rawText(value), idx))])])
                 }
             }
-            strings[key] = .object(["localizations": .object(localizations)])
+            if let comment = descriptions[key], !comment.isEmpty {
+                strings[key] = .object(["comment": .string(comment), "localizations": .object(localizations)])
+            } else {
+                strings[key] = .object(["localizations": .object(localizations)])
+            }
         }
         return .object([
             "sourceLanguage": .string(snap.defaultLocale),

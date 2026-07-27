@@ -133,14 +133,36 @@ export interface ConvertResult<T> {
   readonly warnings: readonly string[];
 }
 
-/** 한 로케일의 카탈로그 → strings.xml 문자열. */
-export function toAndroidStringsXml(catalog: Readonly<Record<string, TranslationValue>>): ConvertResult<string> {
+/**
+ * 키 → 번역자용 설명(5.1). bake 시 각 플랫폼의 **표준 주석 필드**로 방출한다.
+ *  - iOS `.xcstrings` → `comment` · Flutter `.arb` → `@key.description` · Android `strings.xml` → XML 주석
+ *  - Web JSON은 주석을 담을 표준 자리가 없어 생략한다(조용한 손실이 아니라 포맷의 한계 — 5.3).
+ * 생략하면(기본값) 산출물은 설명 도입 이전과 **바이트 동일**하다.
+ */
+export type Descriptions = Readonly<Record<string, string>>;
+
+/**
+ * XML 주석 본문으로 안전하게 만든다(XML 1.0 §2.5: 주석 안에 `--` 불가).
+ * 문자를 지우지 않고 하이픈 사이에 공백만 넣어 보존한다 — 조용한 손실 금지(5.3).
+ * 개행·연속 공백은 한 칸으로 접어 한 줄 주석으로 만든다(결정적 출력).
+ */
+function xmlCommentBody(text: string): string {
+  return text.replace(/\s+/g, " ").trim().replace(/-(?=-)/g, "- ");
+}
+
+/** 한 로케일의 카탈로그 → strings.xml 문자열. descriptions를 주면 각 항목 위에 XML 주석을 단다. */
+export function toAndroidStringsXml(
+  catalog: Readonly<Record<string, TranslationValue>>,
+  descriptions: Descriptions = {},
+): ConvertResult<string> {
   const warnings: string[] = [];
   const lines: string[] = [`<?xml version="1.0" encoding="utf-8"?>`, `<resources>`];
   for (const key of Object.keys(catalog).sort()) {
     const value = catalog[key]!;
     const name = androidName(key);
     if (name !== key) warnings.push(`키 "${key}" → 리소스명 "${name}"로 sanitize`);
+    const desc = xmlCommentBody(descriptions[key] ?? "");
+    if (desc) lines.push(`  <!-- ${desc} -->`);
     const idx = indexMap(orderedArgs(value));
     if (isPluralMap(value)) {
       lines.push(`  <plurals name="${name}">`);
@@ -178,10 +200,10 @@ type XcstringsUnit = { stringUnit: { state: string; value: string } };
 type XcstringsVariations = { variations: { plural: { [cat: string]: XcstringsUnit } } };
 type XcstringsLocalization = XcstringsUnit | XcstringsVariations;
 
-/** 전 로케일 카탈로그 → .xcstrings 객체(구조). */
-export function toXcstrings(snap: Snapshot): ConvertResult<Record<string, unknown>> {
+/** 전 로케일 카탈로그 → .xcstrings 객체(구조). descriptions를 주면 각 키에 `comment`를 단다. */
+export function toXcstrings(snap: Snapshot, descriptions: Descriptions = {}): ConvertResult<Record<string, unknown>> {
   const warnings: string[] = [];
-  const strings: Record<string, { localizations: Record<string, XcstringsLocalization> }> = {};
+  const strings: Record<string, { comment?: string; localizations: Record<string, XcstringsLocalization> }> = {};
   const allKeys = new Set<string>();
   for (const keys of Object.values(snap.locales)) for (const k of Object.keys(keys)) allKeys.add(k);
   for (const key of [...allKeys].sort()) {
@@ -202,7 +224,8 @@ export function toXcstrings(snap: Snapshot): ConvertResult<Record<string, unknow
         localizations[locale] = { stringUnit: { state: "translated", value: iosValue(value, idx) } };
       }
     }
-    strings[key] = { localizations };
+    const comment = descriptions[key];
+    strings[key] = comment ? { comment, localizations } : { localizations };
   }
   return { output: { sourceLanguage: snap.defaultLocale, strings, version: "1.0" }, warnings };
 }
@@ -227,8 +250,15 @@ export function toWebJson(catalog: Readonly<Record<string, TranslationValue>>): 
 
 // ── Flutter .arb (ICU in-string + @key 메타) ─────────────────────────────────
 
-/** 한 로케일 카탈로그 → .arb 객체. 복수형은 ICU plural in-string, @key에 placeholders 메타. */
-export function toArb(catalog: Readonly<Record<string, TranslationValue>>, locale: string): ConvertResult<Record<string, unknown>> {
+/**
+ * 한 로케일 카탈로그 → .arb 객체. 복수형은 ICU plural in-string, `@key`에 placeholders 메타.
+ * descriptions를 주면 같은 `@key`에 ARB 표준 필드인 `description`을 함께 싣는다.
+ */
+export function toArb(
+  catalog: Readonly<Record<string, TranslationValue>>,
+  locale: string,
+  descriptions: Descriptions = {},
+): ConvertResult<Record<string, unknown>> {
   const out: Record<string, unknown> = { "@@locale": locale };
   for (const key of Object.keys(catalog).sort()) {
     const value = catalog[key]!;
@@ -245,14 +275,17 @@ export function toArb(catalog: Readonly<Record<string, TranslationValue>>, local
     } else {
       out[key] = value;
     }
+    const meta: Record<string, unknown> = {};
+    if (descriptions[key]) meta.description = descriptions[key];
     if (args.length > 0) {
       const placeholders: Record<string, { type: string }> = {};
       for (const a of args) {
         const nm = a.name === "#" ? "count" : a.name;
         placeholders[nm] = { type: a.type === "number" ? "int" : "String" };
       }
-      out[`@${key}`] = { placeholders };
+      meta.placeholders = placeholders;
     }
+    if (Object.keys(meta).length > 0) out[`@${key}`] = meta;
   }
   return { output: out, warnings: [] };
 }

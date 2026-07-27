@@ -228,8 +228,16 @@ const convSnap: Snapshot = {
     },
   },
 };
+// 키 설명(5.1) → 네이티브 주석 필드. `--`(XML 주석 금지 시퀀스)와 개행을 일부러 포함해
+// 각 언어 구현의 sanitize 규칙까지 계약으로 고정한다.
+const convDescriptions = {
+  "home.title": "홈 탭 상단 제목. 짧게 -- 12자 이내.",
+  "cart.items": "장바구니에 담긴 수량 표시.\n복수형 카테고리를 그대로 유지할 것.",
+};
+
 write("convert.json", {
-  description: "toAndroidStringsXml(로케일별 정확 문자열) · toXcstrings(구조) · toWebJson · toArb",
+  description: "toAndroidStringsXml(로케일별 정확 문자열) · toXcstrings(구조) · toWebJson · toArb"
+    + " · descriptions 주입 시 네이티브 주석(comment / XML 주석 / @key.description)",
   snapshot: convSnap,
   androidXml: {
     en: toAndroidStringsXml(convSnap.locales.en!).output,
@@ -243,6 +251,16 @@ write("convert.json", {
   arb: {
     en: toArb(convSnap.locales.en!, "en").output,
     ko: toArb(convSnap.locales.ko!, "ko").output,
+  },
+  descriptions: convDescriptions,
+  androidXmlWithDescriptions: {
+    en: toAndroidStringsXml(convSnap.locales.en!, convDescriptions).output,
+    ko: toAndroidStringsXml(convSnap.locales.ko!, convDescriptions).output,
+  },
+  xcstringsWithDescriptions: toXcstrings(convSnap, convDescriptions).output,
+  arbWithDescriptions: {
+    en: toArb(convSnap.locales.en!, "en", convDescriptions).output,
+    ko: toArb(convSnap.locales.ko!, "ko", convDescriptions).output,
   },
 });
 

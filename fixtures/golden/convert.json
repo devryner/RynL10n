@@ -1,5 +1,5 @@
 {
-  "description": "toAndroidStringsXml(로케일별 정확 문자열) · toXcstrings(구조) · toWebJson · toArb",
+  "description": "toAndroidStringsXml(로케일별 정확 문자열) · toXcstrings(구조) · toWebJson · toArb · descriptions 주입 시 네이티브 주석(comment / XML 주석 / @key.description)",
   "snapshot": {
     "schemaVersion": 1,
     "release": "R1",
@@ -163,6 +163,145 @@
         }
       },
       "home.title": "홈"
+    }
+  },
+  "descriptions": {
+    "home.title": "홈 탭 상단 제목. 짧게 -- 12자 이내.",
+    "cart.items": "장바구니에 담긴 수량 표시.\n복수형 카테고리를 그대로 유지할 것."
+  },
+  "androidXmlWithDescriptions": {
+    "en": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n  <!-- 장바구니에 담긴 수량 표시. 복수형 카테고리를 그대로 유지할 것. -->\n  <plurals name=\"cart_items\">\n    <item quantity=\"one\">%1$d item</item>\n    <item quantity=\"other\">%1$d items</item>\n  </plurals>\n  <string name=\"files\">%1$d files in %2$s</string>\n  <string name=\"greet\">Hello %1$s</string>\n  <!-- 홈 탭 상단 제목. 짧게 - - 12자 이내. -->\n  <string name=\"home_title\">Home</string>\n</resources>\n",
+    "ko": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n  <!-- 장바구니에 담긴 수량 표시. 복수형 카테고리를 그대로 유지할 것. -->\n  <plurals name=\"cart_items\">\n    <item quantity=\"other\">%1$d개</item>\n  </plurals>\n  <!-- 홈 탭 상단 제목. 짧게 - - 12자 이내. -->\n  <string name=\"home_title\">홈</string>\n</resources>\n"
+  },
+  "xcstringsWithDescriptions": {
+    "sourceLanguage": "en",
+    "strings": {
+      "cart.items": {
+        "comment": "장바구니에 담긴 수량 표시.\n복수형 카테고리를 그대로 유지할 것.",
+        "localizations": {
+          "en": {
+            "variations": {
+              "plural": {
+                "one": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$lld item"
+                  }
+                },
+                "other": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$lld items"
+                  }
+                }
+              }
+            }
+          },
+          "ko": {
+            "variations": {
+              "plural": {
+                "other": {
+                  "stringUnit": {
+                    "state": "translated",
+                    "value": "%1$lld개"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "files": {
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%1$lld files in %2$@"
+            }
+          }
+        }
+      },
+      "greet": {
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Hello %1$@"
+            }
+          }
+        }
+      },
+      "home.title": {
+        "comment": "홈 탭 상단 제목. 짧게 -- 12자 이내.",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Home"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "홈"
+            }
+          }
+        }
+      }
+    },
+    "version": "1.0"
+  },
+  "arbWithDescriptions": {
+    "en": {
+      "@@locale": "en",
+      "cart.items": "{n, plural, one{{n} item} other{{n} items}}",
+      "@cart.items": {
+        "description": "장바구니에 담긴 수량 표시.\n복수형 카테고리를 그대로 유지할 것.",
+        "placeholders": {
+          "n": {
+            "type": "int"
+          }
+        }
+      },
+      "files": "{count, number} files in {folder}",
+      "@files": {
+        "placeholders": {
+          "count": {
+            "type": "int"
+          },
+          "folder": {
+            "type": "String"
+          }
+        }
+      },
+      "greet": "Hello {name}",
+      "@greet": {
+        "placeholders": {
+          "name": {
+            "type": "String"
+          }
+        }
+      },
+      "home.title": "Home",
+      "@home.title": {
+        "description": "홈 탭 상단 제목. 짧게 -- 12자 이내."
+      }
+    },
+    "ko": {
+      "@@locale": "ko",
+      "cart.items": "{n, plural, other{{n}개}}",
+      "@cart.items": {
+        "description": "장바구니에 담긴 수량 표시.\n복수형 카테고리를 그대로 유지할 것.",
+        "placeholders": {
+          "n": {
+            "type": "int"
+          }
+        }
+      },
+      "home.title": "홈",
+      "@home.title": {
+        "description": "홈 탭 상단 제목. 짧게 -- 12자 이내."
+      }
     }
   }
 }

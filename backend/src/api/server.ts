@@ -17,6 +17,7 @@ import { Notifier } from "../observability/notifier.ts";
 import { ingest, releaseHealth } from "../observability/telemetry.ts";
 import { rebuildAllArtifacts } from "../admin/rebuild.ts";
 import type { ProjectExport } from "../db/repo.ts";
+import { uiAsset } from "../ui/serve.ts";
 
 class HttpError extends Error {
   readonly status: number;
@@ -33,6 +34,8 @@ interface Ctx {
   readonly store: ArtifactStore;
   readonly metrics: Metrics;
   readonly notifier: Notifier;
+  /** 대시보드가 산출물 링크를 만들 때 쓰는 배포 플레인 base URL(읽기 경로, 4.1). */
+  readonly deliveryBaseUrl: string;
 }
 type Handler = (ctx: Ctx) => { status: number; body?: unknown };
 
@@ -66,6 +69,19 @@ function requireVersionMatch(vm: any): VersionMatch {
 }
 
 const routes: Route[] = [
+  // 세션 확인 — 대시보드 로그인 검증 + 배포 플레인 주소 전달. 모든 역할(read).
+  route("GET", "/me", "read", ({ principal, deliveryBaseUrl }) => {
+    return {
+      status: 200,
+      body: {
+        actor: principal!.actor,
+        role: principal!.role,
+        projects: principal!.projects === "*" ? "*" : [...principal!.projects],
+        deliveryBaseUrl,
+      },
+    };
+  }),
+
   // 프로젝트 생성 — Admin
   route("POST", "/projects", "admin", ({ body, repo }) => {
     if (!body?.id || !body?.name || !body?.defaultLocale) throw new BadRequestError("id, name, defaultLocale 필요");
@@ -73,10 +89,45 @@ const routes: Route[] = [
     return { status: 201, body: { id: body.id, state: "created" } };
   }),
 
-  // 키 upsert — Translator+
+  // 프로젝트 목록 — Viewer+. 토큰 스코프 밖 프로젝트는 노출하지 않음(7.3).
+  route("GET", "/projects", "read", ({ repo, principal }) => {
+    const all = repo.listProjects();
+    const scope = principal!.projects;
+    return { status: 200, body: { projects: scope === "*" ? all : all.filter((p) => scope.has(p.id)) } };
+  }),
+
+  // 프로젝트 상세(로케일 포함) — Viewer+
+  route("GET", "/projects/:p", "read", ({ params, repo }) => {
+    const project = repo.getProject(params.p!);
+    if (!project) throw new NotFoundError(`project ${params.p}`);
+    return { status: 200, body: { ...project, locales: repo.listLocales(params.p!) } };
+  }),
+
+  // 지원 로케일 추가 — Maintainer+. 미등록 로케일의 번역은 카탈로그에서 제외되므로(5.1) 필수 관리 지점.
+  route("POST", "/projects/:p/locales", "manage_release", ({ params, body, repo }) => {
+    if (!repo.getProject(params.p!)) throw new NotFoundError(`project ${params.p}`);
+    if (typeof body?.tag !== "string" || !body.tag.trim()) throw new BadRequestError("tag(BCP 47) 필요");
+    repo.addLocale(params.p!, body.tag.trim(), body?.fallbackParent ?? undefined);
+    return { status: 200, body: { locales: repo.listLocales(params.p!) } };
+  }),
+
+  // 키 + 로케일별 번역 전체(대시보드 편집 그리드) — Viewer+
+  route("GET", "/projects/:p/keys", "read", ({ params, repo }) => {
+    if (!repo.getProject(params.p!)) throw new NotFoundError(`project ${params.p}`);
+    return { status: 200, body: { keys: repo.listKeyDetails(params.p!) } };
+  }),
+
+  // 키 upsert — Translator+. 설명(5.1) 편집도 이 경로.
   route("PUT", "/projects/:p/keys/:key", "edit_translation", ({ params, body, repo }) => {
-    const id = repo.upsertKey(params.p!, params.key!, body?.signature ?? "", !!body?.isPlural);
-    return { status: 200, body: { id, name: params.key } };
+    const existing = repo.getKeyByName(params.p!, params.key!);
+    // 서명·복수형은 **명시적으로 준 경우에만** 갱신한다. 설명만 고치려는 요청이 기존 서명을
+    // 지워 포맷 안전 가드(3.1)를 무력화하면 안 된다.
+    const signature = typeof body?.signature === "string" ? body.signature : existing?.signature ?? "";
+    const isPlural = typeof body?.isPlural === "boolean" ? body.isPlural : existing?.isPlural ?? false;
+    const id = repo.upsertKey(params.p!, params.key!, signature, isPlural);
+    if (typeof body?.description === "string") repo.setKeyDescription(params.p!, params.key!, body.description);
+    const row = repo.getKeyByName(params.p!, params.key!)!;
+    return { status: 200, body: { id, name: params.key, signature: row.signature, isPlural: row.isPlural, description: row.description } };
   }),
 
   // 번역 편집 — Translator+ (422 서명 불일치)
@@ -180,6 +231,22 @@ const routes: Route[] = [
     return { status: 200, body: { releases: repo.listReleases(params.p!) } };
   }),
 
+  // 릴리스에 포함된 키 목록 — Viewer+
+  route("GET", "/projects/:p/releases/:r/keys", "read", ({ params, repo }) => {
+    if (!repo.getRelease(params.p!, params.r!)) throw new NotFoundError(`release ${params.r}`);
+    return { status: 200, body: { keys: repo.listReleaseKeys(params.p!, params.r!) } };
+  }),
+
+  // published manifest 이력(롤백 대상 선택, 보존 창 8.3) — Viewer+
+  route("GET", "/projects/:p/manifests", "read", ({ params, repo }) => {
+    const history = repo.listManifestHistory(params.p!).map((h) => ({
+      seq: h.seq,
+      createdAt: h.createdAt,
+      manifest: JSON.parse(h.manifestJson) as unknown,
+    }));
+    return { status: 200, body: { history } };
+  }),
+
   // 현재 릴리스 스냅샷 조회(빌드 플러그인 fetch, 6.3) — Viewer+/머신 토큰. DB에서 결정적 빌드.
   route("GET", "/projects/:p/releases/:r/snapshot", "read", ({ params, repo }) => {
     const project = repo.getProject(params.p!);
@@ -187,6 +254,19 @@ const routes: Route[] = [
     if (!repo.getRelease(params.p!, params.r!)) throw new NotFoundError(`release ${params.r}`);
     const catalog = repo.catalogForRelease(params.p!, params.r!);
     return { status: 200, body: buildSnapshot({ release: params.r!, defaultLocale: project.defaultLocale, locales: catalog }) };
+  }),
+
+  // 릴리스 키들의 번역자용 설명(5.1) — 빌드 플러그인이 네이티브 주석으로 bake할 때 fetch.
+  // 런타임 스냅샷과 **분리된 사이드카**다: 설명은 기기로 내려갈 데이터가 아니고,
+  // 스냅샷에 넣으면 해시 입력이 바뀌어 골든 벡터 계약이 깨진다(11.1). Viewer+.
+  route("GET", "/projects/:p/releases/:r/descriptions", "read", ({ params, repo }) => {
+    if (!repo.getRelease(params.p!, params.r!)) throw new NotFoundError(`release ${params.r}`);
+    const inRelease = new Set(repo.listReleaseKeys(params.p!, params.r!));
+    const descriptions: Record<string, string> = {};
+    for (const k of repo.listKeyDetails(params.p!)) {
+      if (inRelease.has(k.name) && k.description) descriptions[k.name] = k.description;
+    }
+    return { status: 200, body: { release: params.r, descriptions } };
   }),
 
   // 배포 manifest 조회(진단용 read-through) — Viewer+
@@ -239,6 +319,10 @@ export interface ServerDeps {
   readonly metrics?: Metrics;
   readonly notifier?: Notifier;
   readonly log?: (entry: Record<string, unknown>) => void;
+  /** 대시보드에 알려줄 배포 플레인 base URL. 미지정 시 상대 경로 규약(:8788)을 클라이언트가 추정. */
+  readonly deliveryBaseUrl?: string;
+  /** 대시보드(정적 자산) 서빙 여부. 기본 true — 테스트·헤드리스 배포에서 끌 수 있다. */
+  readonly serveDashboard?: boolean;
 }
 
 /** 구조화 JSON 로그(9.3) 기본 구현. */
@@ -251,6 +335,8 @@ export function createManagementServer(deps: ServerDeps) {
   const metrics = deps.metrics ?? new Metrics();
   const notifier = deps.notifier ?? new Notifier();
   const log = deps.log ?? defaultLog;
+  const deliveryBaseUrl = deps.deliveryBaseUrl ?? "";
+  const serveDashboard = deps.serveDashboard ?? true;
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const started = performance.now();
     const send = (status: number, body: unknown, contentType = "application/json") => {
@@ -268,6 +354,13 @@ export function createManagementServer(deps: ServerDeps) {
     // Prometheus 스크레이프 엔드포인트(인증 없음, text 노출).
     if (req.method === "GET" && path === "/metrics") {
       return send(200, metrics.render(), "text/plain; version=0.0.4");
+    }
+
+    // 대시보드(어드민 앱 — 9.2 코어 ③). 관리 플레인에서만 서빙하며 배포 플레인은 정적 산출물 전용으로 유지(4.1).
+    // 정적 자산 자체는 비밀이 아니라 인증 없이 내려가고, 모든 데이터 접근은 아래 라우트의 Bearer 토큰을 거친다.
+    if (serveDashboard && req.method === "GET") {
+      const asset = uiAsset(path);
+      if (asset) return send(200, asset.body, asset.type);
     }
 
     // 실시간 푸시 SSE(옵트인, 인증 없음, manifest 변경 신호만) — M4/8.4.
@@ -298,7 +391,7 @@ export function createManagementServer(deps: ServerDeps) {
       }
 
       const body = req.method === "GET" ? {} : await readBody(req);
-      const result = match.handler({ params, body, principal, repo: deps.repo, store: deps.store, metrics, notifier });
+      const result = match.handler({ params, body, principal, repo: deps.repo, store: deps.store, metrics, notifier, deliveryBaseUrl });
       send(result.status, result.body ?? null);
     } catch (e) {
       const err = e as { status?: number; message?: string; name?: string };

@@ -99,14 +99,30 @@ object Convert {
 
     data class Result(val output: String, val warnings: List<String>)
 
-    /** 한 로케일 카탈로그 → strings.xml 문자열. */
-    fun toAndroidStringsXml(catalog: Map<String, TranslationValue>): Result {
+    /**
+     * XML 주석 본문으로 안전하게 만든다(XML 1.0 §2.5: 주석 안에 `--` 불가).
+     * 문자를 지우지 않고 하이픈 사이에 공백만 넣어 보존한다 — 조용한 손실 금지(5.3).
+     * 개행·연속 공백은 한 칸으로 접어 한 줄 주석으로 만든다(결정적 출력).
+     */
+    private fun xmlCommentBody(text: String): String =
+        text.replace(Regex("\\s+"), " ").trim().replace(Regex("-(?=-)"), "- ")
+
+    /**
+     * 한 로케일 카탈로그 → strings.xml 문자열.
+     * `descriptions`(키 → 번역자용 설명, 5.1)를 주면 각 항목 위에 XML 주석을 단다.
+     */
+    fun toAndroidStringsXml(
+        catalog: Map<String, TranslationValue>,
+        descriptions: Map<String, String> = emptyMap(),
+    ): Result {
         val warnings = mutableListOf<String>()
         val lines = mutableListOf("""<?xml version="1.0" encoding="utf-8"?>""", "<resources>")
         for (key in catalog.keys.sorted()) {
             val value = catalog.getValue(key)
             val name = androidName(key)
             if (name != key) warnings.add("키 \"$key\" → 리소스명 \"$name\"로 sanitize")
+            val desc = xmlCommentBody(descriptions[key] ?: "")
+            if (desc.isNotEmpty()) lines.add("  <!-- $desc -->")
             val idx = indexMap(orderedArgs(value))
             if (value is TranslationValue.Plural) {
                 lines.add("""  <plurals name="$name">""")

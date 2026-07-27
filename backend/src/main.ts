@@ -23,8 +23,12 @@ const store = new FsArtifactStore(STORAGE_ROOT);
 const tokens = new TokenRegistry();
 tokens.issue(ADMIN_TOKEN, { actor: "bootstrap-admin", role: "admin", projects: "*" });
 
-// 관리 플레인 (쓰기, 인증 필요).
-createManagementServer({ repo, store, tokens }).listen(MGMT_PORT, () => {
+// 배포 플레인 base URL — 대시보드가 산출물 링크를 만들 때 쓴다(프로덕션은 CDN 도메인).
+const DELIVERY_BASE_URL = process.env.RYNL10N_DELIVERY_URL ?? `http://localhost:${DELIVERY_PORT}`;
+
+// 관리 플레인 (쓰기, 인증 필요) + 대시보드(어드민 앱, 9.2 코어 ③).
+createManagementServer({ repo, store, tokens, deliveryBaseUrl: DELIVERY_BASE_URL }).listen(MGMT_PORT, () => {
+  console.log(`[rynl10n] 대시보드   → http://localhost:${MGMT_PORT}/          (토큰: ${ADMIN_TOKEN})`);
   console.log(`[rynl10n] 관리 API   → http://localhost:${MGMT_PORT}  (Bearer ${ADMIN_TOKEN})`);
 });
 

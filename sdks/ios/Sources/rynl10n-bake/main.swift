@@ -6,6 +6,10 @@ import RynL10n
 ///   rynl10n-bake <source.json> <out-dir> [--strict] [--emit-native]            (vendored/에어갭)
 ///   rynl10n-bake --fetch <url> <out-dir> [--cache <p>] [--token <t>] [...]      (서버 fetch)
 /// 서버 fetch 실패 시 --cache의 마지막 스냅샷으로 진행 → 빌드가 서버 가용성에 종속되지 않음(6.3).
+///
+/// `--descriptions <path|url>` — 키 설명(5.1) 사이드카. --emit-native와 함께 쓰면 .xcstrings의
+/// `comment` 필드로 구워져 Xcode에서 번역자가 맥락을 읽는다. 스냅샷과 분리돼 있어(해시 입력 불변)
+/// 없거나 읽기 실패해도 bake는 주석 없이 계속된다.
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("[rynl10n] \(message)\n".utf8))
@@ -28,7 +32,7 @@ do {
     }
 }
 guard !positionals.isEmpty else {
-    FileHandle.standardError.write(Data("사용: rynl10n-bake [<source.json>|--fetch <url>] <out-dir> [--cache <p>] [--token <t>] [--strict] [--emit-native]\n".utf8))
+    FileHandle.standardError.write(Data("사용: rynl10n-bake [<source.json>|--fetch <url>] <out-dir> [--cache <p>] [--token <t>] [--descriptions <path|url>] [--strict] [--emit-native]\n".utf8))
     exit(2)
 }
 let outDir = positionals.last!
@@ -88,8 +92,36 @@ do {
     try result.lockfileText.write(toFile: (bundleDir as NSString).appendingPathComponent("rynl10n.lock"), atomically: true, encoding: .utf8)
 } catch { fail("산출물 쓰기 실패: \(error)") }
 
+/// 키 설명(5.1) 사이드카 로드 — 파일 경로 또는 URL. 스냅샷과 분리돼 있어 실패해도 bake는 계속된다.
+/// 허용 형태: `{"key":"설명"}` 또는 관리 API 응답 봉투 `{"release":..,"descriptions":{...}}`.
+func loadDescriptions(_ source: String?, _ token: String?) -> [String: String] {
+    guard let source else { return [:] }
+    let text: String?
+    if source.hasPrefix("http://") || source.hasPrefix("https://") {
+        text = tryFetch(source, token)
+    } else {
+        text = try? String(contentsOfFile: source, encoding: .utf8)
+    }
+    guard let text, let data = text.data(using: .utf8) else {
+        FileHandle.standardError.write(Data("[rynl10n] 경고: 설명 소스를 읽지 못함 → 주석 없이 진행: \(source)\n".utf8))
+        return [:]
+    }
+    // 관리 API 봉투(`release` 같은 부가 필드가 섞여 있어 딕셔너리로는 디코딩되지 않는다).
+    struct Envelope: Decodable { let descriptions: [String: String] }
+    if let envelope = try? JSONDecoder().decode(Envelope.self, from: data) {
+        return envelope.descriptions
+    }
+    if let flat = try? JSONDecoder().decode([String: String].self, from: data) {
+        return flat // 평평한 맵
+    }
+    FileHandle.standardError.write(Data("[rynl10n] 경고: 설명 JSON 형식을 해석하지 못함 → 주석 없이 진행\n".utf8))
+    return [:]
+}
+
 if emitNative {
-    let xcstrings = Convert.toXcstrings(snapshot)
+    let descriptions = loadDescriptions(flags["descriptions"], flags["token"])
+    if !descriptions.isEmpty { print("[rynl10n] 키 설명 \(descriptions.count)건 → .xcstrings comment") }
+    let xcstrings = Convert.toXcstrings(snapshot, descriptions: descriptions)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
     let xcPath = (bundleDir as NSString).appendingPathComponent("Localizable.xcstrings")

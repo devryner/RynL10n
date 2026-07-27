@@ -6,13 +6,25 @@
 ## 실행
 
 ```bash
-npm run backend            # 관리 API :8787 + 배포 플레인 :8788 (node:sqlite 내장, 외부 의존성 0)
-npm run test:backend       # node --test — 파이프라인 + API 통합 (13 tests)
+npm run backend            # 대시보드 + 관리 API :8787 · 배포 플레인 :8788 (node:sqlite 내장, 외부 의존성 0)
+                           # → 브라우저로 http://localhost:8787 접속, 토큰으로 로그인
+npm run test:backend       # node --test — 파이프라인 + API 통합 + 대시보드 (37 tests)
 npm run typecheck:backend  # tsc --noEmit
 docker compose up          # 단일 노드 셀프호스트 (9.1)
 ```
 
 - Node ≥ 23.6 (네이티브 TS 타입 스트리핑). DB=`node:sqlite`, 스토리지=로컬 FS(MinIO/S3 대체 가능).
+
+## 대시보드 (어드민 앱, 9.2 코어 ③)
+
+관리 플레인이 `/`(HTML)와 `/ui/*`(JS·CSS)로 함께 서빙한다. 소스는 [`src/ui/`](src/ui/) —
+프레임워크·번들러 없는 바닐라 ES 모듈이라 빌드 스텝이 없고 에어갭에서도 그대로 동작한다.
+
+- 자산 경로는 **고정 허용 목록**(`src/ui/serve.ts`)이라 임의 파일 요청·경로 순회가 불가능하다.
+- 정적 자산은 인증 없이 내려가지만 **모든 데이터 접근은 Bearer 토큰**을 거친다(로그인 = `GET /me` 검증).
+- 역할별로 쓰기 UI가 잠긴다(7.3의 UI 미러). 최종 판정은 언제나 서버.
+- publish·롤백 시 SSE(`/projects/{p}/events`)로 화면이 자동 갱신된다 — 신호만 오고 데이터는 정적 경로 유지.
+- 끄려면 `createManagementServer({ serveDashboard: false })`.
 
 ## 플레인 분리 (4.1)
 
@@ -25,12 +37,34 @@ docker compose up          # 단일 노드 셀프호스트 (9.1)
 `node:sqlite` 정규화 관계형 SoT — `projects` / `locales` / `keys` / `translations` / `releases` /
 `release_keys`(다대다, 백포트 대상) / `jobs` / `published_manifests`(롤백 보존 창) / `audit_log`.
 
+**키 설명(`keys.description`, 5.1)** — 번역자가 읽는 맥락(화면·톤·제약). 값이 아니라 '의미'에 붙으므로
+로케일별이 아닌 **키 단위**이며, 로케일을 늘려도 같은 설명이 그대로 쓰인다.
+저작 메타데이터라 **런타임 스냅샷·델타에는 싣지 않는다** — 기기로 내려갈 이유가 없고,
+해시 입력(11.1 `{release,defaultLocale,locales}`)이 바뀌면 골든 벡터 계약이 깨지기 때문이다.
+export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없으면 빈 문자열로 취급.
+
+대신 빌드타임에는 **사이드카**로 전달한다: `GET /projects/{p}/releases/{r}/descriptions`를
+빌드 플러그인이 스냅샷과 별도로 fetch해 네이티브 주석으로 굽는다(5.3/6.3) —
+`.xcstrings`의 `comment` · `strings.xml`의 XML 주석 · `.arb`의 `@key.description`.
+사이드카가 없거나 읽기에 실패하면 주석 없이 bake가 계속된다(빌드가 설명 가용성에 종속되지 않음).
+
+스키마 변경은 `schema.ts`의 `MIGRATIONS`에 idempotent ALTER로 추가한다(9.4 업그레이드) —
+신규 DB는 `CREATE TABLE`이, 기존 DB는 ALTER가 처리하고 중복 적용은 무시된다.
+
 ## 관리 API (7.1 / 11.2)
 
 | 메서드·경로 | 권한 | 성공 | 실패 |
 | --- | --- | --- | --- |
+| `GET /me` | Viewer+ | 200 `{actor,role,projects,deliveryBaseUrl}` | 401 |
 | `POST /projects` | Admin | 201 | 403 |
-| `PUT /projects/{p}/keys/{key}` | Translator+ | 200 | — |
+| `GET /projects` | Viewer+ | 200 (토큰 스코프 내 프로젝트만) | 401 |
+| `GET /projects/{p}` | Viewer+ | 200 `{…,locales}` | 404 |
+| `POST /projects/{p}/locales` | Maintainer+ | 200 `{locales}` | 400 · 404 |
+| `GET /projects/{p}/keys` | Viewer+ | 200 (키 + 로케일별 번역 + refCount) | 404 |
+| `GET /projects/{p}/releases/{r}/keys` | Viewer+ | 200 `{keys}` | 404 |
+| `GET /projects/{p}/releases/{r}/descriptions` | Viewer+ | 200 `{release,descriptions}` (bake 사이드카) | 404 |
+| `GET /projects/{p}/manifests` | Viewer+ | 200 (게시 이력 — 롤백 대상) | — |
+| `PUT /projects/{p}/keys/{key}` | Translator+ | 200 `{id,name,signature,isPlural,description}` | — |
 | `PUT /projects/{p}/translations/{key}/{locale}` | Translator+ | 200 | **422** 서명 불일치 · 404 |
 | `POST /projects/{p}/releases` | Maintainer+ | 201 | 400 |
 | `POST /projects/{p}/releases/{r}/keys` | Maintainer+ | 200 | 404 |
@@ -75,6 +109,9 @@ publish 시: ① 버전 범위 충돌·자동 상한 닫힘 검증(쓰기 전, 4
   롤백 → 버전 격리(자동 상한 닫힘+superseded) → 409 충돌 → 보존 창 → **백엔드 base 해시 = 참조 빌더 일치**.
 - `api.test.ts` — 실제 HTTP 서버 기동 후 401/403/422/409/404/202/207 + 전체 워크플로.
 - `m3.test.ts` — 메트릭 노출 · 텔레메트리 집계/PII 거부 · **export→import→rebuild 바이트 동일**(이식성+결정성).
+- `dashboard.test.ts` — 자산 서빙·허용 목록 밖 404 · `/me` · 스코프 필터 · **로케일 등록이 스냅샷 포함으로 이어짐**.
+- `dashboard-ui.test.ts` — 최소 DOM 스텁으로 `src/ui/app.js` 동작 계약 검증(로그인 분기 · 그리드 반영 ·
+  편집→PUT 매핑 · 422 롤백 · RBAC UI 미러 · 배포 플레인 링크).
 
 ## 프로덕션 경로 (M3)
 
