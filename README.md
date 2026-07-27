@@ -1,54 +1,103 @@
-# RynL10n — M0 스파이크
+# RynL10n
 
-**2계층 resolve + 버전 격리 정적 manifest 라우팅 PoC.** 기획서(SoT)에서 가장 어려운 핵심인
-4.3(버전 격리)을 먼저 검증하기 위한 스파이크다. 플랫폼 SDK(iOS/Android)는 M1이며, 여기서는
-알고리즘·결정적 직렬화·매칭 규칙을 **런타임 의존성 0의 TypeScript 참조 구현**으로 증명한다.
+**앱 업데이트·심사 없이 번역을 배포하는 오픈소스 원격 로컬라이제이션 인프라.**
 
-## 실행
+빌드타임에 자동으로 구운 번들(fallback)과 런타임 원격 오버레이의 **2계층 구조**로,
+항상 완전한 번역을 보장하면서 스토어 심사 없이 즉시 갱신합니다.
 
-```bash
-npm install        # devDep: typescript, @types/node (런타임 의존성 없음)
-npm test           # node --test — 유닛 + 시나리오 통합 (39 tests)
-npm run typecheck  # tsc --noEmit (strict + erasableSyntaxOnly)
-npm run demo       # 시나리오 A/C 콘솔 재현
+```
+번들(빌드타임, 완전한 스냅샷)  ←  항상 존재하는 안전망
+오버레이(런타임, 변경분만)     ←  키 단위로 즉시 덮어쓰기
 ```
 
-- Node ≥ 23.6 (네이티브 TS 타입 스트리핑). 해싱은 `node:crypto`, NFC는 `String.normalize`.
+- **오타 하나 고치려고 앱 심사를 다시 받지 않습니다** — 대시보드에서 수정 → publish → 수 분 내 전 기기 반영.
+- **네트워크가 끊겨도 빈 문자열이 없습니다** — 모든 키는 빌드에 포함된 번들이 fallback을 보장합니다.
+- **완전한 셀프호스팅** — `docker compose up` 한 줄, Apache-2.0 단일 라이선스, 기능 게이팅 없음.
 
-## 구조 — 기획서 절에 1:1 매핑
+## 왜 RynL10n인가
 
-| 모듈 | 기획서 | 내용 |
+| | 일반적인 OTA 번역 서비스 | RynL10n |
 | --- | --- | --- |
-| `src/serialize/jcs.ts` | 11.1 | RFC 8785 JCS + 문자열 NFC 정규화. **수동 직렬화**로 키 순서 통제 |
-| `src/serialize/hash.ts` | 11.1 | SHA-256 소문자 hex, 16 hex 파일 식별자 절단, 충돌 시 20 hex, 해시 입력에서 `base`·`createdAt` 제외 |
-| `src/core/types.ts` | 5 / 11 | Snapshot · Delta · Manifest · VersionMatch 등 스키마 타입 |
-| `src/core/placeholder.ts` | 3.1 / 5.3 | 플레이스홀더 서명 추출 + 포맷 안전 가드 |
-| `src/core/semver.ts` | 11.3 | node-semver **부분집합** (비교자 + 공백 AND). `\|\|`·`^`·`~`·x-range·hyphen-range **파싱 거부** |
-| `src/core/matching.ts` | 4.3 / 8.2 | 범위→구간 환원, publish 충돌 검사(409), 클라이언트 릴리스 판정 |
-| `src/core/resolve.ts` | 3.1 | 2계층 resolve, 로케일 우선 fallback, tombstone, 포맷 가드, ICU/CLDR 복수형 포맷팅 |
-| `src/builder/builder.ts` | 7.4 / 8.1–8.3 | snapshot/델타/manifest 생성, 자동 상한 닫힘+supersede, 롤백 |
-| `src/client/client.ts` | 4.3 / 6.4 | manifest 라우팅 + 델타 적용 + 원자적 스왑 + `onCatalogUpdated` |
+| 번들링 | 번역 파일을 수동 다운로드·커밋 | **빌드 플러그인 한 줄** — 빌드마다 자동 bake, 커밋할 파일 없음 |
+| 셀프호스팅 | 없거나 유료/제한 | **완전 오픈소스** (Apache-2.0 단일, 전 기능 포함) |
+| 서버 장애 시 | 번역 조회 불가 위험 | 배포 플레인은 정적 파일 + CDN — **관리 서버가 죽어도 서빙 지속** |
+| 런타임 안전성 | 잘못된 플레이스홀더로 크래시 가능 | **포맷 안전 가드** — 서명 불일치 키만 번들로 자동 fallback |
+| 롤백 | 재배포 필요 | 불변 산출물 + 포인터 되돌리기 — **즉시·무손실** |
 
-## 검증된 핵심 불변식
+## 지원 플랫폼
 
-- **결정성 (11.1)**: 같은 (릴리스, 콘텐츠) → 같은 바이트열 → 같은 해시. 키 순서·NFC(조합형/완성형) 무관.
-- **버전 격리 (4.3)**: 신규 키는 도입 릴리스에만 존재 → 구버전 앱에 미노출. 클라이언트가 manifest만으로 자기 릴리스 자체 선택(서버 라우팅 없음).
-- **2계층 resolve (3.1)**: 오버레이 → 번들, 키 단위 override. 로케일 우선(더 구체적 로케일의 기존 값 > 덜 구체적 로케일의 최신 값).
-- **포맷 안전 가드 (3.1)**: 오버레이 플레이스홀더 서명이 번들과 불일치하면 그 키만 번들로 fallback → 런타임 크래시 차단.
-- **롤백 (8.3)**: manifest overlay 포인터를 이전 target으로 되돌리기. 산출물 불변이라 즉시·무손실.
-- **범위 충돌 (8.2/11.3)**: 겹치는 semver 범위 동시 published → 409. 신규 하한 지정 시 이전 릴리스 상한 자동 닫힘 + superseded.
+| 플랫폼 | SDK | 빌드타임 자동 번들링 | 반응형 바인딩 |
+| --- | --- | --- | --- |
+| iOS | Swift 6 / SPM (`sdks/ios`) | SPM build tool plugin | SwiftUI Combine |
+| Android | Kotlin / Gradle (`sdks/android`) | Gradle task | StateFlow |
+| Web | TypeScript (`sdks/web`) | 번들러 연동 | React 어댑터 |
+| Flutter | 순수 Dart (`sdks/flutter`) | build hook | ValueListenable |
 
-## 스파이크에서 드러난 스펙 조정 지점
+SDK 표면은 세 가지가 전부입니다:
 
-1. **superseded 릴리스의 라우팅 (8.1 ↔ 11.3)** — 11.3은 클라이언트 후보를 `state=="published"`만으로
-   기술하지만, 8.1은 superseded 산출물이 구버전 앱에 계속 서빙된다고 못박는다. 자동 상한 닫힘 후 이전
-   릴리스가 superseded가 되므로, `published`만 후보로 두면 구버전 앱이 번들 전용으로 떨어진다(격리 목적엔
-   맞지만 최신 오버레이를 못 받음). **본 스파이크는 `selectRelease`가 `published`·`superseded`를 모두
-   후보로 두고 `draft`·`archived`만 제외한다.** → 기획서 11.3 문구를 "archived/draft 제외"로 정정 제안.
+```
+RynL10n.configure(projectKey, endpoint, options)
+t(key, args)                 // 동기 — 번들 fallback이 항상 있어 블로킹 네트워크 없음
+onCatalogUpdated(listener)   // 원격 갱신 알림
+```
 
-## 스파이크 범위 밖 (프로덕션에서 보강)
+## 빠른 시작
 
-- JCS 숫자: 현재 정수만 지원(스키마 불변식). 임의 number는 RFC 8785 §3.2.2.3(Ryū) 전량 구현 필요.
-- CLDR 복수형: en/ko/ja/zh 계열 최소 규칙만. 전량 CLDR 규칙 + 완전한 ICU 파서는 SDK에서.
-- 플랫폼 bake(.xcstrings/strings.xml/JSON/.arb 변환, 5.3) · 관리 API 서버 · 인증/RBAC(7.3) · 실제 CDN I/O.
-- `nearest-lower` vs `bundle-only` 프로젝트 기본값: 기획서 잠정 `bundle-only`(번역 공백 0 우선)를 기본으로 채택.
+### 1. 서버 실행 (셀프호스트)
+
+```bash
+docker compose up   # 관리 API :8787 + 배포 플레인 :8788
+```
+
+최소 사양 2 vCPU / 4GB면 충분합니다. 읽기 트래픽은 정적 파일 + CDN이 흡수하므로
+앱 사용자가 늘어도 관리 서버 증설이 필요 없습니다.
+
+### 2. 앱에 플러그인 한 줄 추가
+
+빌드 플러그인이 빌드마다 현재 릴리스 스냅샷을 받아 플랫폼 네이티브 포맷
+(`.xcstrings` / `strings.xml` / JSON / `.arb`)으로 자동 bake하고, base 해시를
+lockfile에 기록해 CI 재현성을 보장합니다. 서버에 접근할 수 없으면 마지막 캐시로
+빌드를 계속하며, 완전 폐쇄망을 위한 vendored 모드도 지원합니다.
+
+### 3. 번역 수정 → publish
+
+관리 API(또는 대시보드)에서 번역을 수정하고 publish하면 실행 중인 앱이
+오버레이를 받아 즉시 반영합니다. 문제가 생기면 롤백 한 번으로 이전 상태로
+무손실 복귀합니다.
+
+## 아키텍처 핵심
+
+- **플레인 분리** — 쓰기 경로(관리 API + DB + 빌더)와 읽기 경로(오브젝트 스토리지 + CDN, 정적 파일만)를 완전히 분리. SDK는 관리 API를 절대 호출하지 않습니다.
+- **버전 격리** — 릴리스를 앱 버전 범위에 매핑하고, 클라이언트가 정적 manifest만으로 자기 릴리스를 스스로 선택합니다(서버 라우팅 없음). 신규 키가 구버전 앱에 노출되지 않습니다.
+- **결정적 직렬화** — RFC 8785(JCS) + NFC 정규화 + SHA-256 내용해시. 같은 콘텐츠는 항상 같은 바이트열이므로 불변 캐싱·무손실 롤백·DB만으로 전체 산출물 재생성(재해복구)이 성립합니다.
+- **골든 벡터 계약** — TypeScript 참조 구현이 기대 출력을 언어 무관 JSON으로 방출하고, 4개 SDK가 이를 로드해 바이트·해시·동작 정합을 기계 검증합니다.
+
+## 저장소 구성
+
+```
+src/                  결정적 코어 참조 구현 (TypeScript, 런타임 의존성 0)
+backend/              관리 백엔드 (REST API + 산출물 빌더)
+sdks/                 ios · android · web · flutter SDK
+fixtures/golden/      크로스언어 계약 골든 벡터
+examples/             SPM 플러그인 소비 예제 등
+docker-compose.yml    단일 노드 셀프호스트
+```
+
+## 개발
+
+Node ≥ 23.6 (네이티브 타입 스트리핑 — 빌드 스텝 없음). 코어·백엔드 모두 외부 런타임 의존성이 없습니다.
+
+```bash
+npm test                 # 코어 참조 구현 테스트
+npm run test:backend     # 관리 백엔드 테스트
+npm run gen:golden       # 골든 벡터 재생성 (스키마/알고리즘 변경 시)
+swift test               # sdks/ios
+gradle test              # sdks/android
+node --test "test/*.test.ts"   # sdks/web
+dart test                # sdks/flutter
+```
+
+## 라이선스
+
+[Apache-2.0](LICENSE) — SDK·서버·어드민 전체 단일 라이선스. 기능 게이팅이나
+엔터프라이즈 전용 기능 없이 코어만으로 기능적으로 완전한 제품입니다.

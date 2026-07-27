@@ -14,6 +14,7 @@ Package.resolved
 # Gradle / Kotlin
 .gradle/
 build/
+bin/
 
 # Dart / Flutter
 .dart_tool/
@@ -24,5 +25,7 @@ pubspec.lock
 *.db
 *.db-journal
 
-# 핸드오버 문서(SoT=Craft 기획서에 유지)
+# 내부 문서(SoT=Craft 문서로 이전, 로컬에만 유지)
 HANDOVER.md
+CLAUDE.md
+OPERATIONS.md
