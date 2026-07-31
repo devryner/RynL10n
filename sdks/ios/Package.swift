@@ -19,6 +19,8 @@ let package = Package(
         .executableTarget(name: "rynl10n-bake", dependencies: ["RynL10n"]),
         // build tool plugin: vendored 스냅샷을 prebuild에 bake(에어갭·샌드박스 적합).
         .plugin(name: "RynL10nBakePlugin", capability: .buildTool(), dependencies: ["rynl10n-bake"]),
-        .testTarget(name: "RynL10nTests", dependencies: ["RynL10n"]),
+        // 리소스는 bake 산출물이 앱 번들에 들어간 모습을 그대로 흉내낸다(번들 로더 검증용).
+        .testTarget(name: "RynL10nTests", dependencies: ["RynL10n"],
+                    resources: [.copy("Fixtures/snapshot.json"), .copy("Fixtures/rynl10n.lock")]),
     ]
 )

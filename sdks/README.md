@@ -14,9 +14,15 @@ M0 TS 참조 구현이 정규화·해시·resolve·매칭·포맷·라우팅의 
 
 ## iOS (`sdks/ios`, Swift 6)
 
+> **기존 앱에 붙이려면 [`ios/README.md`](ios/README.md)** — 서버 준비부터 Xcode 연결·런타임 갱신까지 단계별 가이드.
+
 - 런타임 의존성 0. 해싱은 CryptoKit(Apple), 문자열 정규화는 `precomposedStringWithCanonicalMapping`(NFC).
 - 공개 API: `RynL10nClient(bundle:store:context:)` · `t(_:args:locale:)`(동기) · `onCatalogUpdated` · `refresh(manifest:)` · `status()`.
-- 빌드·테스트: `cd sdks/ios && swift test` (12개: 골든 8 + 시나리오 A/B/C + 충돌 검사).
+- **번들 로드**: `Snapshot.baked(in:)` — 빌드 플러그인이 구운 `snapshot.json`을 리소스 번들에서 읽는다(`BakedLockfile.baked(in:)`은 진단용).
+- **배포 플레인 접근**: `RemoteDeliveryStore(baseURL:project:)` — manifest(ETag·짧은 TTL) + 산출물(내용해시·영구 캐시)을
+  HTTP로 받아 디스크에 캐싱한다. `update(_:)` 한 번이 조회→선택→다운로드→원자적 스왑 전체를 처리하며,
+  오프라인이면 마지막 캐시로 진행한다. 동기 프로토콜(`DeliveryStore`) 조회는 **캐시만** 본다(네트워크 대기 없음).
+- 빌드·테스트: `cd sdks/ios && swift test` (34개: 골든 + 시나리오 A/B/C + 충돌 검사 + 원격 배포 12).
 
 ```swift
 let client = RynL10nClient(bundle: bakedSnapshot, store: cdnStore,
@@ -83,7 +89,13 @@ gradle rynl10nBake -Pfetch=<url> -Ptoken=<t> -Pcache=<p> -Pout=<out-dir>
 )
 ```
 검증: `examples/ios-consumer`를 `swift build`하면 `[rynl10n] bake 완료` 후 `Consumer_Consumer.bundle`에
-`snapshot.json`+`rynl10n.lock`이 자동 포함된다(커밋할 파일도, 잊어버릴 릴리스 단계도 없음).
+`snapshot.json`+`rynl10n.lock`이 자동 포함되고, `swift run Consumer`가 그 번들을 로드해 조회까지 수행한다
+(커밋할 파일도, 잊어버릴 릴리스 단계도 없음).
+
+**Xcode 앱 타깃(`.xcodeproj`)** 은 `BuildToolPlugin`만으로는 플러그인이 붙지 않는다 → 플러그인이
+`XcodeBuildToolPlugin`을 함께 구현하며, 타깃의 입력 파일에서 `rynl10n/release-snapshot.json`을 찾는다.
+연결은 타깃 → Build Phases → **Run Build Tool Plug-ins**. (이 경로는 실제 Xcode 앱 빌드로는 미검증 —
+`ios/README.md` §8 참조.)
 
 **Android — Gradle 태스크(AGP preBuild 연결).** `rynl10nBake` 태스크를 앱 모듈의 `preBuild`에 의존시키고
 출력을 `assets/`(또는 res)로 지정한다. CI에서는 `--fetch`로 최신 스냅샷을 받고, 앱 빌드는 로컬 캐시로 진행:
@@ -125,4 +137,7 @@ key_unresolved/delta_failed)**. 클라이언트 `installId`(카나리)·`telemet
 ## 남은 작업 (앱 환경 필요)
 
 - 실제 Xcode 앱 타깃·AGP 앱 모듈에서의 end-to-end 통합(위젯 렌더·리소스 병합)은 각 플랫폼 앱 프로젝트에서.
+  iOS는 SwiftPM 경로가 실서버 대상까지 검증됐고(`ios/README.md` §6), Xcode 타깃 경로는 코드만 준비된 상태.
+- Android·Web·Flutter에는 iOS의 `RemoteDeliveryStore`(배포 플레인 HTTP 참조 구현)에 해당하는 것이 아직 없다 —
+  앱이 직접 manifest·산출물을 받아 `DeliveryStore`에 채워야 한다.
 - 카나리 실제 활성화(rollout<100)는 8.4 프라이버시 법무 승인 대기 — 코드 완비, 안전 기본값 rollout 100.

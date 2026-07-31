@@ -54,6 +54,11 @@ public final class RynL10nClient: @unchecked Sendable {
         self.activeBundle = bundle
     }
 
+    /// 이 클라이언트의 버전 매칭 컨텍스트(앱 버전·빌드넘버 등).
+    /// 원격 갱신기(`RemoteDeliveryStore.update`)가 **받아야 할 산출물을 미리 고르기 위해** 읽는다 —
+    /// 릴리스 선택 규칙이 클라이언트 안에만 있으면 갱신기가 불필요한 스냅샷까지 내려받게 된다.
+    public var clientContext: Matching.ClientContext { context }
+
     /// 배포 건전성 익명 집계 카운트(9.3).
     public struct TelemetryCounts: Sendable, Equatable {
         public var overlayApplied = 0, formatGuardRejected = 0, keyUnresolved = 0, deltaFailed = 0
