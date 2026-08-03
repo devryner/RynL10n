@@ -32,12 +32,22 @@ client.refresh(manifest: manifest)          // 원격 오버레이 적용
 let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallback
 ```
 
-## Android (`sdks/android`, Kotlin/JVM)
+## Android (`sdks/android`, Kotlin/JVM + AAR)
 
-- 순수 Kotlin/JVM 공통 코어 — **Android SDK/AGP 없이 JVM에서 테스트 가능**. 해싱은 `MessageDigest`, NFC는 `java.text.Normalizer`.
+> **기존 앱에 붙이려면 [`android/README.md`](android/README.md)** — 서버 준비부터 bake 연결·런타임 갱신까지 단계별 가이드.
+
+- 코어는 순수 Kotlin/JVM — **Android SDK/AGP 없이 JVM에서 테스트 가능**. 해싱은 `MessageDigest`, NFC는 `java.text.Normalizer`.
 - 직렬화는 kotlinx.serialization. 공개 API는 iOS와 대칭(`RynL10nClient.t/onCatalogUpdated/refresh/status`).
-- 빌드·테스트: `cd sdks/android && gradle test` (12개, 동일 골든 벡터).
-- Android 특화 바인딩(`Context.getString` 래퍼, Compose `stringResource`, `StateFlow`)은 AGP 필요 → 별도 모듈로 후속.
+- **번들 로드**: `BakedBundle.snapshot(dir)`(JVM) · `BakedBundle.fromAssets(context)`(AAR) — bake 산출물을 assets에서 읽는다.
+- **배포 플레인 접근**: `RemoteDeliveryStore(baseUrl, project, cacheDir)` — manifest(ETag) + 산출물(내용해시·영구 캐시)을
+  HTTP로 받아 디스크에 캐싱한다. `update(client)` 한 번이 조회→선택→다운로드→원자적 스왑 전체를 처리하며,
+  오프라인이면 마지막 캐시로 진행한다. 동기 인터페이스(`DeliveryStore`) 조회는 **캐시만** 본다(네트워크 대기 없음).
+  iOS와 동작이 대칭이나 스왑 스레드만 다르다 — 호출한 코루틴 컨텍스트에서 스왑하고, 통지는 `StateFlow`로 흐른다.
+- **Android 바인딩**(`library/`, AAR): `RynL10n.configure/t/update` 파사드 · `Context.rynl10n(key)` · Compose `rynl10nString(key)`.
+  Compose 런타임은 `compileOnly`라 Compose를 쓰지 않는 앱에 딸려 들어가지 않는다.
+- 빌드·테스트: `cd sdks/android && ./gradlew test` (40개: 골든 + 시나리오 + **배포 플레인 9** + **번들 로더 8**) ·
+  `./gradlew :library:assembleRelease` (AAR) · `./gradlew :library:publishToMavenLocal`.
+- 툴체인: AGP 8.7.3 / Gradle 8.11.1(wrapper) / Kotlin 2.1.0 / minSdk 26.
 
 ## 플랫폼 공통 매핑 (기획서 절)
 
@@ -136,8 +146,9 @@ key_unresolved/delta_failed)**. 클라이언트 `installId`(카나리)·`telemet
 
 ## 남은 작업 (앱 환경 필요)
 
-- 실제 Xcode 앱 타깃·AGP 앱 모듈에서의 end-to-end 통합(위젯 렌더·리소스 병합)은 각 플랫폼 앱 프로젝트에서.
+- 실제 Xcode 앱 타깃·Android 앱 모듈에서의 end-to-end 통합(위젯 렌더·리소스/assets 병합)은 각 플랫폼 앱 프로젝트에서.
   iOS는 SwiftPM 경로가 실서버 대상까지 검증됐고(`ios/README.md` §6), Xcode 타깃 경로는 코드만 준비된 상태.
-- Android·Web·Flutter에는 iOS의 `RemoteDeliveryStore`(배포 플레인 HTTP 참조 구현)에 해당하는 것이 아직 없다 —
-  앱이 직접 manifest·산출물을 받아 `DeliveryStore`에 채워야 한다.
+  Android는 AAR 빌드·로컬 퍼블리시까지 검증됐고 앱 모듈 통합은 미검증(`android/README.md` §7).
+- **Web·Flutter**에는 iOS·Android의 `RemoteDeliveryStore`(배포 플레인 HTTP 구현)에 해당하는 것이 아직 없다 —
+  앱이 직접 manifest·산출물을 받아 `DeliveryStore`에 채워야 한다. (Web은 `HttpRynL10n`이 폴링까지 처리한다.)
 - 카나리 실제 활성화(rollout<100)는 8.4 프라이버시 법무 승인 대기 — 코드 완비, 안전 기본값 rollout 100.

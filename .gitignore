@@ -29,3 +29,6 @@ pubspec.lock
 HANDOVER.md
 CLAUDE.md
 OPERATIONS.md
+
+# Android 로컬 SDK 경로(환경마다 다름 — ANDROID_HOME으로도 해결됨)
+local.properties

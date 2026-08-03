@@ -40,6 +40,9 @@ class RynL10nClient(
     private val installId: String? = null,       // 카나리(8.4) — 서버 미전송
     private val telemetry: String = "off",        // off | aggregate
 ) {
+    /** 릴리스 판정 입력(4.3). 배포 플레인 구현이 manifest에서 릴리스를 고를 때 읽는다. */
+    val clientContext: Matching.ClientContext get() = context
+
     private val lock = ReentrantLock()
     private var activeBundle: Snapshot = bundle
     private var overlay = OverlayLayer()

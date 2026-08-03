@@ -29,7 +29,7 @@
 | 플랫폼 | SDK | 빌드타임 자동 번들링 | 반응형 바인딩 |
 | --- | --- | --- | --- |
 | iOS | Swift 6 / SPM (`sdks/ios`) — [**앱 적용 가이드**](sdks/ios/README.md) | SPM build tool plugin | SwiftUI Combine |
-| Android | Kotlin / Gradle (`sdks/android`) | Gradle task | StateFlow |
+| Android | Kotlin / AAR (`sdks/android`) — [**앱 적용 가이드**](sdks/android/README.md) | Gradle task | StateFlow · Compose |
 | Web | TypeScript (`sdks/web`) | 번들러 연동 | React 어댑터 |
 | Flutter | 순수 Dart (`sdks/flutter`) | build hook | ValueListenable |
 
