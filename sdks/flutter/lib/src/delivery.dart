@@ -49,6 +49,64 @@ class MemoryArtifactCache implements ArtifactCache {
   void clear() => _entries.clear();
 }
 
+/// 앱이 이미 쓰는 키-값 저장소를 [ArtifactCache]로 감싼다 — **SDK가 저장소 패키지를 고르지
+/// 않기 위한 이음새**다. 웹은 `package:web`의 `window.localStorage`, 모바일은
+/// `shared_preferences`, 서버는 파일… 무엇이든 세 개의 클로저로 꽂으면 된다.
+///
+/// ```dart
+/// import 'package:web/web.dart' as web;
+///
+/// final cache = CallbackArtifactCache(
+///   read: (k) => web.window.localStorage.getItem('rynl10n:shop:$k'),
+///   write: (k, v) => web.window.localStorage.setItem('rynl10n:shop:$k', v),
+///   clear: () => web.window.localStorage.clear(),
+/// );
+/// ```
+///
+/// 저장소가 던지는 실패(사생활 모드·용량 초과·권한)는 **조용히 삼킨다** — 캐시는 가속일 뿐이고
+/// 번들 fallback이 항상 살아 있어 번역 공백이 생기지 않는다(3.1). `dart:io`·`package:web`에
+/// 의존하지 않으므로 이 클래스는 코어에 있다.
+class CallbackArtifactCache implements ArtifactCache {
+  final String? Function(String name) _read;
+  final void Function(String name, String text) _write;
+  final void Function() _clear;
+
+  CallbackArtifactCache({
+    required String? Function(String name) read,
+    required void Function(String name, String text) write,
+    required void Function() clear,
+  })  : _read = read,
+        _write = write,
+        _clear = clear;
+
+  @override
+  String? read(String name) {
+    try {
+      return _read(name);
+    } catch (_) {
+      return null; // 읽기 실패는 캐시 미스와 같다
+    }
+  }
+
+  @override
+  void write(String name, String text) {
+    try {
+      _write(name, text);
+    } catch (_) {
+      // 용량 초과·사생활 모드 — 캐시 없이 계속 진행한다.
+    }
+  }
+
+  @override
+  void clear() {
+    try {
+      _clear();
+    } catch (_) {
+      /* 무시 */
+    }
+  }
+}
+
 enum DeliveryErrorKind {
   /// 2xx가 아닌 응답.
   badStatus,

@@ -30,7 +30,23 @@ docker compose up          # 단일 노드 셀프호스트 (9.1)
 
 - **관리 플레인** (`:8787`, 쓰기, 인증) — REST API. DB(SoT) + 산출물 빌더.
 - **배포 플레인** (`:8788`, 읽기, 정적) — 스냅샷·델타·manifest만 서빙. 애플리케이션 서버 없음.
+  구현은 `src/storage/delivery-server.ts`(관리 API와 코드 경로 완전 분리).
 - SDK 런타임은 배포 플레인만 읽고 관리 API는 절대 호출하지 않음 → 관리 서버가 죽어도 기존 배포는 계속 서빙.
+
+### 배포 플레인이 CDN처럼 굴기 위한 두 가지
+
+참조 서버는 실제 CDN/S3가 공짜로 주는 동작을 그대로 낸다. 둘 중 하나만 빠져도 SDK는 죽지 않지만
+갱신 경로가 **조용히** 반쪽이 된다 — 그래서 계약 테스트(`test/delivery-plane.test.ts`)로 못박아 뒀다.
+
+- **ETag + 조건부 요청(304)**: manifest는 짧은 TTL이라 폴링마다 재검증된다. validator가 없으면
+  `If-None-Match`가 성립할 수 없어 매번 전량 재다운로드가 된다. ETag는 산출물 바이트의 내용해시라
+  같은 내용 → 같은 검증자(결정성). `*`·목록·약한 검증자(`W/`)를 모두 이해한다(RFC 9110 §13.1.2).
+- **CORS**: 브라우저 SDK(Web·Flutter Web)는 보통 다른 오리진에 있다. `Access-Control-Allow-Origin`
+  (기본 `*`, `RYNL10N_DELIVERY_ALLOW_ORIGIN`으로 조정) + **`Access-Control-Expose-Headers: ETag`**
+  (안전목록 헤더가 아니라 노출하지 않으면 JS가 못 읽는다) + `Access-Control-Allow-Headers:
+  If-None-Match`(preflight 유발 헤더). 자세한 운영 지침은 `OPERATIONS.md`.
+
+읽기 전용이라 `GET`·`HEAD`·`OPTIONS` 외 메서드는 405다.
 
 ## 데이터 모델 (5 / 7.4)
 

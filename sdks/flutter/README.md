@@ -53,14 +53,59 @@ await store.update(client);                  // 앱 시작 직후·포그라운�
   않는다. `update()`가 산출물을 먼저 캐시에 채운 뒤 동기 코어를 호출한다.
 - **불변 산출물은 영구 캐시**(내용해시 URL). manifest만 ETag로 재검증하고, 오프라인이면 **마지막
   캐시로 진행**한다. 캐시조차 없으면 `DeliveryException`(`badStatus`·`unavailable`·`malformed`).
-- **`dart:io` 의존은 어댑터에만** 있다. 코어(`rynl10n.dart`)는 `DeliveryFetch`·`ArtifactCache`를
-  주입받는 순수 Dart라, Flutter Web은 `rynl10n_io.dart` 대신 `package:http` 어댑터를 꽂으면 된다.
+- **HTTP·저장소 의존은 어댑터에만** 있다. 코어(`rynl10n.dart`)는 `DeliveryFetch`·`ArtifactCache`를
+  주입받는 순수 Dart다.
 - 번들 로더의 파일 시스템 버전(`loadBakedSnapshot(Directory)`·`loadBakedLockfile`)도 어댑터에 있다.
+
+### 어댑터 진입점 고르기
+
+| 진입점 | HTTP 백엔드 | Flutter Web | 추가 의존성 |
+| --- | --- | --- | --- |
+| `package:rynl10n/rynl10n_io.dart` | `dart:io` `HttpClient` | ✗ (컴파일 불가) | 없음 |
+| `package:rynl10n/rynl10n_http.dart` | `package:http` | ✓ | `http` |
+
+웹을 포함해 하나로 가려면 `rynl10n_http.dart`를 쓴다 — `package:http`가 플랫폼마다 백엔드를
+알아서 고른다(웹=`BrowserClient`/fetch, 그 외=`dart:io`).
+
+```dart
+import 'package:rynl10n/rynl10n.dart';
+import 'package:rynl10n/rynl10n_http.dart';
+import 'package:web/web.dart' as web;
+
+final store = RemoteDeliveryStore(
+  baseUrl: 'https://cdn.example.com',
+  project: 'shop',
+  fetch: httpDeliveryFetch(),              // 웹·모바일·데스크톱·서버 공통
+  cache: CallbackArtifactCache(            // 웹은 파일 시스템이 없다
+    read: (k) => web.window.localStorage.getItem('rynl10n:shop:$k'),
+    write: (k, v) => web.window.localStorage.setItem('rynl10n:shop:$k', v),
+    clear: () => web.window.localStorage.clear(),
+  ),
+);
+```
+
+`CallbackArtifactCache`는 코어에 있고 의존성이 없다 — SDK가 저장소 패키지를 고르지 않기 위한
+이음새라, 모바일에서 `shared_preferences`를 꽂는 데도 같은 클래스를 쓴다. 저장소가 던지는 실패
+(사생활 모드·용량 초과)는 조용히 삼킨다.
+
+### 브라우저에서 반드시 확인할 것 — 배포 플레인 CORS
+
+배포 플레인이 앱과 다른 오리진이면(= CDN을 쓰면 거의 항상) 다음 응답 헤더가 필요하다.
+셀프호스트 참조 서버는 이미 셋 다 보낸다(`backend/src/storage/delivery-server.ts`).
+
+- `Access-Control-Allow-Origin` — 없으면 브라우저가 응답 자체를 막는다.
+- `Access-Control-Expose-Headers: ETag` — **ETag는 CORS 안전목록 응답 헤더가 아니다.** 노출하지
+  않으면 JS가 `etag`를 읽지 못해 조건부 요청이 영영 성립하지 않는다(동작은 하지만 폴링마다
+  manifest를 전량 다시 받는다).
+- `Access-Control-Allow-Headers: If-None-Match` — 이 요청 헤더는 preflight를 유발한다.
+
+헤더가 없어도 SDK는 죽지 않는다 — etag가 null이면 조건부 요청을 생략하고, 응답이 막히면 마지막
+캐시(또는 번들 fallback)로 진행한다.
 
 ## 검증
 
 ```bash
-cd sdks/flutter && dart pub get && dart test   # 골든 10 + 시나리오 5 + 앱 적용 경로 19 = 34 tests
+cd sdks/flutter && dart pub get && dart test   # 골든 10 + 시나리오 5 + 앱 적용 경로 19 + http 어댑터 6 = 40 tests
 ```
 
 ## M4 기능

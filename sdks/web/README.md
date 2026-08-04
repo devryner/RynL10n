@@ -62,6 +62,20 @@ sdk.clearCache();                                   // 로그아웃·프로젝�
 - 진단·수동 갱신용으로 `loadManifest()`는 실패를 `DeliveryError`(`bad-status` · `unavailable` ·
   `malformed`)로 던진다.
 
+### ③ 배포 플레인 CORS (교차 오리진이면 필수)
+
+배포 플레인이 앱과 다른 오리진이면(= CDN을 쓰면 거의 항상) 다음 응답 헤더가 필요하다.
+셀프호스트 참조 서버는 이미 셋 다 보낸다(`backend/src/storage/delivery-server.ts`).
+
+- `Access-Control-Allow-Origin` — 없으면 브라우저가 응답 자체를 막는다.
+- `Access-Control-Expose-Headers: ETag` — **ETag는 CORS 안전목록 응답 헤더가 아니다.** 노출하지
+  않으면 `res.headers.get("etag")`가 `null`이라 조건부 요청이 영영 성립하지 않는다(동작은 하지만
+  폴링마다 manifest를 전량 다시 받는다).
+- `Access-Control-Allow-Headers: If-None-Match` — 이 요청 헤더는 preflight(OPTIONS)를 유발한다.
+
+헤더가 없어도 SDK는 죽지 않는다 — etag가 없으면 조건부 요청을 생략하고, 응답이 막히면 마지막
+캐시(또는 번들 fallback)로 진행한다.
+
 ### 실시간 푸시 (옵트인, M4)
 
 ```ts

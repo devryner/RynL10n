@@ -72,10 +72,13 @@ let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallbac
   파싱이 아니라 **검증**이 요점. 파일 시스템 버전은 `loadBakedSnapshot(Directory)`.
 - **배포 플레인 접근**: `RemoteDeliveryStore(baseUrl:project:fetch:cache:)` — `update(client)` 한 번이
   조회→선택→다운로드→원자적 스왑 전체를 처리하고, 오프라인이면 마지막 캐시로 진행한다.
-- **`dart:io` 의존은 어댑터에만**: 코어는 `DeliveryFetch`·`ArtifactCache`를 주입받는 순수 Dart이고,
-  기본 구현(`ioDeliveryFetch()`·`FileArtifactCache`)은 별도 진입점 `package:rynl10n/rynl10n_io.dart`에 있다
-  → Flutter Web은 `package:http` 어댑터를 꽂으면 나머지 동작이 동일하다.
-- 빌드·테스트: `cd sdks/flutter && dart pub get && dart test` (34개: 골든·시나리오 + **앱 적용 경로 19**).
+- **HTTP·저장소 의존은 어댑터에만**: 코어는 `DeliveryFetch`·`ArtifactCache`를 주입받는 순수 Dart이고,
+  구현은 진입점 둘 중 하나를 고른다 — `rynl10n_io.dart`(`dart:io`, 추가 의존성 0, 웹 불가) ·
+  **`rynl10n_http.dart`(`package:http`, Flutter Web 포함 전 플랫폼)**.
+- **웹 영속 캐시**: 파일 시스템이 없으므로 `CallbackArtifactCache`(코어, 의존성 0)에 앱이 이미 쓰는
+  저장소를 꽂는다(웹=`localStorage`, 모바일=`shared_preferences`). SDK가 저장소 패키지를 고르지 않는다.
+- 빌드·테스트: `cd sdks/flutter && dart pub get && dart test` (40개: 골든·시나리오 + **앱 적용 경로 19** +
+  **http 어댑터 6**).
 
 ## 플랫폼 공통 매핑 (기획서 절)
 
@@ -87,7 +90,7 @@ let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallbac
 | 2계층 resolve·포맷 가드 | 3.1 | `Resolve.swift` `Placeholder.swift` | `Resolve.kt` `Placeholder.kt` | `resolve.dart` `placeholder.dart` |
 | 런타임 클라이언트 | 6.1/6.4 | `RynL10n.swift` | `RynL10n.kt` | `client.dart` |
 | 번들 로더 | 6.3 | `BakedBundle.swift` | `BakedBundle.kt` | `baked.dart` |
-| 배포 플레인 HTTP | 6.4/7.2 | `RemoteDelivery.swift` | `RemoteDelivery.kt` | `delivery.dart` + `io_adapters.dart` |
+| 배포 플레인 HTTP | 6.4/7.2 | `RemoteDelivery.swift` | `RemoteDelivery.kt` | `delivery.dart` + `io_adapters.dart` / `http_adapter.dart` |
 
 > Web은 이식이 아니라 **참조 구현(`src/`)을 직접 import**하므로 이 표의 대응물이 없다.
 > 앱 적용 경로만 자체 구현이다(`web/src/baked.ts` · `web/src/http.ts` · `web/src/cache.ts`).
@@ -182,6 +185,7 @@ key_unresolved/delta_failed)**. 클라이언트 `installId`(카나리)·`telemet
 - 실제 Xcode 앱 타깃·Android 앱 모듈에서의 end-to-end 통합(위젯 렌더·리소스/assets 병합)은 각 플랫폼 앱 프로젝트에서.
   iOS는 SwiftPM 경로가 실서버 대상까지 검증됐고(`ios/README.md` §6), Xcode 타깃 경로는 코드만 준비된 상태.
   Android는 AAR 빌드·로컬 퍼블리시까지 검증됐고 앱 모듈 통합은 미검증(`android/README.md` §7).
-- **Flutter Web**: 코어는 순수 Dart라 그대로 돌지만 기본 어댑터(`rynl10n_io.dart`)는 `dart:io`를 쓴다 →
-  `package:http` 등으로 `DeliveryFetch`를 채우는 어댑터는 앱이 고른다(SDK가 HTTP 패키지를 강제하지 않는다).
+- **브라우저 실기 검증**: Web·Flutter Web 경로는 어댑터 계약까지 기계 검증했으나(요청 헤더·응답 매핑·
+  갱신 사이클), 실제 브라우저에서의 end-to-end는 앱 프로젝트 몫이다. 배포 플레인 CORS는 참조 서버가
+  이미 갖췄고 계약 테스트로 못박아 뒀다(`backend/test/delivery-plane.test.ts`).
 - 카나리 실제 활성화(rollout<100)는 8.4 프라이버시 법무 승인 대기 — 코드 완비, 안전 기본값 rollout 100.

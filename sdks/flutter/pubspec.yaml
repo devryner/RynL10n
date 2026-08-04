@@ -9,6 +9,7 @@ environment:
 dependencies:
   crypto: ^3.0.0        # SHA-256
   unorm_dart: ^0.3.0    # 유니코드 NFC 정규화(JCS 결정성)
+  http: ^1.2.0          # rynl10n_http.dart 어댑터 전용(웹 포함 전 플랫폼). 코어는 이걸 쓰지 않는다.
 
 dev_dependencies:
   test: ^1.24.0
