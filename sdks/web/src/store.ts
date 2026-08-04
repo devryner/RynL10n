@@ -14,6 +14,8 @@ export interface L10nStore {
   refresh(): Promise<boolean>;
   start(): void;
   stop(): void;
+  /** 영속 캐시 비우기(로그아웃·프로젝트 전환). 번들 fallback은 그대로 남는다. */
+  clearCache(): void;
 }
 
 export function createStore(cfg: WebConfig): L10nStore {
@@ -31,5 +33,6 @@ export function createStore(cfg: WebConfig): L10nStore {
     refresh: () => sdk.refresh(),
     start: () => sdk.start(),
     stop: () => sdk.stop(),
+    clearCache: () => sdk.clearCache(),
   };
 }

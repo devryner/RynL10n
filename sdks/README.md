@@ -49,15 +49,48 @@ let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallbac
   `./gradlew :library:assembleRelease` (AAR) · `./gradlew :library:publishToMavenLocal`.
 - 툴체인: AGP 8.7.3 / Gradle 8.11.1(wrapper) / Kotlin 2.1.0 / minSdk 26.
 
+## Web (`sdks/web`, TypeScript)
+
+> 사용법은 [`web/README.md`](web/README.md).
+
+- 코어 알고리즘은 **참조 구현(`../../src`)을 그대로 재사용** — 이식이 아니라 공유라 정합은 자동이다.
+- 공개 API: `HttpRynL10n`(fetch/ETag 폴링 + SSE 푸시) · `createStore`(React `useSyncExternalStore` 계약).
+- **번들 로드**: `BakedBundle.parse(raw)`(번들러 import 검증) · `BakedBundle.load("/assets")`(정적 자산 fetch,
+  `rynl10n/snapshot.json` → `snapshot.json` 순). 잘못된 JSON은 런타임 깊은 곳이 아니라 이 관문에서 잡힌다.
+- **배포 플레인 접근**: `HttpRynL10n.refresh()`가 조회→선택→다운로드→스왑 전체를 처리한다. 산출물은
+  내용해시 URL이라 **영속 캐시**(기본 `localStorage`, `PersistentCache`로 교체 가능)에 그대로 둔다 →
+  탭을 새로 열거나 오프라인으로 들어와도 마지막 카탈로그가 살아 있다. `clearCache()`로 비운다.
+  `refresh()`는 폴링 루프 자리라 던지지 않고, 진단용 `loadManifest()`가 `DeliveryError`를 던진다.
+- 빌드·테스트: `cd sdks/web && node --test "test/*.test.ts"` (23개: 폴링·푸시 + **앱 적용 경로 18**).
+
+## Flutter (`sdks/flutter`, Dart)
+
+> 사용법은 [`flutter/README.md`](flutter/README.md).
+
+- 순수 Dart 코어라 `dart test`로 검증(Flutter 위젯 불요). NFC=`unorm_dart`, SHA-256=`crypto`.
+- **번들 로드**: `parseBakedSnapshot(text)` — Flutter 자산은 문자열로 오므로(`rootBundle.loadString`)
+  파싱이 아니라 **검증**이 요점. 파일 시스템 버전은 `loadBakedSnapshot(Directory)`.
+- **배포 플레인 접근**: `RemoteDeliveryStore(baseUrl:project:fetch:cache:)` — `update(client)` 한 번이
+  조회→선택→다운로드→원자적 스왑 전체를 처리하고, 오프라인이면 마지막 캐시로 진행한다.
+- **`dart:io` 의존은 어댑터에만**: 코어는 `DeliveryFetch`·`ArtifactCache`를 주입받는 순수 Dart이고,
+  기본 구현(`ioDeliveryFetch()`·`FileArtifactCache`)은 별도 진입점 `package:rynl10n/rynl10n_io.dart`에 있다
+  → Flutter Web은 `package:http` 어댑터를 꽂으면 나머지 동작이 동일하다.
+- 빌드·테스트: `cd sdks/flutter && dart pub get && dart test` (34개: 골든·시나리오 + **앱 적용 경로 19**).
+
 ## 플랫폼 공통 매핑 (기획서 절)
 
-| 계층 | 기획서 | iOS 파일 | Android 파일 |
-| --- | --- | --- | --- |
-| JCS + SHA-256 | 11.1 | `Serialize.swift` | `Serialize.kt` |
-| SemVer 부분집합 | 11.3 | `SemVer.swift` | `SemVer.kt` |
-| 매칭·충돌·라우팅 | 4.3/8.2/11.3 | `Matching.swift` | `Matching.kt` |
-| 2계층 resolve·포맷 가드 | 3.1 | `Resolve.swift` `Placeholder.swift` | `Resolve.kt` `Placeholder.kt` |
-| 런타임 클라이언트 | 6.1/6.4 | `RynL10n.swift` | `RynL10n.kt` |
+| 계층 | 기획서 | iOS 파일 | Android 파일 | Flutter 파일 |
+| --- | --- | --- | --- | --- |
+| JCS + SHA-256 | 11.1 | `Serialize.swift` | `Serialize.kt` | `jcs.dart` |
+| SemVer 부분집합 | 11.3 | `SemVer.swift` | `SemVer.kt` | `semver.dart` |
+| 매칭·충돌·라우팅 | 4.3/8.2/11.3 | `Matching.swift` | `Matching.kt` | `matching.dart` |
+| 2계층 resolve·포맷 가드 | 3.1 | `Resolve.swift` `Placeholder.swift` | `Resolve.kt` `Placeholder.kt` | `resolve.dart` `placeholder.dart` |
+| 런타임 클라이언트 | 6.1/6.4 | `RynL10n.swift` | `RynL10n.kt` | `client.dart` |
+| 번들 로더 | 6.3 | `BakedBundle.swift` | `BakedBundle.kt` | `baked.dart` |
+| 배포 플레인 HTTP | 6.4/7.2 | `RemoteDelivery.swift` | `RemoteDelivery.kt` | `delivery.dart` + `io_adapters.dart` |
+
+> Web은 이식이 아니라 **참조 구현(`src/`)을 직접 import**하므로 이 표의 대응물이 없다.
+> 앱 적용 경로만 자체 구현이다(`web/src/baked.ts` · `web/src/http.ts` · `web/src/cache.ts`).
 
 ## 빌드타임 자동 번들링 (6.3, 차별점 ①) ✅
 
@@ -149,6 +182,6 @@ key_unresolved/delta_failed)**. 클라이언트 `installId`(카나리)·`telemet
 - 실제 Xcode 앱 타깃·Android 앱 모듈에서의 end-to-end 통합(위젯 렌더·리소스/assets 병합)은 각 플랫폼 앱 프로젝트에서.
   iOS는 SwiftPM 경로가 실서버 대상까지 검증됐고(`ios/README.md` §6), Xcode 타깃 경로는 코드만 준비된 상태.
   Android는 AAR 빌드·로컬 퍼블리시까지 검증됐고 앱 모듈 통합은 미검증(`android/README.md` §7).
-- **Web·Flutter**에는 iOS·Android의 `RemoteDeliveryStore`(배포 플레인 HTTP 구현)에 해당하는 것이 아직 없다 —
-  앱이 직접 manifest·산출물을 받아 `DeliveryStore`에 채워야 한다. (Web은 `HttpRynL10n`이 폴링까지 처리한다.)
+- **Flutter Web**: 코어는 순수 Dart라 그대로 돌지만 기본 어댑터(`rynl10n_io.dart`)는 `dart:io`를 쓴다 →
+  `package:http` 등으로 `DeliveryFetch`를 채우는 어댑터는 앱이 고른다(SDK가 HTTP 패키지를 강제하지 않는다).
 - 카나리 실제 활성화(rollout<100)는 8.4 프라이버시 법무 승인 대기 — 코드 완비, 안전 기본값 rollout 100.
