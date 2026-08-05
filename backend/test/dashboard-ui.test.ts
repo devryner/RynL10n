@@ -359,3 +359,207 @@ test("배포 탭은 배포 플레인 URL로 산출물 링크를 만든다 (플�
   assert.ok(hrefs.some((h) => h === "https://cdn.test/shop/releases/R1/snapshot-aaaa1111bbbb2222.json"));
   assert.ok(hrefs.some((h) => h?.includes("delta-aaaa1111bbbb2222-cccc3333dddd4444.json")));
 });
+
+// ── 검색·필터 ────────────────────────────────────────────────────────────────
+
+const T = "2026-07-27T00:00:00.000Z";
+
+/** 이름·설명·값·상태·미번역이 서로 다른 4개 키 — 필터 축을 하나씩 분리해 검증하기 위한 픽스처. */
+const SEARCH_KEYS = {
+  keys: [
+    {
+      name: "cart.title", signature: "", isPlural: false, refCount: 1,
+      description: "장바구니 화면 상단 제목",
+      translations: {
+        en: { value: "Cart", state: "reviewed", updatedAt: T },
+        ko: { value: "장바구니", state: "draft", updatedAt: T },
+      },
+    },
+    {
+      name: "cart.empty", signature: "", isPlural: false, refCount: 1,
+      description: "비어 있을 때 안내 문구",
+      translations: { en: { value: "Your cart is empty", state: "draft", updatedAt: T } }, // ko 없음
+    },
+    {
+      name: "checkout.pay", signature: "", isPlural: false, refCount: 2,
+      description: "결제 버튼 레이블",
+      translations: {
+        en: { value: "Pay now", state: "reviewed", updatedAt: T },
+        ko: { value: "결제하기", state: "reviewed", updatedAt: T },
+      },
+    },
+    {
+      name: "order.count", signature: "", isPlural: true, refCount: 1,
+      description: "주문 개수 안내",
+      translations: {
+        en: { value: { one: "1 order", other: "{n} orders" }, state: "draft", updatedAt: T },
+        ko: { value: "", state: "draft", updatedAt: T }, // 빈 문자열도 미번역으로 본다
+      },
+    },
+  ],
+};
+
+function searchTable() {
+  const t = projectTable();
+  t["GET /projects/shop/keys"] = SEARCH_KEYS;
+  return t;
+}
+
+/** 그리드 본문에 실제로 그려진 키 이름 — td.key의 첫 텍스트 노드가 키 이름이다. */
+function shownKeys(app: any): string[] {
+  const tbody = tags(app, "tbody")[0];
+  if (!tbody) return [];
+  return tbody.children
+    .filter((r: any) => r.tag === "tr")
+    .map((r: any) => r.children[0]?.children?.[0]?.own)
+    .filter((n: any) => typeof n === "string" && n.length > 0);
+}
+
+const searchBox = (app: any) => tags(app, "input").find((i: any) => i.attrs.type === "search")!;
+const byLabel = (app: any, tag: string, label: string) =>
+  tags(app, tag).find((n: any) => n.attrs["aria-label"] === label)!;
+
+async function openSearchProject() {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const calls = installFetch(searchTable());
+  await loadApp();
+  tags(byId.app, "button").find((b) => b.textContent === "shop")!.fire("click");
+  await settle();
+  return { byId, calls };
+}
+
+test("검색: 키 이름·설명·번역 값을 함께 훑는다", async () => {
+  const { byId } = await openSearchProject();
+  assert.deepEqual(shownKeys(byId.app), ["cart.title", "cart.empty", "checkout.pay", "order.count"]);
+
+  const q = searchBox(byId.app);
+  q.value = "cart.";                       // ① 키 이름
+  q.fire("input");
+  assert.deepEqual(shownKeys(byId.app), ["cart.title", "cart.empty"]);
+
+  q.value = "결제하기";                     // ② 번역 값으로 키를 되찾는 경로
+  q.fire("input");
+  assert.deepEqual(shownKeys(byId.app), ["checkout.pay"]);
+
+  q.value = "안내";                        // ③ 설명
+  q.fire("input");
+  assert.deepEqual(shownKeys(byId.app), ["cart.empty", "order.count"]);
+
+  q.value = "{n} orders";                  // ④ 복수형 값(CLDR 맵)도 검색 대상
+  q.fire("input");
+  assert.deepEqual(shownKeys(byId.app), ["order.count"]);
+});
+
+test("검색은 대소문자를 무시하고 한글은 NFC로 맞춰 비교한다 (11.1 정규화와 정합)", async () => {
+  const { byId } = await openSearchProject();
+  const q = searchBox(byId.app);
+
+  q.value = "PAY NOW";
+  q.fire("input");
+  assert.deepEqual(shownKeys(byId.app), ["checkout.pay"], "대소문자 무시");
+
+  // 조합형(NFD)으로 입력해도 NFC로 저장된 값을 찾아야 한다.
+  q.value = "장바구니".normalize("NFD");
+  q.fire("input");
+  assert.deepEqual(shownKeys(byId.app), ["cart.title"], "NFD 입력도 NFC 값과 매칭");
+});
+
+test("검색은 네트워크를 타지 않고 그리드 본문만 교체한다 (입력 포커스 유지 계약)", async () => {
+  const { byId, calls } = await openSearchProject();
+  const before = calls.length;
+  const tbodyBefore = tags(byId.app, "tbody")[0];
+  const q = searchBox(byId.app);
+
+  q.value = "cart";
+  q.fire("input");
+
+  assert.equal(calls.length, before, "클라이언트 측 필터 — 요청이 없어야 한다");
+  assert.equal(tags(byId.app, "tbody")[0], tbodyBefore, "tbody 노드가 유지돼야 한다");
+  assert.equal(searchBox(byId.app), q, "검색 입력이 교체되면 한 글자마다 포커스가 날아간다");
+});
+
+test("미번역만: 값이 없거나 빈 문자열인 키를 남긴다", async () => {
+  const { byId } = await openSearchProject();
+  const cb = byLabel(byId.app, "input", "미번역만 보기");
+
+  cb.checked = true;
+  cb.fire("change");
+  assert.deepEqual(shownKeys(byId.app), ["cart.empty", "order.count"]);
+
+  // 로케일을 좁히면 그 로케일 기준으로만 판정한다(열은 계속 전부 보인다).
+  const locale = byLabel(byId.app, "select", "로케일");
+  locale.value = "en";
+  locale.fire("change");
+  assert.deepEqual(shownKeys(byId.app), [], "en은 모두 번역돼 있다");
+});
+
+test("상태 필터와 검색은 AND로 결합된다", async () => {
+  const { byId } = await openSearchProject();
+  const st = byLabel(byId.app, "select", "상태");
+
+  st.value = "reviewed";
+  st.fire("change");
+  assert.deepEqual(shownKeys(byId.app), ["cart.title", "checkout.pay"]);
+
+  searchBox(byId.app).value = "checkout";
+  searchBox(byId.app).fire("input");
+  assert.deepEqual(shownKeys(byId.app), ["checkout.pay"], "상태 ∧ 검색");
+});
+
+test("결과가 없으면 빈 안내를 보여주고, 초기화가 모든 축을 되돌린다", async () => {
+  const { byId } = await openSearchProject();
+  const q = searchBox(byId.app);
+  q.value = "존재하지-않는-키";
+  q.fire("input");
+
+  assert.deepEqual(shownKeys(byId.app), []);
+  assert.match(byId.app!.textContent, /조건에 맞는 키가 없습니다/);
+
+  byLabel(byId.app, "input", "미번역만 보기").checked = true;
+  tags(byId.app, "button").find((b) => b.textContent === "초기화")!.fire("click");
+
+  assert.deepEqual(shownKeys(byId.app), ["cart.title", "cart.empty", "checkout.pay", "order.count"]);
+  assert.equal(searchBox(byId.app).value, "", "입력칸도 비워져야 한다");
+});
+
+test("필터는 편집 후 재렌더에도 유지된다", async () => {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const table = searchTable();
+  table["PUT /projects/shop/translations/checkout.pay/ko"] = { key: "checkout.pay", locale: "ko", value: "결제", state: "reviewed" };
+  installFetch(table);
+  await loadApp();
+  tags(byId.app, "button").find((b) => b.textContent === "shop")!.fire("click");
+  await settle();
+
+  const q = searchBox(byId.app);
+  q.value = "checkout";
+  q.fire("input");
+  assert.deepEqual(shownKeys(byId.app), ["checkout.pay"]);
+
+  // 셀 편집 → refresh()가 전체를 다시 그린다. 필터가 풀리면 사용자는 자리를 잃는다.
+  const cell = tags(byId.app, "input").find((i) => i.value === "결제하기")!;
+  cell.value = "결제";
+  cell.blur();
+  await settle();
+
+  assert.equal(searchBox(byId.app).value, "checkout", "검색어가 유지돼야 한다");
+  assert.deepEqual(shownKeys(byId.app), ["checkout.pay"], "필터 결과도 유지");
+});
+
+test("프로젝트를 다시 열면 필터는 초기화된다", async () => {
+  const { byId } = await openSearchProject();
+  const q = searchBox(byId.app);
+  q.value = "checkout";
+  q.fire("input");
+  assert.deepEqual(shownKeys(byId.app), ["checkout.pay"]);
+
+  tags(byId.app, "button").find((b) => b.textContent === "← 프로젝트 목록")!.fire("click");
+  await settle();
+  tags(byId.app, "button").find((b) => b.textContent === "shop")!.fire("click");
+  await settle();
+
+  assert.equal(searchBox(byId.app).value, "", "다른 프로젝트는 키·로케일이 달라 필터를 물고 가면 안 된다");
+  assert.equal(shownKeys(byId.app).length, 4);
+});

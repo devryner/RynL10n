@@ -96,6 +96,9 @@ const EXPLAIN = {
 
 // ── 상태 ─────────────────────────────────────────────────────────────────────
 
+/** 번역 그리드 필터의 초기값 — 프로젝트를 바꾸면 이 값으로 되돌린다. */
+const emptyFilter = () => ({ q: "", locale: "", onlyMissing: false, state: "" });
+
 const state = {
   token: localStorage.getItem("rynl10n.token") ?? "",
   me: null,          // {actor, role, projects, deliveryBaseUrl}
@@ -108,6 +111,7 @@ const state = {
   history: [],
   tab: "translations",
   live: false,
+  filter: emptyFilter(), // 번역 탭 검색·필터(클라이언트 측 — 키 목록은 이미 전부 받아온다)
 };
 
 const ROLE_CAPS = {
@@ -258,6 +262,7 @@ function renderProjects() {
 
 async function openProject(id) {
   state.projectId = id;
+  state.filter = emptyFilter(); // 프로젝트마다 키·로케일이 다르므로 필터를 물고 넘어가지 않는다
   const [project, keys, releases] = await Promise.all([
     api("GET", `/projects/${enc(id)}`),
     api("GET", `/projects/${enc(id)}/keys`),
@@ -315,9 +320,53 @@ function renderProject() {
 
 // ── 탭: 번역 ────────────────────────────────────────────────────────────────
 
+/** 번역 값을 검색·표시용 문자열로 — 복수형은 CLDR 카테고리 맵이라 JSON 문자열로 본다. */
+function valueText(t) {
+  if (t === undefined) return "";
+  return typeof t.value === "string" ? t.value : JSON.stringify(t.value);
+}
+
+/**
+ * 검색어 정규화 — NFC로 맞춘 뒤 소문자화.
+ * 저장 포맷이 NFC라(11.1) 조합형으로 입력된 검색어도 같은 키를 찾게 하려면 여기서도 NFC를 맞춰야 한다.
+ */
+const norm = (s) => String(s ?? "").normalize("NFC").toLowerCase();
+
+/** 값이 비어 있으면 미번역 — 키가 아예 없는 경우와 빈 문자열을 같게 본다. */
+const isMissing = (t) => t === undefined || t.value === "" || t.value === undefined;
+
+/**
+ * 키 한 줄이 현재 필터를 통과하는지.
+ * 로케일 선택은 "미번역·상태 조건을 어느 로케일에 적용할지"만 좁힌다(열 자체는 계속 다 보여준다).
+ */
+function matchesFilter(key, f, locales) {
+  const targets = f.locale ? [f.locale] : locales;
+  if (f.onlyMissing && !targets.some((l) => isMissing(key.translations[l]))) return false;
+  if (f.state && !targets.some((l) => key.translations[l]?.state === f.state)) return false;
+
+  const q = norm(f.q).trim();
+  if (!q) return true;
+  // 키 이름·설명·모든 로케일 값을 한 번에 훑는다(번역문으로 키를 되찾는 게 실제 사용 패턴).
+  if (norm(key.name).includes(q) || norm(key.description).includes(q)) return true;
+  return locales.some((l) => norm(valueText(key.translations[l])).includes(q));
+}
+
+function keyRow(key, locales, editable) {
+  return el("tr", {},
+    el("td", { class: "key" }, key.name,
+      key.isPlural ? el("div", {}, el("span", { class: "badge", text: "복수형" })) : null,
+      key.signature ? el("div", { class: "small muted", text: `서명: ${key.signature}` }) : null,
+    ),
+    descriptionCell(key, editable),
+    ...locales.map((l) => translationCell(key, l, editable)),
+    el("td", { class: "small muted", text: `${key.refCount}개` }),
+  );
+}
+
 function tabTranslations() {
   const locales = state.project.locales;
   const editable = can("edit_translation");
+  const f = state.filter;
 
   const head = el("tr", {},
     el("th", { text: "키" }),
@@ -326,15 +375,29 @@ function tabTranslations() {
     el("th", { text: "릴리스" }),
   );
 
-  const rows = state.keys.map((k) => el("tr", {},
-    el("td", { class: "key" }, k.name,
-      k.isPlural ? el("div", {}, el("span", { class: "badge", text: "복수형" })) : null,
-      k.signature ? el("div", { class: "small muted", text: `서명: ${k.signature}` }) : null,
-    ),
-    descriptionCell(k, editable),
-    ...locales.map((l) => translationCell(k, l, editable)),
-    el("td", { class: "small muted", text: `${k.refCount}개` }),
-  ));
+  const tbody = el("tbody");
+  const count = el("span", { class: "hint" });
+
+  /**
+   * 필터 결과만 다시 그린다 — 전체 재렌더(renderProject)를 쓰면 입력 노드가 교체되면서
+   * 한 글자마다 포커스가 날아간다. 그리드 본문만 갈아끼우는 이유가 이것이다.
+   */
+  function paint() {
+    const shown = state.keys.filter((k) => matchesFilter(k, f, locales));
+    count.textContent = shown.length === state.keys.length
+      ? `${state.keys.length}개`
+      : `${shown.length} / ${state.keys.length}개`;
+
+    if (!shown.length) {
+      tbody.replaceChildren(el("tr", {}, el("td", {
+        colspan: String(locales.length + 3), class: "muted empty",
+        text: state.keys.length ? "조건에 맞는 키가 없습니다." : "키가 없습니다. 위에서 추가하세요.",
+      })));
+      return;
+    }
+    tbody.replaceChildren(...shown.map((k) => keyRow(k, locales, editable)));
+  }
+  paint();
 
   return [
     el("div", { class: "panel" },
@@ -347,13 +410,66 @@ function tabTranslations() {
     ),
     el("div", { class: "panel" },
       el("h2", {}, "번역",
-        el("span", { class: "hint", text: "값을 고치고 Enter 또는 포커스 아웃으로 저장합니다" })),
+        el("span", { class: "hint", text: "값을 고치고 Enter 또는 포커스 아웃으로 저장합니다" }),
+        count),
+      filterBar(locales, paint),
       editable ? keyAdder() : null,
-      state.keys.length
-        ? el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, head), el("tbody", {}, ...rows)))
-        : el("p", { class: "muted", text: "키가 없습니다. 위에서 추가하세요." }),
+      el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, head), tbody)),
     ),
   ];
+}
+
+/**
+ * 검색·필터 바. 상태는 state.filter에 두고 여기서는 갱신만 한다 —
+ * 편집 후 refresh()로 전체가 재렌더돼도 필터가 유지돼야 하기 때문.
+ */
+function filterBar(locales, paint) {
+  const f = state.filter;
+
+  const q = el("input", {
+    type: "search", class: "grow", value: f.q,
+    placeholder: "검색 — 키 이름 · 설명 · 번역 값",
+    "aria-label": "번역 검색",
+  });
+  q.addEventListener("input", () => { f.q = q.value; paint(); });
+  // type=search의 네이티브 지우기(×)는 input을 쏘지만, Esc로도 즉시 비울 수 있게 한다.
+  q.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { q.value = ""; f.q = ""; paint(); }
+  });
+
+  const locale = el("select", { "aria-label": "로케일" },
+    el("option", { value: "", text: "모든 로케일" }),
+    ...locales.map((l) => el("option", { value: l, text: l, selected: f.locale === l })),
+  );
+  locale.value = f.locale;
+  locale.addEventListener("change", () => { f.locale = locale.value; paint(); });
+
+  const st = el("select", { "aria-label": "상태" },
+    el("option", { value: "", text: "모든 상태" }),
+    el("option", { value: "draft", text: "draft" }),
+    el("option", { value: "reviewed", text: "reviewed" }),
+  );
+  st.value = f.state;
+  st.addEventListener("change", () => { f.state = st.value; paint(); });
+
+  const missing = el("input", { type: "checkbox", "aria-label": "미번역만 보기", checked: f.onlyMissing });
+  missing.checked = f.onlyMissing; // checked는 속성이 아니라 프로퍼티로 확정한다
+  missing.addEventListener("change", () => { f.onlyMissing = missing.checked; paint(); });
+
+  const reset = el("button", {
+    class: "tiny", text: "초기화",
+    onClick: () => {
+      Object.assign(f, emptyFilter());
+      q.value = ""; locale.value = ""; st.value = ""; missing.checked = false;
+      paint();
+    },
+  });
+
+  return el("div", { class: "row filters" },
+    q, locale, st,
+    el("label", { class: "row small muted" }, missing, "미번역만"),
+    reset,
+  );
 }
 
 /**
@@ -381,7 +497,7 @@ function descriptionCell(key, editable) {
 
 function translationCell(key, locale, editable) {
   const t = key.translations[locale];
-  const raw = t === undefined ? "" : (typeof t.value === "string" ? t.value : JSON.stringify(t.value));
+  const raw = valueText(t);
   const input = el("input", {
     value: raw, disabled: !editable,
     placeholder: key.isPlural ? '{"one":"…","other":"…"}' : "미번역",

@@ -102,6 +102,13 @@ td.cell input { width: 100%; }
 td.desc { min-width: 240px; }
 td.desc textarea { min-height: 44px; font-size: 12.5px; }
 
+td.empty { text-align: center; padding: 20px; }
+
+/* ── 검색·필터 바 ─────────────────────────────────────────────────────────── */
+.filters { margin-bottom: 12px; }
+.filters input[type="search"] { min-width: 200px; }
+.filters label { white-space: nowrap; }
+
 /* ── 배지 ─────────────────────────────────────────────────────────────────── */
 .badge {
   display: inline-block; padding: 1px 7px; border-radius: 999px;
