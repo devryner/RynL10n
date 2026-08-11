@@ -3,7 +3,7 @@
  * 정적 파일 레이아웃: /{project}/manifest.json · /{project}/releases/{r}/snapshot-{hash}.json · delta-{base}-{target}.json
  * 스냅샷·델타는 내용해시 URL(불변). MinIO/S3 대체 가능 — 여기선 로컬 FS 구현.
  */
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { canonicalStringify } from "../../../src/serialize/jcs.ts";
 import type { Snapshot, Delta, Manifest } from "../../../src/core/types.ts";
@@ -14,6 +14,26 @@ export interface ArtifactStore {
   writeManifest(project: string, manifest: Manifest): void;
   readSnapshot(project: string, releaseId: string, base: string): Snapshot | undefined;
   readManifest(project: string): Manifest | undefined;
+  /**
+   * 프로젝트의 산출물 전체 제거. DB에서 프로젝트를 지울 때 함께 호출한다 —
+   * 배포 플레인은 정적 파일만 보고 서빙하므로, 여기 남으면 지워진 프로젝트의 manifest를
+   * SDK에 계속 내주게 된다(4.1의 대가: 읽기 경로에 애플리케이션 로직이 없어 스스로 걸러내지 못한다).
+   */
+  deleteProject(project: string): void;
+}
+
+/**
+ * 프로젝트 id는 URL에서 그대로 들어와 경로 세그먼트가 된다. 경로 순회를 막지 않으면
+ * 쓰기는 스토리지 루트 밖을 오염시키고, 삭제는 루트 밖을 **재귀 삭제**한다.
+ * 세그먼트 하나로 쓸 수 있는 형태만 통과시킨다.
+ */
+function assertSafeSegment(value: string, label: string): void {
+  if (
+    value === "" || value === "." || value === ".." ||
+    value.includes("/") || value.includes("\\") || value.includes("\0")
+  ) {
+    throw new Error(`${label}로 쓸 수 없는 값입니다: ${JSON.stringify(value)}`);
+  }
 }
 
 function snapshotPath(releaseId: string, base: string): string {
@@ -29,6 +49,7 @@ export class FsArtifactStore implements ArtifactStore {
   constructor(root: string) { this.root = root; }
 
   private abs(project: string, rel: string): string {
+    assertSafeSegment(project, "프로젝트 id");
     return join(this.root, project, rel);
   }
   private write(path: string, content: string): void {
@@ -58,6 +79,11 @@ export class FsArtifactStore implements ArtifactStore {
     const p = this.abs(project, "manifest.json");
     if (!existsSync(p)) return undefined;
     return JSON.parse(readFileSync(p, "utf8")) as Manifest;
+  }
+  deleteProject(project: string): void {
+    assertSafeSegment(project, "프로젝트 id");
+    // 산출물이 없는 프로젝트(publish 전)도 정상 경로다 — force로 조용히 넘어간다.
+    rmSync(join(this.root, project), { recursive: true, force: true });
   }
 }
 
@@ -92,6 +118,13 @@ export class MemoryArtifactStore implements ArtifactStore {
   }
   readManifest(project: string): Manifest | undefined {
     return this.manifests.get(project);
+  }
+  deleteProject(project: string): void {
+    const prefix = `${project}/`;
+    for (const map of [this.snapshots, this.deltas] as Map<string, unknown>[]) {
+      for (const k of map.keys()) if (k.startsWith(prefix)) map.delete(k);
+    }
+    this.manifests.delete(project);
   }
 
   /** SDK 런타임이 쓰는 프로젝트 스코프 DeliveryReader(배포 플레인 소비자 시뮬). */

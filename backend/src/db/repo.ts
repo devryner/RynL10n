@@ -75,6 +75,31 @@ export class Repo {
       { id: string; name: string; default_locale: string }[])
       .map((r) => ({ id: r.id, name: r.name, defaultLocale: r.default_locale }));
   }
+  /**
+   * 프로젝트 완전 삭제 — 하위 엔티티까지 한 트랜잭션으로.
+   *
+   * locales·keys·translations·releases·release_keys·published_manifests는 FK의
+   * ON DELETE CASCADE가 처리한다. 반면 **jobs·telemetry·audit_log는 project_id가 FK가 아니라
+   * 평범한 컬럼**이라 카스케이드가 닿지 않는다 — 여기서 명시적으로 지우지 않으면 고아 행이 남고,
+   * 같은 id로 프로젝트를 다시 만들었을 때 남의 이력이 딸려 온다.
+   *
+   * 산출물(배포 플레인) 정리는 이 메서드의 책임이 아니다 — 호출자가
+   * `ArtifactStore.deleteProject`를 함께 불러야 DB와 정적 파일이 어긋나지 않는다.
+   */
+  deleteProject(projectId: string): void {
+    this.db.exec("BEGIN");
+    try {
+      // 테이블명은 리터럴 — 사용자 입력이 SQL 문자열에 섞이지 않는다.
+      for (const table of ["jobs", "telemetry", "audit_log"] as const) {
+        this.db.prepare(`DELETE FROM ${table} WHERE project_id=?`).run(projectId);
+      }
+      this.db.prepare("DELETE FROM projects WHERE id=?").run(projectId);
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+  }
   addLocale(projectId: string, tag: string, fallbackParent?: string): void {
     this.db.prepare("INSERT OR REPLACE INTO locales(project_id,tag,fallback_parent) VALUES(?,?,?)")
       .run(projectId, tag, fallbackParent ?? null);

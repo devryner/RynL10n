@@ -25,6 +25,8 @@ class HttpError extends Error {
 }
 class SignatureMismatchError extends HttpError { constructor(m: string) { super(422, m); } }
 class BadRequestError extends HttpError { constructor(m: string) { super(400, m); } }
+/** 현재 상태와 충돌해 요청을 수행할 수 없음(409). 범위 충돌은 별도 RangeConflictError. */
+class ConflictError extends HttpError { constructor(m: string) { super(409, m); } }
 
 interface Ctx {
   readonly params: Record<string, string>;
@@ -101,6 +103,33 @@ const routes: Route[] = [
     const project = repo.getProject(params.p!);
     if (!project) throw new NotFoundError(`project ${params.p}`);
     return { status: 200, body: { ...project, locales: repo.listLocales(params.p!) } };
+  }),
+
+  // 프로젝트 삭제 — Admin. 되돌릴 수 없다(DB + 산출물).
+  //
+  // published 릴리스가 하나라도 있으면 409로 막는다. 산출물이 사라지면 현장의 SDK는
+  // manifest를 못 받고 구운 번들로 되돌아간다 — 2계층 resolve(3.1) 덕에 앱이 죽지는 않지만
+  // 원격 갱신이 조용히 끊긴다. 그 전환은 실수로 일어나면 안 되므로 archive를 먼저 요구한다.
+  route("DELETE", "/projects/:p", "admin", ({ params, repo, store, principal }) => {
+    const id = params.p!;
+    if (!repo.getProject(id)) throw new NotFoundError(`project ${id}`);
+
+    const releases = repo.listReleases(id);
+    const published = releases.filter((r) => r.state === "published").map((r) => r.id);
+    if (published.length) {
+      throw new ConflictError(
+        `published 릴리스가 있어 삭제할 수 없습니다: ${published.join(", ")} — 먼저 archive 하세요`,
+      );
+    }
+
+    const removed = { keys: repo.listKeyDetails(id).length, releases: releases.length, locales: repo.listLocales(id).length };
+    // 감사 로그는 프로젝트와 함께 지워지므로, 삭제 사실은 지우기 **전에** 남겨도 사라진다.
+    // 삭제 자체의 기록은 구조화 로그(9.3)와 이 응답이 담당한다.
+    repo.audit(id, principal!.actor, "project.delete", removed);
+    // 산출물을 먼저 지운다 — DB만 지우고 실패하면 배포 플레인이 유령 프로젝트를 계속 서빙한다.
+    store.deleteProject(id);
+    repo.deleteProject(id);
+    return { status: 200, body: { id, deleted: true, removed } };
   }),
 
   // 지원 로케일 추가 — Maintainer+. 미등록 로케일의 번역은 카탈로그에서 제외되므로(5.1) 필수 관리 지점.
@@ -408,6 +437,7 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
       const code = err.name === "AuthError" ? (status === 401 ? "unauthorized" : "forbidden")
         : err instanceof RangeConflictError ? "range_conflict"
         : status === 422 ? "signature_mismatch"
+        : status === 409 ? "conflict"
         : status === 404 ? "not_found"
         : status === 400 ? "bad_request" : "internal";
       send(status, { error: { code, message: err.message ?? "error" } });
