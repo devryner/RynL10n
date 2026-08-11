@@ -330,14 +330,23 @@ function defaultLog(entry: Record<string, unknown>): void {
   process.stdout.write(JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n");
 }
 
-/** node:http 서버 생성. 프레임워크 의존성 없음. metrics/log 주입 가능. */
-export function createManagementServer(deps: ServerDeps) {
+/** node:http 요청 핸들러 타입 — 다른 서버에 마운트할 때 쓰는 표면. */
+export type ManagementHandler = (req: IncomingMessage, res: ServerResponse) => void;
+
+/**
+ * 요청 핸들러 생성 — 서버를 직접 만들지 않으므로 **다른 node:http 서버에 얹을 수 있다**.
+ *
+ * 관리 플레인 앞에 자체 계층(예: 별도 어드민 앱, 리버스 프록시 대체 라우팅)을 두려는 소비자를 위한
+ * 표면이다. 관리 API는 CORS를 내보내지 않으므로(교차 오리진으로 열 이유가 없다) 그런 소비자는
+ * 같은 오리진에서 이 핸들러로 위임하게 된다. 프레임워크 의존성 없음. metrics/log 주입 가능.
+ */
+export function createManagementHandler(deps: ServerDeps): ManagementHandler {
   const metrics = deps.metrics ?? new Metrics();
   const notifier = deps.notifier ?? new Notifier();
   const log = deps.log ?? defaultLog;
   const deliveryBaseUrl = deps.deliveryBaseUrl ?? "";
   const serveDashboard = deps.serveDashboard ?? true;
-  return createServer(async (req: IncomingMessage, res: ServerResponse) => {
+  return async (req: IncomingMessage, res: ServerResponse) => {
     const started = performance.now();
     const send = (status: number, body: unknown, contentType = "application/json") => {
       const payload = contentType === "application/json" ? JSON.stringify(body ?? null) : String(body);
@@ -403,7 +412,12 @@ export function createManagementServer(deps: ServerDeps) {
         : status === 400 ? "bad_request" : "internal";
       send(status, { error: { code, message: err.message ?? "error" } });
     }
-  });
+  };
+}
+
+/** node:http 서버 생성. 단일 노드 기동 경로 — 동작은 createManagementHandler와 동일하다. */
+export function createManagementServer(deps: ServerDeps) {
+  return createServer(createManagementHandler(deps));
 }
 
 export { HttpError, Metrics };
