@@ -563,3 +563,112 @@ test("프로젝트를 다시 열면 필터는 초기화된다", async () => {
   assert.equal(searchBox(byId.app).value, "", "다른 프로젝트는 키·로케일이 달라 필터를 물고 가면 안 된다");
   assert.equal(shownKeys(byId.app).length, 4);
 });
+
+// ── 프로젝트 삭제 (DELETE /projects/{p}) ─────────────────────────────────────
+// 되돌릴 수 없는 유일한 작업이라, 검증 대상은 "지워지는가"보다 **함부로 안 지워지는가**다.
+
+const btn = (root: any, label: string) => tags(root, "button").find((b) => b.textContent === label);
+
+/** admin으로 로그인해 프로젝트 목록까지 온 뒤, 삭제 확인 패널을 연다. */
+async function openDeletePanel(table = projectTable()) {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const calls = installFetch(table);
+  await loadApp();
+
+  btn(byId.app, "삭제")!.fire("click");
+  return { byId, calls, table };
+}
+
+test("삭제 확인 패널: 프로젝트 ID를 정확히 입력해야 영구 삭제 버튼이 열린다", async () => {
+  const { byId, calls } = await openDeletePanel();
+
+  const go = btn(byId.app, "영구 삭제")!;
+  assert.equal(go.disabled, true, "패널이 열린 직후에는 잠겨 있어야 한다");
+  assert.match(byId.app!.textContent, /되돌릴 수 없습니다/);
+  assert.match(byId.app!.textContent, /archive/, "409로 막히는 조건을 미리 알려준다");
+
+  const echo = tags(byId.app, "input").find((i) => i.attrs.placeholder === "shop")!;
+  echo.value = "sho"; // 부분 일치로는 열리지 않는다
+  echo.fire("input");
+  assert.equal(go.disabled, true, "ID가 정확히 일치할 때만 열려야 한다");
+
+  echo.value = "shop";
+  echo.fire("input");
+  assert.equal(go.disabled, false);
+
+  assert.ok(!calls.some((c) => c.method === "DELETE"), "확인 전에는 아무것도 보내지 않는다");
+});
+
+test("확인 후 DELETE /projects/{p} 를 호출하고 목록을 다시 읽는다", async () => {
+  const table = projectTable();
+  table["DELETE /projects/shop"] = { id: "shop", deleted: true, removed: { keys: 3, releases: 2, locales: 2 } };
+  const { byId, calls } = await openDeletePanel(table);
+
+  const echo = tags(byId.app, "input").find((i) => i.attrs.placeholder === "shop")!;
+  echo.value = "shop";
+  echo.fire("input");
+  table["GET /projects"] = { projects: [] }; // 삭제 후 서버가 보게 될 상태
+  btn(byId.app, "영구 삭제")!.fire("click");
+  await settle();
+
+  const del = calls.find((c) => c.method === "DELETE")!;
+  assert.equal(del.path, "/projects/shop");
+  assert.equal(del.auth, "Bearer tok-admin");
+  assert.equal(del.body, undefined, "본문 없는 DELETE");
+
+  // 삭제 뒤에는 목록을 다시 읽어 화면과 서버 상태를 맞춘다.
+  assert.ok(calls.slice(calls.indexOf(del)).some((c) => c.method === "GET" && c.path === "/projects"));
+  assert.match(byId.app!.textContent, /아직 프로젝트가 없습니다/);
+
+  const toasts = (globalThis as any).document.getElementById("toasts").textContent;
+  assert.match(toasts, /shop 를 삭제했습니다/);
+  assert.match(toasts, /키 3 · 릴리스 2 · 로케일 2/, "무엇이 사라졌는지 숫자로 남긴다");
+});
+
+test("published 릴리스가 있으면 409로 거절되고 패널이 남아 재시도할 수 있다", async () => {
+  const table = projectTable();
+  table["DELETE /projects/shop"] = Object.assign(
+    new Error("published 릴리스가 있어 삭제할 수 없습니다: R1 — 먼저 archive 하세요"),
+    { status: 409, code: "conflict" },
+  );
+  const { byId, calls } = await openDeletePanel(table);
+
+  const echo = tags(byId.app, "input").find((i) => i.attrs.placeholder === "shop")!;
+  echo.value = "shop";
+  echo.fire("input");
+  btn(byId.app, "영구 삭제")!.fire("click");
+  await settle();
+
+  const toasts = (globalThis as any).document.getElementById("toasts").textContent;
+  assert.match(toasts, /409 — 현재 상태와 충돌/, "generic 409 코드에도 사람 말 설명이 붙어야 한다");
+  assert.match(toasts, /먼저 archive 하세요/, "서버가 알려준 해결 방법을 그대로 보여준다");
+
+  assert.ok(btn(byId.app, "영구 삭제"), "실패해도 패널을 닫지 않는다 — 고치고 되돌아올 수 있다");
+  assert.ok(!calls.some((c) => c.method === "GET" && c.path === "/projects" && calls.indexOf(c) > calls.findIndex((x) => x.method === "DELETE")),
+    "삭제되지 않았으므로 목록을 다시 읽지 않는다");
+});
+
+test("취소는 요청 없이 목록으로 돌아간다 (상세가 없는 화면이라 renderProject로 가면 안 된다)", async () => {
+  const { byId, calls } = await openDeletePanel();
+  const before = calls.length;
+
+  btn(byId.app, "취소")!.fire("click");
+  await settle();
+
+  assert.ok(!calls.some((c) => c.method === "DELETE"));
+  assert.match(byId.app!.textContent, /새 프로젝트/, "프로젝트 목록 화면으로 돌아와야 한다");
+  assert.ok(calls.length > before, "목록을 다시 읽어 최신 상태로 되돌린다");
+});
+
+test("RBAC: admin이 아니면 삭제 버튼 자체가 없다 (7.3 UI 미러)", async () => {
+  for (const role of ["viewer", "translator", "maintainer"]) {
+    const { byId } = installDom();
+    (globalThis as any).localStorage.setItem("rynl10n.token", `tok-${role}`);
+    installFetch(projectTable({ actor: role, role, projects: ["shop"], deliveryBaseUrl: "https://cdn.test" }));
+    await loadApp();
+
+    assert.ok(!btn(byId.app, "삭제"), `${role}에게 삭제 버튼은 없어야 한다`);
+    assert.match(byId.app!.textContent, /shop/, `${role}도 목록 자체는 읽는다`);
+  }
+});
