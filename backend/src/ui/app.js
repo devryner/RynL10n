@@ -89,6 +89,7 @@ async function run(label, fn) {
 const EXPLAIN = {
   signature_mismatch: "422 — 플레이스홀더 서명 불일치",
   range_conflict: "409 — 앱 버전 범위 충돌",
+  conflict: "409 — 현재 상태와 충돌",
   forbidden: "403 — 권한 부족",
   not_found: "404 — 대상을 찾을 수 없음",
   bad_request: "400 — 요청이 올바르지 않음",
@@ -209,12 +210,58 @@ async function openProjects() {
   renderProjects();
 }
 
+/**
+ * 프로젝트 삭제 — 되돌릴 수 없다(DB + 산출물). 두 겹으로 막는다.
+ *
+ * ① 서버가 published 릴리스를 409로 거절한다(archive 우선). 산출물이 사라지면 현장의 SDK는
+ *    manifest를 못 받고 구운 번들로 되돌아간다 — 2계층 resolve(3.1) 덕에 앱이 죽지는 않지만
+ *    원격 갱신이 조용히 끊긴다.
+ * ② UI는 프로젝트 ID를 그대로 타이핑해야 확인 버튼이 열린다. 목록에서 옆줄을 잘못 누르는 게
+ *    실제 위험이라, 클릭 한 번으로 지워지면 안 된다.
+ *
+ * 실패해도 패널을 닫지 않는다 — 409(archive 먼저)는 사용자가 상황을 고치고 되돌아올 여지가 있다.
+ */
+function deleteProject(p) {
+  const echo = el("input", { placeholder: p.id, class: "grow" });
+  return confirmPanel(
+    `${p.id} 삭제`,
+    [
+      el("p", {}, "이 프로젝트의 ",
+        el("b", {}, "키 · 번역 · 릴리스 · 배포 산출물"), "이 모두 삭제됩니다. 되돌릴 수 없습니다."),
+      el("p", { class: "small muted",
+        text: "published 릴리스가 남아 있으면 서버가 막습니다 — 먼저 릴리스를 보관(archive)하세요." }),
+      el("label", { class: "field grow" }, `확인하려면 프로젝트 ID "${p.id}" 를 입력하세요`, echo),
+    ],
+    async () => {
+      const out = await run(null, () => api("DELETE", `/projects/${enc(p.id)}`));
+      if (!out) return; // 실패는 run()이 토스트로 표면화 — 패널은 남겨 재시도할 수 있게 둔다
+      const r = out.removed ?? {};
+      toast("ok", `${p.id} 를 삭제했습니다`,
+        `키 ${r.keys ?? 0} · 릴리스 ${r.releases ?? 0} · 로케일 ${r.locales ?? 0}`);
+      await openProjects();
+    },
+    {
+      onCancel: openProjects, // 상세가 아니라 목록으로 — 여기엔 state.project가 없다
+      confirmLabel: "영구 삭제",
+      confirmClass: "danger",
+      arm: (btn) => {
+        btn.disabled = true;
+        echo.addEventListener("input", () => { btn.disabled = echo.value.trim() !== p.id; });
+      },
+    },
+  );
+}
+
 function renderProjects() {
+  const admin = can("admin");
   const rows = state.projects.map((p) =>
     el("tr", {},
       el("td", {}, el("button", { class: "link", text: p.id, onClick: () => openProject(p.id) })),
       el("td", { text: p.name }),
       el("td", { class: "mono", text: p.defaultLocale }),
+      el("td", {}, admin
+        ? el("button", { class: "tiny danger", text: "삭제", onClick: deleteProject(p) })
+        : null),
     ),
   );
 
@@ -237,12 +284,15 @@ function renderProjects() {
       el("h2", {}, "프로젝트", el("span", { class: "hint", text: "토큰 스코프에 포함된 것만 보입니다" })),
       state.projects.length
         ? el("div", { class: "tablewrap" }, el("table", {},
-            el("thead", {}, el("tr", {}, el("th", { text: "ID" }), el("th", { text: "이름" }), el("th", { text: "기본 로케일" }))),
+            el("thead", {}, el("tr", {},
+              el("th", { text: "ID" }), el("th", { text: "이름" }), el("th", { text: "기본 로케일" }),
+              el("th", { text: admin ? "작업" : "" }),
+            )),
             el("tbody", {}, ...rows),
           ))
         : el("p", { class: "muted", text: "아직 프로젝트가 없습니다." }),
     ),
-    can("admin")
+    admin
       ? el("div", { class: "panel" },
           el("h2", {}, "새 프로젝트",
             el("span", { class: "hint", text: "지원 로케일은 여기서 등록해야 산출물에 포함됩니다" })),
@@ -792,17 +842,28 @@ function tabDelivery() {
 
 // ── 확인 패널(모달 대체 — dialog 없이 패널 인라인) ────────────────────────────
 
-function confirmPanel(title, content, onConfirm) {
+/**
+ * `onCancel` 기본값이 renderProject()인 것은 원래 호출부 둘이 프로젝트 상세(릴리스 탭)라서다.
+ * 프로젝트 목록처럼 상세가 없는 화면에서 쓸 때는 반드시 넘겨야 한다 — 아니면 state.project가
+ * null인 채로 상세를 그리려다 깨진다.
+ *
+ * `arm`은 확인 버튼을 넘겨주는 이음새다. 되돌릴 수 없는 작업이 "입력을 맞춰야 버튼이 열리는"
+ * 잠금을 걸 수 있게 하되, 그 규칙은 호출부가 갖는다(패널은 계속 범용).
+ */
+function confirmPanel(title, content, onConfirm, opts = {}) {
+  const { onCancel = renderProject, confirmLabel = "확인", confirmClass = "primary", arm = null } = opts;
   return () => {
+    const go = el("button", {
+      class: confirmClass, text: confirmLabel,
+      onClick: async () => { await onConfirm(); },
+    });
+    arm?.(go);
     const panel = el("div", { class: "panel", style: "border-color:var(--accent)" },
       el("h2", { text: title }),
       ...content,
       el("div", { class: "row end", style: "margin-top:10px" },
-        el("button", { text: "취소", onClick: () => renderProject() }),
-        el("button", {
-          class: "primary", text: "확인",
-          onClick: async () => { await onConfirm(); },
-        }),
+        el("button", { text: "취소", onClick: () => onCancel() }),
+        go,
       ),
     );
     const main = document.querySelector("main");
