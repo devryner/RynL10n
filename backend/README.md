@@ -44,7 +44,7 @@ docker compose up          # 단일 노드 셀프호스트 (9.1)
 - **CORS**: 브라우저 SDK(Web·Flutter Web)는 보통 다른 오리진에 있다. `Access-Control-Allow-Origin`
   (기본 `*`, `RYNL10N_DELIVERY_ALLOW_ORIGIN`으로 조정) + **`Access-Control-Expose-Headers: ETag`**
   (안전목록 헤더가 아니라 노출하지 않으면 JS가 못 읽는다) + `Access-Control-Allow-Headers:
-  If-None-Match`(preflight 유발 헤더). 자세한 운영 지침은 `OPERATIONS.md`.
+  If-None-Match`(preflight 유발 헤더). 자세한 운영 지침은 [`OPERATIONS.md`](../OPERATIONS.md).
 
 읽기 전용이라 `GET`·`HEAD`·`OPTIONS` 외 메서드는 405다.
 
