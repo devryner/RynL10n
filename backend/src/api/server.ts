@@ -69,30 +69,65 @@ function requireVersionMatch(vm: any): VersionMatch {
   if (typeof vm.value !== "string") throw new BadRequestError("versionMatch.value 필요");
   return { strategy: vm.strategy, value: vm.value };
 }
+/** 릴리스 상태 4종(4.3 라이프사이클) — import 본문 검증용 런타임 목록. */
+const RELEASE_STATES: readonly string[] = ["draft", "published", "superseded", "archived"];
+
 /**
  * import 본문이 export 산출물인지 확인한다(9.2).
  *
- * 검사 범위는 `Repo.importProject`가 **실제로 역참조하는 필드**까지다. 여기서 걸러내지 않으면
- * 엉뚱한 JSON을 올렸을 때 TypeError·NOT NULL 위반이 그대로 500 `internal`로 새어 나가
- * 사용자는 원인을 알 수 없다 — 잘못된 파일은 사용자가 고칠 수 있는 오류이므로 400이어야 한다.
+ * 검사 범위는 `Repo.importProject`가 **실제로 역참조하는 필드 전부**다 — 존재만이 아니라
+ * 타입까지 본다. node:sqlite는 문자열·숫자·null 외의 값을 바인딩하면 TypeError를 던지므로,
+ * 여기서 걸러내지 않으면 엉뚱한 JSON이 그대로 500 `internal`로 새어 나가 사용자는 원인을
+ * 알 수 없다 — 잘못된 파일은 사용자가 고칠 수 있는 오류이므로 400이어야 한다.
+ * (importProject의 트랜잭션은 그런 경우에도 상태를 되돌리지만, 상태가 깨끗한 것과
+ *  사용자가 무엇을 고쳐야 하는지 아는 것은 다른 문제다.)
  */
 function requireProjectExport(body: any): ProjectExport {
   const bad = (m: string) => { throw new BadRequestError(`export 형식이 아닙니다: ${m}`); };
+  /** 값이 있는 문자열. SQLite 바인딩은 문자열·숫자·null만 받으므로 타입까지 봐야 500을 막는다. */
+  const str = (v: unknown) => typeof v === "string" && v !== "";
+  /** 있으면 문자열, 없으면(undefined·null) 통과 — 구 export의 결측 필드를 허용하는 자리. */
+  const optStr = (v: unknown) => v === undefined || v === null || typeof v === "string";
+
   const p = body?.project;
-  if (!p?.id || !p?.name || !p?.defaultLocale) bad("project.id · project.name · project.defaultLocale 필요");
+  if (!str(p?.id) || !str(p?.name) || !str(p?.defaultLocale)) bad("project.id · project.name · project.defaultLocale 필요(문자열)");
   for (const f of ["locales", "keys", "releases"] as const) {
     if (!Array.isArray(body[f])) bad(`${f} 배열 필요`);
   }
-  for (const l of body.locales) if (!l?.tag) bad("locales[].tag 필요");
-  for (const k of body.keys) {
-    if (!k?.name) bad("keys[].name 필요");
-    if (!Array.isArray(k.translations)) bad(`keys[${k.name}].translations 배열 필요`);
-    for (const t of k.translations) if (!t?.locale) bad(`keys[${k.name}].translations[].locale 필요`);
+  for (const l of body.locales) {
+    if (!str(l?.tag)) bad("locales[].tag 필요");
+    if (!optStr(l.fallbackParent)) bad(`locales[${l.tag}].fallbackParent는 문자열이거나 null`);
   }
+  for (const k of body.keys) {
+    if (!str(k?.name)) bad("keys[].name 필요");
+    // signature는 빈 문자열이 정상이다(플레이스홀더 없는 키) — 존재가 아니라 타입만 본다.
+    if (typeof k.signature !== "string") bad(`keys[${k.name}].signature 필요(문자열)`);
+    if (!optStr(k.description)) bad(`keys[${k.name}].description은 문자열`);
+    if (!Array.isArray(k.translations)) bad(`keys[${k.name}].translations 배열 필요`);
+    for (const t of k.translations) {
+      if (!str(t?.locale)) bad(`keys[${k.name}].translations[].locale 필요`);
+      if (typeof t.value !== "string" && (t.value === null || typeof t.value !== "object")) {
+        bad(`keys[${k.name}].translations[${t.locale}].value 필요(string 또는 복수형 맵)`);
+      }
+      if (!str(t.state)) bad(`keys[${k.name}].translations[${t.locale}].state 필요`);
+    }
+  }
+  // 릴리스의 키 참조는 이름 기반이라(id 비의존) keys[]에 없는 이름은 조용히 버려진다 —
+  // 복원이 말없이 반쪽이 되는 것보다 파일을 거절하는 편이 낫다(조용한 손실 금지).
+  const keyNames = new Set(body.keys.map((k: any) => k.name));
   for (const r of body.releases) {
-    if (!r?.id || !r?.name) bad("releases[].id · releases[].name 필요");
+    if (!str(r?.id) || !str(r.name)) bad("releases[].id · releases[].name 필요");
     requireVersionMatch(r.versionMatch);
+    if (!RELEASE_STATES.includes(r.state)) bad(`releases[${r.id}].state는 ${RELEASE_STATES.join("·")} 중 하나`);
+    if (!optStr(r.base) || !optStr(r.overlay)) bad(`releases[${r.id}].base · overlay는 문자열이거나 null`);
+    if (r.rollout !== undefined && !(Number.isInteger(r.rollout) && r.rollout >= 0 && r.rollout <= 100)) {
+      bad(`releases[${r.id}].rollout은 0~100 정수`);
+    }
     if (!Array.isArray(r.keys)) bad(`releases[${r.id}].keys 배열 필요`);
+    for (const name of r.keys) {
+      if (!str(name)) bad(`releases[${r.id}].keys[]는 키 이름(문자열)`);
+      if (!keyNames.has(name)) bad(`releases[${r.id}].keys의 "${name}"가 keys[]에 없습니다`);
+    }
   }
   return body as ProjectExport;
 }

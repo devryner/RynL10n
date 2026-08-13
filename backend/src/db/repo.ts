@@ -47,7 +47,9 @@ export interface ProjectExport {
   }>;
   readonly releases: ReadonlyArray<{
     id: string; name: string; versionMatch: VersionMatch; state: ReleaseState;
-    base: string | null; overlay: string | null; rollout: number; keys: readonly string[];
+    /** 구 export에는 없을 수 있다(하위호환) — import 시 각각 미설정·기본값 100으로 취급. */
+    base?: string | null; overlay?: string | null; rollout?: number;
+    keys: readonly string[];
   }>;
 }
 
@@ -170,11 +172,16 @@ export class Repo {
     const r = this.db.prepare("SELECT COALESCE(MAX(seq),0)+1 AS n FROM releases WHERE project_id=?").get(projectId) as { n: number };
     return r.n;
   }
-  createRelease(projectId: string, id: string, name: string, vm: VersionMatch, state: ReleaseState): void {
+  /**
+   * 릴리스 생성. `rollout`은 카나리 %(8.4) — **기본값 100(전량 배포)이 안전 기본값**이라
+   * 신규 생성 경로는 이 값을 넘기지 않는다. 인자로 열어 둔 건 import(9.2) 때문이다:
+   * 백업에 담긴 값을 그대로 되살리지 않으면 복원이 무손실이 아니게 된다.
+   */
+  createRelease(projectId: string, id: string, name: string, vm: VersionMatch, state: ReleaseState, rollout = 100): void {
     this.db.prepare(
       `INSERT INTO releases(id,project_id,name,vm_strategy,vm_value,state,rollout,seq,created_at)
        VALUES(?,?,?,?,?,?,?,?,?)`,
-    ).run(id, projectId, name, vm.strategy, vm.value, state, 100, this.nextSeq(projectId), nowIso());
+    ).run(id, projectId, name, vm.strategy, vm.value, state, rollout, this.nextSeq(projectId), nowIso());
   }
   getRelease(projectId: string, id: string): ReleaseRow | undefined {
     const r = this.db.prepare("SELECT * FROM releases WHERE project_id=? AND id=?").get(projectId, id) as any;
@@ -324,8 +331,10 @@ export class Repo {
         for (const t of k.translations) this.putTranslation(data.project.id, id, t.locale, t.value, t.state);
       }
       for (const r of data.releases) {
-        this.createRelease(data.project.id, r.id, r.name, r.versionMatch, r.state);
-        if (r.base !== null && r.overlay !== null) this.updateReleasePointers(data.project.id, r.id, r.base, r.overlay);
+        this.createRelease(data.project.id, r.id, r.name, r.versionMatch, r.state, r.rollout ?? 100);
+        // `!= null` — 구 export에는 포인터 필드가 아예 없을 수 있다(undefined). `!== null`이면
+        // 그때 undefined가 바인딩까지 내려가 TypeError로 터진다.
+        if (r.base != null && r.overlay != null) this.updateReleasePointers(data.project.id, r.id, r.base, r.overlay);
         for (const name of r.keys) { const id = keyId.get(name); if (id !== undefined) this.addReleaseKey(data.project.id, r.id, id); }
       }
       this.db.exec("COMMIT");
