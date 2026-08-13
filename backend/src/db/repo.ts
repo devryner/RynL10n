@@ -304,21 +304,34 @@ export class Repo {
     return { project, locales, keys, releases };
   }
 
-  /** export 구조를 (빈) DB에 import. 키 id는 새로 부여, 참조는 이름 기반으로 복원. */
+  /**
+   * export 구조를 (빈) DB에 import. 키 id는 새로 부여, 참조는 이름 기반으로 복원.
+   *
+   * **한 트랜잭션으로 묶는다** — 수십 개의 INSERT라 중간에 하나만 깨져도(릴리스 매칭 규칙 불량,
+   * 로케일 중복 등) 키는 있는데 릴리스는 없는 반쪽 프로젝트가 남는다. 복원은 "됐거나 안 됐거나"
+   * 둘 중 하나여야 사용자가 다시 시도할 수 있다(`deleteProject`와 같은 규칙).
+   */
   importProject(data: ProjectExport): void {
-    this.createProject(data.project.id, data.project.name, data.project.defaultLocale, []);
-    for (const l of data.locales) this.addLocale(data.project.id, l.tag, l.fallbackParent ?? undefined);
-    const keyId = new Map<string, number>();
-    for (const k of data.keys) {
-      const id = this.upsertKey(data.project.id, k.name, k.signature, k.isPlural);
-      if (k.description) this.setKeyDescription(data.project.id, k.name, k.description);
-      keyId.set(k.name, id);
-      for (const t of k.translations) this.putTranslation(data.project.id, id, t.locale, t.value, t.state);
-    }
-    for (const r of data.releases) {
-      this.createRelease(data.project.id, r.id, r.name, r.versionMatch, r.state);
-      if (r.base !== null && r.overlay !== null) this.updateReleasePointers(data.project.id, r.id, r.base, r.overlay);
-      for (const name of r.keys) { const id = keyId.get(name); if (id !== undefined) this.addReleaseKey(data.project.id, r.id, id); }
+    this.db.exec("BEGIN");
+    try {
+      this.createProject(data.project.id, data.project.name, data.project.defaultLocale, []);
+      for (const l of data.locales) this.addLocale(data.project.id, l.tag, l.fallbackParent ?? undefined);
+      const keyId = new Map<string, number>();
+      for (const k of data.keys) {
+        const id = this.upsertKey(data.project.id, k.name, k.signature, k.isPlural);
+        if (k.description) this.setKeyDescription(data.project.id, k.name, k.description);
+        keyId.set(k.name, id);
+        for (const t of k.translations) this.putTranslation(data.project.id, id, t.locale, t.value, t.state);
+      }
+      for (const r of data.releases) {
+        this.createRelease(data.project.id, r.id, r.name, r.versionMatch, r.state);
+        if (r.base !== null && r.overlay !== null) this.updateReleasePointers(data.project.id, r.id, r.base, r.overlay);
+        for (const name of r.keys) { const id = keyId.get(name); if (id !== undefined) this.addReleaseKey(data.project.id, r.id, id); }
+      }
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
     }
   }
 
