@@ -109,6 +109,7 @@ void main() {
       final ctx = ClientContext(
         appVersion: ctxJson['appVersion'] as String?,
         releaseLabel: ctxJson['releaseLabel'] as String?,
+        buildNumber: ctxJson['buildNumber'] as int?,
         matchPrerelease: ctxJson['matchPrerelease'] == true,
         fallbackPolicy: ctxJson['fallbackPolicy'] == 'nearest-lower' ? FallbackPolicy.nearestLower : FallbackPolicy.bundleOnly,
       );

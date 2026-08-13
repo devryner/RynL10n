@@ -137,7 +137,7 @@ class GoldenTest {
         }
     }
 
-    @Serializable data class Ctx(val appVersion: String? = null, val releaseLabel: String? = null, val matchPrerelease: Boolean? = null, val fallbackPolicy: String? = null)
+    @Serializable data class Ctx(val appVersion: String? = null, val releaseLabel: String? = null, val buildNumber: Int? = null, val matchPrerelease: Boolean? = null, val fallbackPolicy: String? = null)
     @Serializable data class RouteExpected(val kind: String, val releaseId: String? = null)
     @Serializable data class RouteCase(val name: String, val releases: List<ManifestRelease>, val ctx: Ctx, val expected: RouteExpected)
     @Serializable data class RouteFile(val cases: List<RouteCase>)
@@ -145,7 +145,7 @@ class GoldenTest {
     @Test fun routing() {
         for (c in load<RouteFile>("routing.json").cases) {
             val policy = if (c.ctx.fallbackPolicy == "nearest-lower") FallbackPolicy.NEAREST_LOWER else FallbackPolicy.BUNDLE_ONLY
-            val ctx = Matching.ClientContext(appVersion = c.ctx.appVersion, releaseLabel = c.ctx.releaseLabel, matchPrerelease = c.ctx.matchPrerelease ?: false, fallbackPolicy = policy)
+            val ctx = Matching.ClientContext(appVersion = c.ctx.appVersion, releaseLabel = c.ctx.releaseLabel, buildNumber = c.ctx.buildNumber, matchPrerelease = c.ctx.matchPrerelease ?: false, fallbackPolicy = policy)
             val sel = Matching.selectRelease(c.releases, ctx)
             assertEquals(c.expected.kind, sel.kind, "kind: ${c.name}")
             assertEquals(c.expected.releaseId, sel.releaseId, "releaseId: ${c.name}")
