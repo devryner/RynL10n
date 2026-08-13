@@ -105,3 +105,74 @@ test("없는 릴리스 PATCH는 404", async () => {
   const r = await api("PATCH", "/projects/shop/releases/NOPE", { token: TOK.maint, body: { state: "archived" } });
   assert.equal(r.status, 404);
 });
+
+// ── 버전 매칭 규칙 검증 (4.3 / 11.3) ─────────────────────────────────────────
+
+test("파싱 불가한 범위식은 생성 시점에 400 — publish 때 500으로 터지지 않는다", async () => {
+  // 전략만 보고 통과시키면 draft로 저장됐다가 publish에서 파서가 던져 500이 된다.
+  // 그 릴리스는 영영 게시할 수 없는데 사용자는 자기 입력이 원인인 줄 모른다.
+  const cases: [string, string][] = [
+    ["semver-range", "쓰레기값"],
+    ["semver-range", "^3.2.0"],   // 부분집합 밖 문법(11.3) — 명시적 하한·상한만 받는다
+    ["semver-range", "3.2.x"],
+    ["semver-range", ""],
+    ["integer-range", "1.2"],     // 정수만
+    ["integer-range", ">=42 || >=100"],
+  ];
+  for (const [strategy, value] of cases) {
+    const r = await api("POST", "/projects/shop/releases", {
+      token: TOK.maint, body: { name: "bad", versionMatch: { strategy, value }, keys: [] },
+    });
+    assert.equal(r.status, 400, `${strategy} "${value}" → 400이어야 한다 (받은 값: ${r.status})`);
+    assert.equal(r.body.error.code, "bad_request");
+    assert.match(r.body.error.message, /문법이 아닙니다/, "무엇이 문제인지 파서 메시지를 그대로 전달한다");
+  }
+
+  // exact-label은 파싱할 문법이 없으므로 자유 문자열 그대로 통과한다.
+  const label = await api("POST", "/projects/shop/releases", {
+    token: TOK.maint, body: { id: "L1", name: "label", versionMatch: { strategy: "exact-label", value: "쓰레기값" }, keys: [] },
+  });
+  assert.equal(label.status, 201);
+});
+
+test("integer-range 릴리스: 생성 → publish → manifest (빌드넘버 매칭, 4.3)", async () => {
+  const create = await api("POST", "/projects/shop/releases", {
+    token: TOK.maint,
+    body: { id: "B1", name: "빌드 4200대", versionMatch: { strategy: "integer-range", value: ">=4200 <4300" }, keys: ["pay.button"] },
+  });
+  assert.equal(create.status, 201, "코어·SDK 4종이 구현한 전략인데 API가 막고 있었다");
+
+  const pub = await api("POST", "/projects/shop/releases/B1/publish", { token: TOK.maint });
+  assert.equal(pub.status, 202);
+
+  const man = await api("GET", "/projects/shop/manifest", { token: TOK.view });
+  const rec = man.body.releases.find((r: any) => r.id === "B1");
+  assert.ok(rec, "manifest에 실려야 클라이언트가 스스로 고를 수 있다(정적 라우팅)");
+  assert.deepEqual(rec.versionMatch, { strategy: "integer-range", value: ">=4200 <4300" });
+});
+
+test("겹치는 integer-range publish는 409 — semver와 섞이면 충돌이 아니다", async () => {
+  await api("POST", "/projects/shop/releases", {
+    token: TOK.maint,
+    body: { id: "B2", name: "겹침", versionMatch: { strategy: "integer-range", value: ">=4250 <4400" }, keys: ["pay.button"] },
+  });
+  const overlap = await api("POST", "/projects/shop/releases/B2/publish", { token: TOK.maint });
+  assert.equal(overlap.status, 409, "4250~4299가 B1과 겹친다");
+  assert.equal(overlap.body.error.code, "range_conflict");
+
+  // 전략이 다르면 대상 앱군이 분리되므로 상호 배제 — 이미 게시된 semver 릴리스와는 충돌하지 않는다.
+  await api("POST", "/projects/shop/releases", {
+    token: TOK.maint,
+    body: { id: "B3", name: "안 겹침", versionMatch: { strategy: "integer-range", value: ">=5000" }, keys: ["pay.button"] },
+  });
+  const apart = await api("POST", "/projects/shop/releases/B3/publish", { token: TOK.maint });
+  assert.equal(apart.status, 202, "integer-range는 semver-range 릴리스와 겹치지 않는다");
+});
+
+test("알 수 없는 전략은 400이고 메시지가 지원 목록을 알려준다", async () => {
+  const r = await api("POST", "/projects/shop/releases", {
+    token: TOK.maint, body: { name: "x", versionMatch: { strategy: "date-range", value: "2026" }, keys: [] },
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error.message, /semver-range · integer-range · exact-label/);
+});

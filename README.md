@@ -87,7 +87,7 @@ rynl10n-bake --fetch "$API/projects/myapp/releases/R1/snapshot" --token "$TOKEN"
 | 탭 | 할 수 있는 일 |
 | --- | --- |
 | 번역 | 키 추가, **키 설명(번역자용 맥락) 작성**, 로케일별 값 인라인 편집, `draft`↔`reviewed` 상태 전환, 지원 로케일 추가, **검색·필터**(키 이름·설명·번역 값 검색 + 로케일·미번역만·상태 3축) |
-| 릴리스 | 릴리스 생성(버전 매칭 규칙), 키 백포트, publish, 롤백, 보관 |
+| 릴리스 | 릴리스 생성(매칭 전략 3종 — semver-range·integer-range·exact-label), 키 백포트, publish, 롤백, 보관 |
 | 배포 | 현재 manifest·산출물 링크, 게시 이력, 배포 건전성, 산출물 재생성, 전체 export |
 
 프로젝트 목록 화면에서는 프로젝트 생성·삭제와 **export 파일 가져오기(import)** 를 할 수 있습니다(Admin).
@@ -127,7 +127,9 @@ curl -X PUT $API/projects/myapp/translations/home.greeting/en -H "$AUTH" -H "$JS
 curl -X PUT $API/projects/myapp/translations/home.greeting/ko -H "$AUTH" -H "$JSON" \
   -d '{"value":"안녕하세요, {name}님!"}'
 
-# 4. 릴리스 생성 — 앱 버전 범위 매핑 (semver-range는 명시적 하한·상한 필수)
+# 4. 릴리스 생성 — 앱 버전 범위 매핑
+#    전략 3종: semver-range(명시적 하한·상한 필수) · integer-range(빌드넘버) · exact-label
+#    값이 그 전략의 문법이 아니면 이 시점에 400 — publish까지 갔다가 실패하지 않습니다.
 curl -X POST $API/projects/myapp/releases -H "$AUTH" -H "$JSON" \
   -d '{"name":"1.x","versionMatch":{"strategy":"semver-range","value":">=1.0.0 <2.0.0"},"keys":["home.greeting"]}'
 # → {"id":"R1","state":"draft"}

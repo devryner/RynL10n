@@ -823,3 +823,76 @@ test("RBAC: admin이 아니면 가져오기 패널 자체가 없다 (7.3 UI 미�
     assert.ok(!tags(byId.app, "input").some((i) => i.attrs.type === "file"), `${role}에게 파일 선택기는 없어야 한다`);
   }
 });
+
+// ── 버전 매칭 전략 (4.3) ─────────────────────────────────────────────────────
+// 코어·SDK 4종은 integer-range를 구현하는데 대시보드 드롭다운에 없어서 고를 수가 없었다.
+// 전략마다 값 문법이 완전히 달라서(semver 비교자 / 정수 비교자 / 자유 라벨) 안내도 같이 바뀌어야 한다.
+
+/** admin으로 프로젝트를 열고 릴리스 탭까지 이동한 뒤 새 릴리스 폼 요소를 집어 준다. */
+async function openReleaseCreator(table = projectTable()) {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const calls = installFetch(table);
+  await loadApp();
+  btn(byId.app, "shop")!.fire("click");
+  await settle();
+  btn(byId.app, "릴리스")!.fire("click");
+  await settle();
+
+  const strategy = tags(byId.app, "select").find((s) => s.children.some((o: any) => o.attrs.value === "semver-range"))!;
+  const inputs = tags(byId.app, "input");
+  return { byId, calls, strategy, inputs };
+}
+
+test("릴리스 생성 폼은 전략 3종을 모두 제공한다", async () => {
+  const { strategy } = await openReleaseCreator();
+  assert.deepEqual(
+    strategy.children.map((o: any) => o.attrs.value),
+    ["semver-range", "integer-range", "exact-label"],
+    "코어가 구현한 전략은 전부 고를 수 있어야 한다",
+  );
+});
+
+test("전략을 바꾸면 매칭 값 예시와 안내가 그 전략의 것으로 바뀐다", async () => {
+  const { byId, strategy } = await openReleaseCreator();
+  const valueInput = () => tags(byId.app, "input").find((i) => (i.attrs.placeholder ?? "").startsWith(">=") || i.attrs.placeholder === "web-stable")!;
+
+  assert.equal(valueInput().attrs.placeholder, ">=3.2.0 <3.3.0");
+  assert.match(byId.app!.textContent, /\^, ~, \|\| 불가/, "semver 안내가 먼저 보인다");
+
+  strategy.value = "integer-range";
+  strategy.fire("change");
+  assert.equal(valueInput().attrs.placeholder, ">=4200 <4300", "정수 예시로 바뀐다");
+  assert.match(byId.app!.textContent, /buildNumber를 넘겨야/, "앱이 뭘 넘겨야 하는지 알려준다");
+  assert.doesNotMatch(byId.app!.textContent, /\^, ~, \|\| 불가/, "semver 안내는 사라진다");
+
+  strategy.value = "exact-label";
+  strategy.fire("change");
+  assert.equal(valueInput().attrs.placeholder, "web-stable");
+  assert.match(byId.app!.textContent, /releaseLabel과 완전히 같아야/);
+});
+
+test("integer-range를 골라 만들면 그 전략 그대로 POST된다", async () => {
+  const table = projectTable();
+  table["POST /projects/shop/releases"] = { id: "R2", state: "draft" };
+  const { byId, calls, strategy } = await openReleaseCreator(table);
+
+  const inputs = tags(byId.app, "input");
+  const nameInput = inputs.find((i) => i.attrs.placeholder === "3.2.x")!;
+  const valueInput = inputs.find((i) => i.attrs.placeholder === ">=3.2.0 <3.3.0")!;
+  // 스텁 select는 존재하지 않는 값도 받아들이므로, 실제로 고를 수 있는 항목인지 먼저 확인한다.
+  assert.ok(strategy.children.some((o: any) => o.attrs.value === "integer-range"),
+    "드롭다운에 없는 전략은 사용자가 고를 수 없다");
+  strategy.value = "integer-range";
+  strategy.fire("change");
+  nameInput.value = "빌드 4200대";
+  valueInput.value = ">=4200 <4300";
+
+  btn(byId.app, "릴리스 생성")!.fire("click");
+  await settle();
+
+  const post = calls.find((c) => c.method === "POST" && c.path === "/projects/shop/releases")!;
+  assert.ok(post, "생성 요청이 나가야 한다");
+  assert.deepEqual(post.body.versionMatch, { strategy: "integer-range", value: ">=4200 <4300" });
+  assert.equal(post.body.name, "빌드 4200대");
+});

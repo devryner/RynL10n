@@ -804,13 +804,29 @@ function rollbackTargets(releaseId) {
   return [...seen];
 }
 
+/**
+ * 전략별 매칭 값의 예시·설명(4.3). 전략마다 값 문법이 완전히 달라서 — semver 비교자 / 정수
+ * 비교자 / 자유 라벨 — 안내를 하나로 뭉뚱그리면 어느 쪽에도 맞지 않는다. 전략을 고르면
+ * 그 자리에서 예시가 바뀐다. 최종 판정은 서버가 하고(값 파싱까지), 여기서는 안내만 한다.
+ */
+const MATCH_HINTS = {
+  "semver-range": { placeholder: ">=3.2.0 <3.3.0", hint: "명시적 하한·상한만 지원합니다 (^, ~, || 불가)" },
+  "integer-range": { placeholder: ">=4200 <4300", hint: "빌드넘버 정수 비교자. 앱은 buildNumber를 넘겨야 매칭됩니다." },
+  "exact-label": { placeholder: "web-stable", hint: "자유 라벨. 앱이 넘긴 releaseLabel과 완전히 같아야 합니다." },
+};
+
 function releaseCreator() {
   const name = el("input", { placeholder: "3.2.x", class: "grow" });
   const strategy = el("select", {},
-    el("option", { value: "semver-range", text: "semver-range" }),
-    el("option", { value: "exact-label", text: "exact-label" }),
+    ...Object.keys(MATCH_HINTS).map((s) => el("option", { value: s, text: s })),
   );
-  const value = el("input", { placeholder: ">=3.2.0 <3.3.0", class: "grow" });
+  const value = el("input", { placeholder: MATCH_HINTS["semver-range"].placeholder, class: "grow" });
+  const hint = el("span", { class: "hint", text: MATCH_HINTS["semver-range"].hint });
+  strategy.addEventListener("change", () => {
+    const h = MATCH_HINTS[strategy.value] ?? MATCH_HINTS["semver-range"];
+    value.setAttribute("placeholder", h.placeholder);
+    hint.textContent = h.hint;
+  });
   const keyBox = el("select", { multiple: true, size: String(Math.min(8, Math.max(3, state.keys.length || 3))) },
     ...state.keys.map((k) => el("option", { value: k.name, text: k.name })));
 
@@ -826,8 +842,7 @@ function releaseCreator() {
   };
 
   return el("div", { class: "panel" },
-    el("h2", {}, "새 릴리스",
-      el("span", { class: "hint", text: "semver-range는 명시적 하한·상한만 지원합니다 (^, ~, || 불가)" })),
+    el("h2", {}, "새 릴리스", hint),
     el("div", { class: "row" },
       el("label", { class: "field grow" }, "이름", name),
       el("label", { class: "field" }, "매칭 전략", strategy),
