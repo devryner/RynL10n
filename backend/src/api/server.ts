@@ -11,6 +11,8 @@ import { publishRelease, rollbackRelease, RangeConflictError, NotFoundError } fr
 import { buildSnapshot } from "../../../src/builder/builder.ts";
 import { authenticate, authorize, AuthError, type Capability, type TokenRegistry, type Principal } from "../auth/rbac.ts";
 import { signature } from "../../../src/core/placeholder.ts";
+import { parseRange } from "../../../src/core/semver.ts";
+import { parseIntRange } from "../../../src/core/intrange.ts";
 import { isPluralMap, type TranslationValue, type VersionMatch, type ReleaseState } from "../../../src/core/types.ts";
 import { Metrics, METRIC } from "../observability/metrics.ts";
 import { Notifier } from "../observability/notifier.ts";
@@ -64,9 +66,34 @@ function requireValue(body: any): TranslationValue {
   if (body?.value && typeof body.value === "object") return body.value as TranslationValue;
   throw new BadRequestError("value(string 또는 복수형 맵) 필요");
 }
+/** 버전 매칭 전략 3종(4.3) — 값 문법이 전략마다 다르므로 파서도 함께 고른다. */
+const VERSION_MATCH_STRATEGIES: Record<string, ((v: string) => unknown) | null> = {
+  "semver-range": parseRange,
+  "integer-range": parseIntRange,
+  "exact-label": null, // 라벨은 자유 문자열 — 파싱할 문법이 없다.
+};
+
+/**
+ * 버전 매칭 규칙 검증.
+ *
+ * **값이 실제로 파싱되는지까지 본다.** 전략만 보고 통과시키면 파싱 불가한 범위식이 draft로
+ * 저장됐다가 publish 시점에 파서가 던져 500 `internal`이 된다 — 그 릴리스는 영영 게시할 수
+ * 없는데 사용자는 자기 입력이 문제라는 걸 알 방법이 없다. 고칠 수 있는 사람에게, 고칠 수 있는
+ * 시점에(=입력한 자리에서) 400으로 돌려준다.
+ */
 function requireVersionMatch(vm: any): VersionMatch {
-  if (vm?.strategy !== "semver-range" && vm?.strategy !== "exact-label") throw new BadRequestError("versionMatch.strategy 유효하지 않음");
+  const parse = Object.prototype.hasOwnProperty.call(VERSION_MATCH_STRATEGIES, vm?.strategy)
+    ? VERSION_MATCH_STRATEGIES[vm.strategy]
+    : undefined;
+  if (parse === undefined) {
+    throw new BadRequestError(`versionMatch.strategy는 ${Object.keys(VERSION_MATCH_STRATEGIES).join(" · ")} 중 하나`);
+  }
   if (typeof vm.value !== "string") throw new BadRequestError("versionMatch.value 필요");
+  if (parse !== null) {
+    try { parse(vm.value); } catch (e) {
+      throw new BadRequestError(`versionMatch.value가 ${vm.strategy} 문법이 아닙니다: ${(e as Error).message}`);
+    }
+  }
   return { strategy: vm.strategy, value: vm.value };
 }
 /** 릴리스 상태 4종(4.3 라이프사이클) — import 본문 검증용 런타임 목록. */
