@@ -672,3 +672,154 @@ test("RBAC: admin이 아니면 삭제 버튼 자체가 없다 (7.3 UI 미러)", 
     assert.match(byId.app!.textContent, /shop/, `${role}도 목록 자체는 읽는다`);
   }
 });
+
+// ── 프로젝트 가져오기 (POST /projects/import, 9.2) ───────────────────────────
+// export의 반대편. 검증 축은 **파일을 고른 것과 복원을 실행한 것을 분리했는가**다 —
+// 엉뚱한 파일은 네트워크를 타기 전에 걸러야 하고, 복원할 ID는 보내기 전에 바꿀 수 있어야 한다.
+
+/** label 텍스트로 입력 칸을 집는다(같은 화면에 입력이 여럿이라 순서로 찾으면 깨진다). */
+const fieldInput = (root: any, label: string) =>
+  walk(root).find((n) => n.tag === "label" && n.textContent.includes(label))
+    ?.children.find((c: any) => c.tag === "input");
+
+const EXPORT = {
+  project: { id: "shop", name: "Shop", defaultLocale: "en" },
+  locales: [{ tag: "en", fallbackParent: null }, { tag: "ko", fallbackParent: null }],
+  keys: [{
+    name: "cart.title", signature: "", isPlural: false, description: "장바구니 화면 상단 제목",
+    translations: [{ locale: "en", value: "Cart", state: "reviewed" }],
+  }],
+  releases: [{
+    id: "R1", name: "1.x", versionMatch: { strategy: "semver-range", value: ">=1.0.0 <2.0.0" },
+    state: "published", base: "aaaa1111bbbb2222", overlay: "cccc3333dddd4444", rollout: 100, keys: ["cart.title"],
+  }],
+};
+
+/** admin으로 목록까지 온 뒤 파일 하나를 고른다. content는 파일에 담길 raw 문자열. */
+async function pickImportFile(content: string, table = projectTable()) {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const calls = installFetch(table);
+  await loadApp();
+
+  const picker = tags(byId.app, "input").find((i) => i.attrs.type === "file")!;
+  picker.files = [{ name: "shop-export.json", text: async () => content }];
+  picker.fire("change");
+  await settle();
+  return { byId, calls, table };
+}
+
+test("파일을 고르면 요청 없이 미리보기부터 보여준다", async () => {
+  const before = JSON.stringify(EXPORT);
+  const { byId, calls } = await pickImportFile(before);
+  const n = calls.length;
+
+  assert.match(byId.app!.textContent, /가져오기 확인/);
+  assert.match(byId.app!.textContent, /shop-export\.json/, "어떤 파일을 골랐는지 보여준다");
+  assert.match(byId.app!.textContent, /로케일 2 · 키 1 · 릴리스 1/, "복원 규모를 미리 알려준다");
+  assert.equal(fieldInput(byId.app, "복원할 프로젝트 ID")!.value, "shop", "파일의 ID로 채워 둔다");
+  assert.ok(!calls.some((c) => c.method === "POST"), "고르기만 해서는 아무것도 보내지 않는다");
+  assert.equal(calls.length, n, "미리보기는 순수 로컬 동작");
+});
+
+test("복원은 파일 내용을 그대로 POST /projects/import 로 보내고 목록을 다시 읽는다", async () => {
+  const table = projectTable();
+  table["POST /projects/import"] = { id: "shop-copy" };
+  const { byId, calls } = await pickImportFile(JSON.stringify(EXPORT), table);
+
+  fieldInput(byId.app, "복원할 프로젝트 ID")!.value = "shop-copy"; // 복사본으로 복원
+  table["GET /projects"] = { projects: [{ id: "shop", name: "Shop", defaultLocale: "en" }, { id: "shop-copy", name: "Shop", defaultLocale: "en" }] };
+  btn(byId.app, "복원")!.fire("click");
+  await settle();
+
+  const post = calls.find((c) => c.method === "POST" && c.path === "/projects/import")!;
+  assert.ok(post, "복원 버튼을 눌러야 비로소 보낸다");
+  assert.equal(post.auth, "Bearer tok-admin");
+  assert.equal(post.body.project.id, "shop-copy", "화면에서 바꾼 ID로 보낸다");
+  assert.deepEqual(post.body.keys, EXPORT.keys, "키·번역은 파일 그대로 — UI가 손대지 않는다");
+  assert.deepEqual(post.body.releases, EXPORT.releases);
+  assert.equal(post.body.project.name, "Shop", "ID 말고 다른 필드는 유지");
+
+  assert.ok(calls.slice(calls.indexOf(post)).some((c) => c.method === "GET" && c.path === "/projects"));
+  assert.match(byId.app!.textContent, /shop-copy/, "복원된 프로젝트가 목록에 보인다");
+  assert.match((globalThis as any).document.getElementById("toasts").textContent, /shop-copy 를 복원했습니다/);
+});
+
+test("export가 아닌 JSON은 네트워크를 타지 않고 로컬에서 막는다", async () => {
+  const { byId, calls } = await pickImportFile(JSON.stringify({ hello: "world" }));
+
+  assert.ok(!calls.some((c) => c.method === "POST"), "서버까지 갈 필요가 없는 오류다");
+  assert.match((globalThis as any).document.getElementById("toasts").textContent, /export 파일이 아닙니다/);
+  assert.equal(byId.app!.textContent.includes("가져오기 확인"), false, "미리보기로 넘어가지 않는다");
+});
+
+test("깨진 JSON은 파싱 단계에서 걸러진다", async () => {
+  const { byId, calls } = await pickImportFile("{ not json");
+
+  assert.ok(!calls.some((c) => c.method === "POST"));
+  assert.match((globalThis as any).document.getElementById("toasts").textContent, /JSON을 읽지 못했습니다/);
+  assert.equal(byId.app!.textContent.includes("가져오기 확인"), false);
+});
+
+test("409(이미 있는 ID)면 패널이 남아 ID만 고쳐 다시 시도할 수 있다", async () => {
+  const table = projectTable();
+  table["POST /projects/import"] = Object.assign(
+    new Error("이미 있는 프로젝트입니다: shop — 다른 ID로 복원하거나 기존 프로젝트를 먼저 삭제하세요"),
+    { status: 409, code: "conflict" },
+  );
+  const { byId, calls } = await pickImportFile(JSON.stringify(EXPORT), table);
+
+  btn(byId.app, "복원")!.fire("click"); // 파일의 ID(shop)가 이미 있는 상황
+  await settle();
+
+  const toasts = (globalThis as any).document.getElementById("toasts").textContent;
+  assert.match(toasts, /409 — 현재 상태와 충돌/);
+  assert.match(toasts, /다른 ID로 복원/, "서버가 알려준 해결 방법을 그대로 보여준다");
+
+  const idInput = fieldInput(byId.app, "복원할 프로젝트 ID");
+  assert.ok(idInput, "패널이 남아 있어야 ID를 고칠 수 있다");
+  assert.equal(idInput!.value, "shop", "입력값도 그대로 — 처음부터 다시 고르게 하지 않는다");
+
+  // 두 번째 시도는 실제로 새 ID로 나간다.
+  table["POST /projects/import"] = { id: "shop-2" };
+  idInput!.value = "shop-2";
+  btn(byId.app, "복원")!.fire("click");
+  await settle();
+  const posts = calls.filter((c) => c.method === "POST" && c.path === "/projects/import");
+  assert.equal(posts.length, 2);
+  assert.equal(posts[1]!.body.project.id, "shop-2");
+});
+
+test("취소하면 고른 파일을 버리고 목록으로 돌아간다", async () => {
+  const { byId, calls } = await pickImportFile(JSON.stringify(EXPORT));
+
+  btn(byId.app, "취소")!.fire("click");
+  await settle();
+
+  assert.ok(!calls.some((c) => c.method === "POST"));
+  assert.equal(byId.app!.textContent.includes("가져오기 확인"), false);
+  assert.ok(tags(byId.app, "input").some((i) => i.attrs.type === "file"), "다시 고를 수 있는 상태로 돌아온다");
+});
+
+test("프로젝트를 열면 고르다 만 파일은 버려진다 (돌아왔을 때 유령이 남지 않는다)", async () => {
+  const { byId } = await pickImportFile(JSON.stringify(EXPORT));
+
+  btn(byId.app, "shop")!.fire("click"); // 목록에서 프로젝트 진입
+  await settle();
+  btn(byId.app, "← 프로젝트 목록")!.fire("click");
+  await settle();
+
+  assert.equal(byId.app!.textContent.includes("가져오기 확인"), false, "미리보기가 되살아나면 안 된다");
+});
+
+test("RBAC: admin이 아니면 가져오기 패널 자체가 없다 (7.3 UI 미러)", async () => {
+  for (const role of ["viewer", "translator", "maintainer"]) {
+    const { byId } = installDom();
+    (globalThis as any).localStorage.setItem("rynl10n.token", `tok-${role}`);
+    installFetch(projectTable({ actor: role, role, projects: ["shop"], deliveryBaseUrl: "https://cdn.test" }));
+    await loadApp();
+
+    assert.equal(byId.app!.textContent.includes("프로젝트 가져오기"), false, `${role}에게 import는 없어야 한다`);
+    assert.ok(!tags(byId.app, "input").some((i) => i.attrs.type === "file"), `${role}에게 파일 선택기는 없어야 한다`);
+  }
+});
