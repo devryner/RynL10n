@@ -277,22 +277,80 @@ test("이미 있는 id로 복원하면 409로 막고 기존 프로젝트를 건�
 });
 
 test("export가 아닌 JSON은 400 — TypeError가 500으로 새지 않는다", async () => {
+  const PROJ = { id: "x", name: "X", defaultLocale: "en" };
+  /** 형식이 온전한 최소 export — 각 케이스는 여기서 한 군데씩만 망가뜨린다. */
+  const ok = (over: Record<string, unknown> = {}) => ({ project: PROJ, locales: [], keys: [], releases: [], ...over });
+  const key = (over: Record<string, unknown> = {}) => ({
+    name: "a.b", signature: "", isPlural: false, translations: [{ locale: "en", value: "A", state: "draft" }], ...over,
+  });
+  const rel = (over: Record<string, unknown> = {}) => ({
+    id: "R1", name: "R1", versionMatch: { strategy: "semver-range", value: ">=1.0.0 <2.0.0" },
+    state: "draft", base: null, overlay: null, keys: [], ...over,
+  });
+
   const cases: [string, unknown][] = [
     ["빈 본문", {}],
     ["project 없음", { locales: [], keys: [], releases: [] }],
-    ["keys가 배열이 아님", { project: { id: "x", name: "X", defaultLocale: "en" }, locales: [], keys: {}, releases: [] }],
-    ["키 이름 없음", { project: { id: "x", name: "X", defaultLocale: "en" }, locales: [], keys: [{ translations: [] }], releases: [] }],
-    ["릴리스 매칭 규칙 불량", {
-      project: { id: "x", name: "X", defaultLocale: "en" }, locales: [], keys: [],
-      releases: [{ id: "R1", name: "R1", versionMatch: { strategy: "nope", value: "1" }, keys: [] }],
-    }],
+    ["keys가 배열이 아님", ok({ keys: {} })],
+    ["키 이름 없음", ok({ keys: [{ translations: [] }] })],
+    ["릴리스 매칭 규칙 불량", ok({ releases: [rel({ versionMatch: { strategy: "nope", value: "1" } })] })],
+    // 아래부터는 SQLite 바인딩까지 내려가면 TypeError·제약 위반으로 500이 되던 자리들이다.
+    ["키 서명 없음", ok({ keys: [key({ signature: undefined })] })],
+    ["번역 값 없음", ok({ keys: [key({ translations: [{ locale: "en", state: "draft" }] })] })],
+    ["번역 값이 null", ok({ keys: [key({ translations: [{ locale: "en", value: null, state: "draft" }] })] })],
+    ["번역 상태 없음", ok({ keys: [key({ translations: [{ locale: "en", value: "A" }] })] })],
+    ["설명이 문자열이 아님", ok({ keys: [key({ description: { ko: "설명" } })] })],
+    ["로케일 fallbackParent가 객체", ok({ locales: [{ tag: "ko", fallbackParent: {} }] })],
+    ["릴리스 상태 불량", ok({ releases: [rel({ state: "shipped" })] })],
+    ["릴리스 포인터가 문자열이 아님", ok({ releases: [rel({ base: 123, overlay: 456 })] })],
+    ["rollout이 범위 밖", ok({ releases: [rel({ rollout: 140 })] })],
+    ["rollout이 정수가 아님", ok({ releases: [rel({ rollout: 12.5 })] })],
+    // 이름 참조가 깨진 export — importProject가 조용히 버리던 자리다(복원이 반쪽이 된다).
+    ["릴리스가 없는 키를 참조", ok({ keys: [key()], releases: [rel({ keys: ["a.b", "ghost.key"] })] })],
   ];
   for (const [label, body] of cases) {
     const r = await api("POST", "/projects/import", { token: TOK.admin, body });
     assert.equal(r.status, 400, `${label} → 400이어야 한다 (받은 값: ${r.status})`);
     assert.equal(r.body.error.code, "bad_request");
+    assert.match(r.body.error.message, /export 형식이 아닙니다|versionMatch/, `${label}: 어디가 문제인지 알려준다`);
   }
   assert.equal((await api("GET", "/projects/x", { token: TOK.admin })).status, 404, "실패한 import가 프로젝트를 남기지 않았다");
+});
+
+test("rollout(카나리 %)은 복원된다 — 백업을 되살렸더니 전량 배포가 되어 있으면 안 된다", async () => {
+  // rollout을 쓰는 API는 아직 없다(8.4 법무 승인 대기, 안전 기본값 100 고정). 그래서 export가
+  // 값을 담고 있어도 import가 버리면 아무도 눈치채지 못한다 — 카나리가 열리는 날 조용히 터진다.
+  const exported = (await api("GET", "/projects/shop/export", { token: TOK.admin })).body;
+  assert.ok(exported.releases.length > 0, "이 시나리오는 릴리스가 있어야 성립한다");
+  assert.equal(exported.releases[0].rollout, 100, "export는 rollout을 담는다");
+
+  const canary = {
+    ...exported,
+    project: { ...exported.project, id: "shop-canary" },
+    releases: exported.releases.map((r: any, i: number) => ({ ...r, rollout: i === 0 ? 25 : r.rollout })),
+  };
+  assert.equal((await api("POST", "/projects/import", { token: TOK.admin, body: canary })).status, 201);
+
+  const restored = (await api("GET", "/projects/shop-canary/releases", { token: TOK.admin })).body.releases;
+  assert.equal(restored[0].rollout, 25, "백업에 담긴 카나리 비율이 그대로 살아난다");
+  assert.equal(restored[0].state, exported.releases[0].state, "상태도 그대로");
+});
+
+test("rollout·포인터가 없는 구 export도 복원된다 (하위호환)", async () => {
+  const exported = (await api("GET", "/projects/shop/export", { token: TOK.admin })).body;
+  // rollout·base·overlay가 없던 시절의 백업. 필드를 지워서 그대로 재현한다.
+  const legacy = {
+    ...exported,
+    project: { ...exported.project, id: "shop-legacy" },
+    releases: exported.releases.map(({ rollout, base, overlay, ...rest }: any) => rest),
+  };
+  assert.equal((await api("POST", "/projects/import", { token: TOK.admin, body: legacy })).status, 201,
+    "결측 필드는 거절 사유가 아니다");
+
+  const restored = (await api("GET", "/projects/shop-legacy/releases", { token: TOK.admin })).body.releases;
+  assert.equal(restored[0].rollout, 100, "없으면 안전 기본값 100");
+  assert.equal(restored[0].base, null, "포인터는 미설정 — 산출물은 재생성으로 복구한다(9.4)");
+  assert.equal(restored[0].overlay, null);
 });
 
 test("import 중간에 깨지면 통째로 롤백된다 — 반쪽 프로젝트가 남지 않는다", async () => {
