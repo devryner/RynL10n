@@ -159,9 +159,10 @@ write("semver.json", {
 });
 
 // ── 8) 클라이언트 릴리스 판정 (manifest 라우팅) ───────────────────────────────
-function rel(id: string, value: string, state: ManifestRelease["state"] = "published", strategy: "semver-range" | "exact-label" = "semver-range"): ManifestRelease {
+function rel(id: string, value: string, state: ManifestRelease["state"] = "published", strategy: ManifestRelease["versionMatch"]["strategy"] = "semver-range"): ManifestRelease {
   return { id, state, versionMatch: { strategy, value }, base: id.toLowerCase(), overlay: id.toLowerCase(), rollout: 100, snapshot: `releases/${id}/snapshot-${id.toLowerCase()}.json` };
 }
+const intRel = (id: string, value: string) => rel(id, value, "published", "integer-range");
 const routeCases: Array<{ name: string; releases: ManifestRelease[]; ctx: Parameters<typeof selectRelease>[1] }> = [
   { name: "버전격리_구버전", releases: [rel("R42", ">=3.2.0 <3.3.0"), rel("R50", ">=3.3.0")], ctx: { appVersion: "3.2.5" } },
   { name: "버전격리_신버전", releases: [rel("R42", ">=3.2.0 <3.3.0"), rel("R50", ">=3.3.0")], ctx: { appVersion: "3.3.1" } },
@@ -171,6 +172,15 @@ const routeCases: Array<{ name: string; releases: ManifestRelease[]; ctx: Parame
   { name: "미매칭_nearest_lower", releases: [rel("R42", ">=3.2.0 <3.3.0")], ctx: { appVersion: "5.0.0", fallbackPolicy: "nearest-lower" } },
   { name: "exact_label", releases: [rel("W1", "web-stable", "published", "exact-label")], ctx: { releaseLabel: "web-stable" } },
   { name: "방어적_가장좁은범위", releases: [rel("WIDE", ">=3.0.0 <4.0.0"), rel("NARROW", ">=3.2.0 <3.3.0")], ctx: { appVersion: "3.2.5" } },
+  // integer-range(빌드넘버, M4). 전략별 평가가 **서로 분리돼 있는지**가 핵심 — 빌드넘버만 준
+  // 컨텍스트에서 semver 릴리스가 딸려오거나, 반대로 buildNumber가 없는데 정수 릴리스가
+  // 매칭되면 앱은 엉뚱한 카탈로그를 받는다. 언어마다 옵셔널 처리가 달라 특히 어긋나기 쉽다.
+  { name: "빌드넘버_구버전", releases: [intRel("B1", ">=4200 <4300"), intRel("B2", ">=4300")], ctx: { buildNumber: 4250 } },
+  { name: "빌드넘버_신버전", releases: [intRel("B1", ">=4200 <4300"), intRel("B2", ">=4300")], ctx: { buildNumber: 4350 } },
+  { name: "빌드넘버_미매칭", releases: [intRel("B1", ">=4200 <4300")], ctx: { buildNumber: 100 } },
+  { name: "빌드넘버_없으면_미매칭", releases: [intRel("B1", ">=4200 <4300")], ctx: { appVersion: "3.2.5" } },
+  { name: "전략혼재_빌드넘버만", releases: [rel("R42", ">=3.2.0 <3.3.0"), intRel("B1", ">=4200 <4300")], ctx: { buildNumber: 4250 } },
+  { name: "전략혼재_앱버전만", releases: [rel("R42", ">=3.2.0 <3.3.0"), intRel("B1", ">=4200 <4300")], ctx: { appVersion: "3.2.5" } },
 ];
 write("routing.json", {
   description: "selectRelease(releases, ctx) → {kind, releaseId}",

@@ -112,7 +112,7 @@ final class GoldenTests: XCTestCase {
     }
 
     func testRouting() throws {
-        struct Ctx: Decodable { let appVersion: String?; let releaseLabel: String?; let matchPrerelease: Bool?; let fallbackPolicy: String? }
+        struct Ctx: Decodable { let appVersion: String?; let releaseLabel: String?; let buildNumber: Int?; let matchPrerelease: Bool?; let fallbackPolicy: String? }
         struct Expected: Decodable { let kind: String; let releaseId: String? }
         struct Case: Decodable { let name: String; let releases: [ManifestRelease]; let ctx: Ctx; let expected: Expected }
         struct File: Decodable { let cases: [Case] }
@@ -120,6 +120,7 @@ final class GoldenTests: XCTestCase {
         for c in f.cases {
             let policy: FallbackPolicy = c.ctx.fallbackPolicy == "nearest-lower" ? .nearestLower : .bundleOnly
             let ctx = Matching.ClientContext(appVersion: c.ctx.appVersion, releaseLabel: c.ctx.releaseLabel,
+                                             buildNumber: c.ctx.buildNumber,
                                              matchPrerelease: c.ctx.matchPrerelease ?? false, fallbackPolicy: policy)
             let sel = Matching.selectRelease(c.releases, ctx)
             XCTAssertEqual(sel.kind, c.expected.kind, "kind: \(c.name)")
