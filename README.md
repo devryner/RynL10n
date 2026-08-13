@@ -157,7 +157,7 @@ curl -X POST $API/projects/myapp/releases/R1/rollback -H "$AUTH" -H "$JSON" \
 ```
 
 전체 엔드포인트 표(권한·상태 코드 포함)는 [`backend/README.md`](backend/README.md),
-백업·복구·에어갭 등 운영 절차는 `OPERATIONS.md`를 참조하세요.
+백업·복구·에어갭 등 운영 절차는 [`OPERATIONS.md`](OPERATIONS.md)를 참조하세요.
 
 ## 아키텍처 핵심
 
