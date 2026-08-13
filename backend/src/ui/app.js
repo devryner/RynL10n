@@ -113,6 +113,7 @@ const state = {
   tab: "translations",
   live: false,
   filter: emptyFilter(), // 번역 탭 검색·필터(클라이언트 측 — 키 목록은 이미 전부 받아온다)
+  pendingImport: null,   // {fileName, data} — 파일을 고른 뒤 복원 전까지 들고 있는 export(9.2)
 };
 
 const ROLE_CAPS = {
@@ -252,6 +253,75 @@ function deleteProject(p) {
   );
 }
 
+/**
+ * 프로젝트 import(9.2) — export의 반대편. `export`는 프로젝트 안(배포 탭)에 있지만 import는
+ * **새 프로젝트를 만드는 작업**이라 목록 화면에 둔다(`POST /projects/import`도 프로젝트 스코프가 아니다).
+ *
+ * 파일을 고르는 즉시 보내지 않고 미리보기를 한 번 거친다. 이유가 둘이다:
+ *   ① 엉뚱한 JSON을 골랐을 때 네트워크를 타기 전에 로컬에서 잡는다.
+ *   ② 복원할 ID를 그 자리에서 바꿀 수 있다 — 서버가 덮어쓰기를 409로 막으므로(import는 병합이
+ *      아니다), "다른 ID로 복사본 복원"이 사실상 기본 경로다. 실패해도 패널을 닫지 않는 건
+ *      프로젝트 삭제와 같은 이유 — 사용자가 ID만 고쳐 바로 다시 시도할 수 있어야 한다.
+ */
+function importPanel() {
+  const picker = el("input", { type: "file", accept: "application/json,.json" });
+
+  picker.addEventListener("change", async () => {
+    const file = picker.files?.[0];
+    if (!file) return;
+    let data;
+    try { data = JSON.parse(await file.text()); } catch (e) {
+      toast("error", "JSON을 읽지 못했습니다", String(e.message ?? e));
+      return;
+    }
+    // 서버의 requireProjectExport와 같은 판정을 최소한으로 미리 한다 — 왕복을 아끼려는 것.
+    if (!data?.project?.id || !Array.isArray(data.keys)) {
+      toast("error", "export 파일이 아닙니다", "관리 API의 '전체 export'로 받은 JSON을 올려주세요.");
+      return;
+    }
+    state.pendingImport = { fileName: file.name ?? "export.json", data };
+    renderProjects();
+  });
+
+  if (!state.pendingImport) {
+    return el("div", { class: "panel" },
+      el("h2", {}, "프로젝트 가져오기",
+        el("span", { class: "hint", text: "'전체 export'로 받은 JSON — 락인 없는 복원 경로(9.2)" })),
+      el("div", { class: "row" },
+        el("label", { class: "field grow" }, "export 파일", picker),
+      ),
+    );
+  }
+
+  const { fileName, data } = state.pendingImport;
+  const idInput = el("input", { class: "grow", value: data.project.id });
+  const counts = `로케일 ${(data.locales ?? []).length} · 키 ${data.keys.length} · 릴리스 ${(data.releases ?? []).length}`;
+
+  const restore = async () => {
+    const id = idInput.value.trim();
+    if (!id) { toast("error", "복원할 프로젝트 ID는 필수입니다"); return; }
+    const body = { ...data, project: { ...data.project, id } };
+    const out = await run(null, () => api("POST", "/projects/import", body));
+    if (!out) return; // 409(이미 있는 ID)·400은 run()이 토스트로 — 패널은 남겨 ID를 고칠 수 있게 둔다
+    toast("ok", `${id} 를 복원했습니다`, counts);
+    state.pendingImport = null;
+    await openProjects();
+  };
+
+  return el("div", { class: "panel", style: "border-color:var(--accent)" },
+    el("h2", {}, "가져오기 확인", el("span", { class: "hint", text: fileName })),
+    el("p", { class: "small" },
+      el("b", { text: data.project.name ?? "" }), ` — 기본 로케일 ${data.project.defaultLocale ?? "?"} · ${counts}`),
+    el("p", { class: "small muted",
+      text: "이미 있는 ID로는 복원할 수 없습니다(덮어쓰기 없음) — 복사본을 만들려면 ID를 바꾸세요." }),
+    el("div", { class: "row" },
+      el("label", { class: "field grow" }, "복원할 프로젝트 ID", idInput),
+      el("button", { class: "primary", text: "복원", onClick: restore }),
+      el("button", { text: "취소", onClick: () => { state.pendingImport = null; renderProjects(); } }),
+    ),
+  );
+}
+
 function renderProjects() {
   const admin = can("admin");
   const rows = state.projects.map((p) =>
@@ -305,6 +375,7 @@ function renderProjects() {
           ),
         )
       : null,
+    admin ? importPanel() : null,
   );
 }
 
@@ -312,6 +383,7 @@ function renderProjects() {
 
 async function openProject(id) {
   state.projectId = id;
+  state.pendingImport = null;   // 목록을 떠나면 고른 파일도 버린다 — 돌아왔을 때 남아 있으면 유령이다
   state.filter = emptyFilter(); // 프로젝트마다 키·로케일이 다르므로 필터를 물고 넘어가지 않는다
   const [project, keys, releases] = await Promise.all([
     api("GET", `/projects/${enc(id)}`),
