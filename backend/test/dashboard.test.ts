@@ -258,6 +258,71 @@ test("설명은 export/import로 보존되지만 런타임 산출물에는 실�
   assert.deepEqual(Object.keys(snap).sort(), ["base", "defaultLocale", "locales", "release", "schemaVersion"]);
 });
 
+// ── import 실패 경로 (POST /projects/import, 9.2) ─────────────────────────────
+// 성공 경로는 위 export/import 왕복 테스트가 덮는다. 여기서 못박는 건 **실패가 사용자에게
+// 고칠 수 있는 형태로 돌아오는가**다 — 이 라우트는 원래 무엇이 잘못돼도 500 internal이었다.
+
+test("이미 있는 id로 복원하면 409로 막고 기존 프로젝트를 건드리지 않는다", async () => {
+  const exported = (await api("GET", "/projects/shop/export", { token: TOK.admin })).body;
+  const before = (await api("GET", "/projects/shop/keys", { token: TOK.admin })).body.keys.length;
+
+  const dup = await api("POST", "/projects/import", { token: TOK.admin, body: exported });
+  assert.equal(dup.status, 409, "덮어쓰기가 아니라 거절 — import는 병합이 아니다");
+  assert.equal(dup.body.error.code, "conflict");
+  assert.match(dup.body.error.message, /다른 ID로 복원/, "해결 방법을 메시지에 담는다");
+  assert.equal(dup.body.error.message.includes("UNIQUE constraint"), false, "SQLite 원문이 새면 안 된다");
+
+  const after = (await api("GET", "/projects/shop/keys", { token: TOK.admin })).body.keys.length;
+  assert.equal(after, before, "거절된 import가 원본을 건드리지 않았다");
+});
+
+test("export가 아닌 JSON은 400 — TypeError가 500으로 새지 않는다", async () => {
+  const cases: [string, unknown][] = [
+    ["빈 본문", {}],
+    ["project 없음", { locales: [], keys: [], releases: [] }],
+    ["keys가 배열이 아님", { project: { id: "x", name: "X", defaultLocale: "en" }, locales: [], keys: {}, releases: [] }],
+    ["키 이름 없음", { project: { id: "x", name: "X", defaultLocale: "en" }, locales: [], keys: [{ translations: [] }], releases: [] }],
+    ["릴리스 매칭 규칙 불량", {
+      project: { id: "x", name: "X", defaultLocale: "en" }, locales: [], keys: [],
+      releases: [{ id: "R1", name: "R1", versionMatch: { strategy: "nope", value: "1" }, keys: [] }],
+    }],
+  ];
+  for (const [label, body] of cases) {
+    const r = await api("POST", "/projects/import", { token: TOK.admin, body });
+    assert.equal(r.status, 400, `${label} → 400이어야 한다 (받은 값: ${r.status})`);
+    assert.equal(r.body.error.code, "bad_request");
+  }
+  assert.equal((await api("GET", "/projects/x", { token: TOK.admin })).status, 404, "실패한 import가 프로젝트를 남기지 않았다");
+});
+
+test("import 중간에 깨지면 통째로 롤백된다 — 반쪽 프로젝트가 남지 않는다", async () => {
+  const exported = (await api("GET", "/projects/shop/export", { token: TOK.admin })).body;
+  // 형식 검사는 통과하지만 DB에서 깨지는 본문: 같은 릴리스 id가 두 번(두 번째 INSERT가 PK 충돌).
+  // 키를 다 넣은 뒤에 터지므로, 트랜잭션이 없으면 키만 있는 프로젝트가 남는다.
+  const broken = {
+    ...exported,
+    project: { ...exported.project, id: "half" },
+    releases: [...exported.releases, ...exported.releases],
+  };
+  assert.ok(broken.releases.length >= 2, "이 시나리오는 릴리스가 최소 1개 있어야 성립한다");
+
+  const r = await api("POST", "/projects/import", { token: TOK.admin, body: broken });
+  assert.equal(r.status, 500, "예상 못한 DB 오류는 500이 맞다 — 검증 대상은 상태가 깨끗한가다");
+
+  assert.equal((await api("GET", "/projects/half", { token: TOK.admin })).status, 404,
+    "프로젝트 자체가 없어야 한다");
+  assert.equal((await api("GET", "/projects", { token: TOK.admin })).body.projects.some((p: any) => p.id === "half"), false);
+});
+
+test("import는 Admin 전용 (7.3)", async () => {
+  const exported = (await api("GET", "/projects/shop/export", { token: TOK.admin })).body;
+  exported.project.id = "nope";
+  for (const t of [TOK.maint, TOK.trans, TOK.view]) {
+    assert.equal((await api("POST", "/projects/import", { token: t, body: exported })).status, 403);
+  }
+  assert.equal((await api("POST", "/projects/import", { body: exported })).status, 401);
+});
+
 test("대시보드 조회 엔드포인트도 RBAC·스코프를 그대로 따른다", async () => {
   const outOfScope = await api("GET", "/projects/secret/keys", { token: TOK.view });
   assert.equal(outOfScope.status, 403);

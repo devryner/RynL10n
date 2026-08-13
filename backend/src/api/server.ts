@@ -69,6 +69,33 @@ function requireVersionMatch(vm: any): VersionMatch {
   if (typeof vm.value !== "string") throw new BadRequestError("versionMatch.value 필요");
   return { strategy: vm.strategy, value: vm.value };
 }
+/**
+ * import 본문이 export 산출물인지 확인한다(9.2).
+ *
+ * 검사 범위는 `Repo.importProject`가 **실제로 역참조하는 필드**까지다. 여기서 걸러내지 않으면
+ * 엉뚱한 JSON을 올렸을 때 TypeError·NOT NULL 위반이 그대로 500 `internal`로 새어 나가
+ * 사용자는 원인을 알 수 없다 — 잘못된 파일은 사용자가 고칠 수 있는 오류이므로 400이어야 한다.
+ */
+function requireProjectExport(body: any): ProjectExport {
+  const bad = (m: string) => { throw new BadRequestError(`export 형식이 아닙니다: ${m}`); };
+  const p = body?.project;
+  if (!p?.id || !p?.name || !p?.defaultLocale) bad("project.id · project.name · project.defaultLocale 필요");
+  for (const f of ["locales", "keys", "releases"] as const) {
+    if (!Array.isArray(body[f])) bad(`${f} 배열 필요`);
+  }
+  for (const l of body.locales) if (!l?.tag) bad("locales[].tag 필요");
+  for (const k of body.keys) {
+    if (!k?.name) bad("keys[].name 필요");
+    if (!Array.isArray(k.translations)) bad(`keys[${k.name}].translations 배열 필요`);
+    for (const t of k.translations) if (!t?.locale) bad(`keys[${k.name}].translations[].locale 필요`);
+  }
+  for (const r of body.releases) {
+    if (!r?.id || !r?.name) bad("releases[].id · releases[].name 필요");
+    requireVersionMatch(r.versionMatch);
+    if (!Array.isArray(r.keys)) bad(`releases[${r.id}].keys 배열 필요`);
+  }
+  return body as ProjectExport;
+}
 
 const routes: Route[] = [
   // 세션 확인 — 대시보드 로그인 검증 + 배포 플레인 주소 전달. 모든 역할(read).
@@ -320,10 +347,20 @@ const routes: Route[] = [
   route("GET", "/projects/:p/export", "admin", ({ params, repo }) => {
     return { status: 200, body: repo.exportProject(params.p!) };
   }),
-  // import — Admin (빈 프로젝트로 복원)
+  /**
+   * import — Admin (빈 프로젝트로 복원).
+   *
+   * 이미 있는 id로 복원하려는 것이 가장 흔한 실수다(백업을 원본 위에 되돌리기). **덮어쓰지 않고
+   * 409로 막는다** — import는 병합이 아니라 신규 생성이라, 기존 프로젝트를 조용히 건드리는 쪽이
+   * 훨씬 위험하다. 사용자는 `project.id`를 바꿔 복사본으로 복원하거나 기존 것을 먼저 지우면 된다.
+   */
   route("POST", "/projects/import", "admin", ({ body, repo }) => {
-    repo.importProject(body as ProjectExport);
-    return { status: 201, body: { id: (body as ProjectExport).project.id } };
+    const data = requireProjectExport(body);
+    if (repo.getProject(data.project.id)) {
+      throw new ConflictError(`이미 있는 프로젝트입니다: ${data.project.id} — 다른 ID로 복원하거나 기존 프로젝트를 먼저 삭제하세요`);
+    }
+    repo.importProject(data);
+    return { status: 201, body: { id: data.project.id } };
   }),
 
   // 산출물 재생성(재해 복구, 9.4) — Maintainer+
