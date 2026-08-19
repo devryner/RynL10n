@@ -48,6 +48,107 @@ DB 백업(9.4)이 유일한 보존 경로다.
 `ETag`는 CORS 안전목록 응답 헤더가 **아니다** — 명시 노출이 필요하다. 셋 다 없어도 앱은 죽지 않고
 성능만 나빠진다(가장 눈에 안 띄는 실패 모드라 배포 후 한 번은 실제로 확인할 것).
 
+#### 언제 붙이나 · 공통 원칙
+
+CDN은 **선택 사항**이다 — 배포 플레인 단독으로도 산출물은 내용해시 URL이라 기기가 영구 캐싱하고,
+반복 조회는 manifest 304뿐이라 오리진 부하가 매우 낮다. 폴링 QPS가 단일 노드로 부담되거나,
+사용자가 글로벌 분포이거나, 읽기 트래픽을 오리진에서 완전히 격리하고 싶을 때 붙인다.
+
+붙일 때 CDN이 할 일은 사실상 하나다: **오리진 응답을 그대로 존중하는 것.** 배포 플레인이 이미
+올바른 캐시 정책을 헤더로 내보내기 때문이다(위 CORS 3종 포함):
+
+| 경로 | 오리진 Cache-Control | CDN 동작 |
+| --- | --- | --- |
+| `/{p}/releases/…/snapshot-{hash}.json` · `delta-…` | `public, max-age=31536000, immutable` | 영구 캐시 — **무효화 불필요**(내용이 바뀌면 URL이 바뀐다) |
+| `/{p}/manifest.json` | `max-age=30, must-revalidate` | 30초 캐시 + ETag 재검증 — 무효화도 사실상 불필요(급하면 이 파일만 purge) |
+
+CDN 도메인을 정했으면 `RYNL10N_DELIVERY_URL`을 그 도메인으로 바꾸고(대시보드 산출물 링크),
+SDK `configure(endpoint:)`도 CDN 도메인을 가리키게 한다.
+
+#### 예시 1 — Cloudflare (오리진 = 배포 플레인 :8788)
+
+DNS를 proxied(주황 구름)로 두면 끝나는 것 같지만, **Cloudflare는 기본으로 `.json`을 캐시하지
+않는다**(기본 캐시 대상 확장자 아님). Cache Rule 하나가 필요하다:
+
+```
+# Rules → Cache Rules
+When:  Hostname equals cdn.example.com
+Then:  Eligible for cache
+       Edge TTL: "Use cache-control header if present, bypass cache if not"
+```
+
+오리진의 `immutable`/`max-age=30`을 그대로 따르므로 경로별 규칙을 나눌 필요가 없다.
+CORS 헤더도 오리진 응답에 이미 있으니 Transform Rules로 건드리지 말 것.
+
+#### 예시 2 — CloudFront (오리진 = S3/MinIO, 프로덕션 토폴로지)
+
+산출물을 S3 호환 스토리지에 두는 대규모 구성. S3는 정적 파일에 CORS 헤더를 붙여주지 않으므로
+**버킷 CORS 설정**으로 3종을 복원해야 한다:
+
+```json
+[{
+  "AllowedOrigins": ["*"],
+  "AllowedMethods": ["GET", "HEAD"],
+  "AllowedHeaders": ["If-None-Match"],
+  "ExposeHeaders": ["ETag"],
+  "MaxAgeSeconds": 86400
+}]
+```
+
+CloudFront 배포 설정:
+
+- **Cache policy**: 관리형 `UseOriginCacheControlHeaders` — 오리진 Cache-Control 존중.
+- **Origin request policy**: 관리형 `CORS-S3Origin` — `Origin` 헤더를 오리진에 전달해 S3가 CORS 헤더를 붙이게 한다.
+- **Allowed methods**: `GET, HEAD, OPTIONS` (preflight 통과).
+
+S3에 업로드할 때 객체별 `Cache-Control` 메타데이터를 배포 플레인과 동일하게 지정한다
+(산출물 `public, max-age=31536000, immutable` / manifest `max-age=30, must-revalidate`).
+
+#### 예시 3 — Nginx 프록시 캐시 (사내·에어갭, 기존 인프라 재사용)
+
+별도 CDN 없이 기존 Nginx에 캐시 계층만 얹는 최소 구성. Nginx는 오리진 `Cache-Control`을
+기본으로 존중하므로(`proxy_ignore_headers`를 쓰지 않는 한) 경로별 TTL 설정이 필요 없다:
+
+```nginx
+proxy_cache_path /var/cache/nginx/rynl10n keys_zone=rynl10n:10m max_size=1g inactive=30d;
+
+server {
+  listen 443 ssl;
+  server_name cdn.example.com;
+
+  location / {
+    proxy_pass http://127.0.0.1:8788;
+    proxy_cache rynl10n;
+    proxy_cache_revalidate on;              # 만료 시 If-None-Match로 오리진 재검증(304)
+    proxy_cache_use_stale error timeout;    # 오리진 다운 시 캐시로 계속 서빙(장애 격리)
+    add_header X-Cache-Status $upstream_cache_status;   # 검증용(선택)
+  }
+}
+```
+
+CORS·ETag 헤더는 오리진 응답에 포함돼 그대로 통과한다 — `add_header`로 덧쓰지 말 것(중복 헤더는
+브라우저가 거부한다).
+
+#### 배포 후 검증 (셋 다 1분이면 끝난다)
+
+```bash
+CDN=https://cdn.example.com; P=my-project
+
+# ① CORS 3종이 살아서 나오는가
+curl -sI "$CDN/$P/manifest.json" -H "Origin: https://app.example.com" \
+  | grep -i "access-control"
+# 기대: allow-origin + expose-headers: ETag + (preflight 시) allow-headers: If-None-Match
+
+# ② ETag 조건부 요청이 304로 끝나는가
+ETAG=$(curl -sI "$CDN/$P/manifest.json" | awk -F': ' 'tolower($1)=="etag"{print $2}' | tr -d '\r')
+curl -s -o /dev/null -w "%{http_code}\n" "$CDN/$P/manifest.json" -H "If-None-Match: $ETAG"
+# 기대: 304
+
+# ③ 산출물이 엣지에서 immutable로 캐시되는가
+curl -sI "$CDN/$P/releases/R1/snapshot-<hash>.json" | grep -i "cache-control"
+# 기대: public, max-age=31536000, immutable
+```
+
 ## 업그레이드 (9.4)
 
 - **관리 서버 무중단 롤링**: 배포 플레인은 정적 파일이라 관리 서버 재시작 중에도 앱은 영향 없음(플레인 분리).
