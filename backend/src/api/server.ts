@@ -4,12 +4,12 @@
  * SDK 런타임은 이 API를 절대 호출하지 않음(플레인 분리) — 배포 산출물만 읽는다.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import type { Repo } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
 import { publishRelease, rollbackRelease, RangeConflictError, NotFoundError } from "../pipeline/publish.ts";
 import { buildSnapshot } from "../../../src/builder/builder.ts";
-import { authenticate, authorize, AuthError, type Capability, type TokenRegistry, type Principal } from "../auth/rbac.ts";
+import { authenticate, authorize, AuthError, tokenHash, ROLES, type Capability, type PrincipalResolver, type Principal, type Role } from "../auth/rbac.ts";
 import { signature } from "../../../src/core/placeholder.ts";
 import { parseRange } from "../../../src/core/semver.ts";
 import { parseIntRange } from "../../../src/core/intrange.ts";
@@ -98,6 +98,28 @@ function requireVersionMatch(vm: any): VersionMatch {
 }
 /** 릴리스 상태 4종(4.3 라이프사이클) — import 본문 검증용 런타임 목록. */
 const RELEASE_STATES: readonly string[] = ["draft", "published", "superseded", "archived"];
+
+/** 사용자 role 검증(7.3) — rbac.ROLES가 단일 원천. */
+function requireRole(v: unknown): Role {
+  if (!(ROLES as readonly unknown[]).includes(v)) throw new BadRequestError(`role은 ${ROLES.join(" · ")} 중 하나`);
+  return v as Role;
+}
+
+/**
+ * 프로젝트 스코프 검증 — '*'(전체) 또는 프로젝트 id 배열.
+ * 존재하는 프로젝트인지는 **일부러 보지 않는다**: 프로젝트를 만들기 전에 CI 토큰부터 준비하는
+ * 흐름(스코프 선지정)이 실제로 있고, 스코프는 어차피 매 요청 authorize에서 판정된다.
+ */
+function requireProjectScope(v: unknown): "*" | string[] {
+  if (v === undefined || v === "*") return "*";
+  if (Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x.trim() !== "")) {
+    return v.map((x: string) => x.trim());
+  }
+  throw new BadRequestError("projects는 '*' 또는 비지 않은 프로젝트 id 배열");
+}
+
+/** 사용자 관리는 인스턴스 수준이라 audit_log의 project_id 자리에 이 마커를 쓴다. */
+const INSTANCE_SCOPE = "*";
 
 /**
  * import 본문이 export 산출물인지 확인한다(9.2).
@@ -430,6 +452,84 @@ const routes: Route[] = [
     const manifest = rebuildAllArtifacts(repo, store, params.p!);
     return { status: 200, body: { rebuilt: manifest.releases.length } };
   }),
+
+  // ── 사용자 관리(7.3) — 전부 Admin. 사용자는 인스턴스 수준이라 프로젝트 스코프(:p)가 없고,
+  //    export/import(9.2)에도 포함되지 않는다. 모든 변경은 audit_log에 남는다.
+
+  // 사용자 목록 — 토큰은 id·label·발급 시각만(해시·평문 미노출).
+  route("GET", "/users", "admin", ({ repo }) => {
+    return { status: 200, body: { users: repo.listUsers() } };
+  }),
+
+  // 사용자 생성 — 중복 id는 409(import와 같은 규칙: 조용한 덮어쓰기 금지).
+  route("POST", "/users", "admin", ({ body, repo, principal }) => {
+    if (typeof body?.id !== "string" || !body.id.trim()) throw new BadRequestError("id 필요");
+    if (typeof body?.name !== "string" || !body.name.trim()) throw new BadRequestError("name 필요");
+    const id = body.id.trim();
+    const role = requireRole(body.role);
+    const projects = requireProjectScope(body.projects);
+    if (repo.getUser(id)) throw new ConflictError(`이미 있는 사용자입니다: ${id}`);
+    repo.createUser(id, body.name.trim(), role, projects);
+    repo.audit(INSTANCE_SCOPE, principal!.actor, "user.create", { id, role, projects });
+    return { status: 201, body: repo.getUser(id) };
+  }),
+
+  // 사용자 수정(역할·스코프·비활성·이름) — 마지막 활성 admin의 강등·비활성은 409.
+  // 스스로 잠그는 사고를 막는다(부트스트랩 env 토큰은 별도 생존 수단이지만 프로덕션에선 회전 대상이다).
+  route("PATCH", "/users/:id", "admin", ({ params, body, repo, principal }) => {
+    const user = repo.getUser(params.id!);
+    if (!user) throw new NotFoundError(`user ${params.id}`);
+    const patch: { name?: string; role?: Role; projects?: "*" | string[]; disabled?: boolean } = {};
+    if (body?.role !== undefined) patch.role = requireRole(body.role);
+    if (body?.projects !== undefined) patch.projects = requireProjectScope(body.projects);
+    if (body?.disabled !== undefined) {
+      if (typeof body.disabled !== "boolean") throw new BadRequestError("disabled는 boolean");
+      patch.disabled = body.disabled;
+    }
+    if (body?.name !== undefined) {
+      if (typeof body.name !== "string" || !body.name.trim()) throw new BadRequestError("name은 비지 않은 문자열");
+      patch.name = body.name.trim();
+    }
+    const losesAdmin = user.role === "admin" && !user.disabled &&
+      ((patch.role !== undefined && patch.role !== "admin") || patch.disabled === true);
+    if (losesAdmin && repo.countActiveAdmins() <= 1) {
+      throw new ConflictError("마지막 admin은 강등·비활성화할 수 없습니다 — 다른 admin을 먼저 만드세요");
+    }
+    repo.updateUser(params.id!, patch);
+    repo.audit(INSTANCE_SCOPE, principal!.actor, "user.update", { id: params.id, ...patch });
+    return { status: 200, body: repo.getUser(params.id!) };
+  }),
+
+  // 사용자 삭제 — 토큰은 FK CASCADE로 함께 폐기(즉시 401). 마지막 활성 admin은 409.
+  route("DELETE", "/users/:id", "admin", ({ params, repo, principal }) => {
+    const user = repo.getUser(params.id!);
+    if (!user) throw new NotFoundError(`user ${params.id}`);
+    if (user.role === "admin" && !user.disabled && repo.countActiveAdmins() <= 1) {
+      throw new ConflictError("마지막 admin은 삭제할 수 없습니다 — 다른 admin을 먼저 만드세요");
+    }
+    repo.deleteUser(params.id!);
+    repo.audit(INSTANCE_SCOPE, principal!.actor, "user.delete", { id: params.id });
+    return { status: 200, body: { id: params.id, deleted: true } };
+  }),
+
+  // 토큰 발급 — **평문은 이 응답이 유일한 노출**이고 DB에는 sha256 해시만 남는다.
+  // 잃어버리면 되찾는 게 아니라 폐기 후 재발급한다(회전이 기본 동작).
+  route("POST", "/users/:id/tokens", "admin", ({ params, body, repo, principal }) => {
+    if (!repo.getUser(params.id!)) throw new NotFoundError(`user ${params.id}`);
+    const label = typeof body?.label === "string" ? body.label.trim() : "";
+    const tokenId = randomUUID();
+    const token = `rl10n_${randomBytes(24).toString("base64url")}`;
+    repo.addUserToken(params.id!, tokenId, tokenHash(token), label);
+    repo.audit(INSTANCE_SCOPE, principal!.actor, "user.token.issue", { user: params.id, tokenId, label });
+    return { status: 201, body: { id: tokenId, token, label } };
+  }),
+
+  // 토큰 폐기 — DB 조회 기반 인증이라 폐기 즉시 401(세션 캐시 없음).
+  route("DELETE", "/users/:id/tokens/:tokenId", "admin", ({ params, repo, principal }) => {
+    if (!repo.deleteUserToken(params.id!, params.tokenId!)) throw new NotFoundError(`token ${params.tokenId}`);
+    repo.audit(INSTANCE_SCOPE, principal!.actor, "user.token.revoke", { user: params.id, tokenId: params.tokenId });
+    return { status: 200, body: { id: params.tokenId, revoked: true } };
+  }),
 ];
 
 async function readBody(req: IncomingMessage): Promise<any> {
@@ -443,7 +543,8 @@ async function readBody(req: IncomingMessage): Promise<any> {
 export interface ServerDeps {
   readonly repo: Repo;
   readonly store: ArtifactStore;
-  readonly tokens: TokenRegistry;
+  /** 토큰 해석기 — 인메모리 TokenRegistry 또는 DB 기반 DbTokenRegistry(사용자 관리 연동). */
+  readonly tokens: PrincipalResolver;
   readonly metrics?: Metrics;
   readonly notifier?: Notifier;
   readonly log?: (entry: Record<string, unknown>) => void;

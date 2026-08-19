@@ -141,6 +141,7 @@ function projectTable(me: Me = ME_ADMIN) {
     "GET /projects/shop/releases": RELEASES,
     "GET /projects/shop/manifest": { schemaVersion: 1, project: "shop", releases: [] },
     "GET /projects/shop/manifests": { history: [] },
+    "GET /users": { users: [] }, // 목록 화면은 admin이면 사용자도 함께 읽는다(7.3)
   } as Record<string, any>;
 }
 
@@ -167,7 +168,7 @@ test("로그인: 토큰을 /me로 검증하고 통과하면 프로젝트 목록�
   tags(byId.app, "button").find((b) => b.textContent === "로그인")!.fire("click");
   await settle();
 
-  assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), ["GET /me", "GET /projects"]);
+  assert.deepEqual(calls.map((c) => `${c.method} ${c.path}`), ["GET /me", "GET /projects", "GET /users"]);
   assert.equal(calls[0]!.auth, "Bearer tok-admin", "Bearer 헤더로 토큰을 보내야 한다");
   assert.equal(store["rynl10n.token"], "tok-admin", "검증에 성공해야만 토큰을 저장한다");
   assert.match(byId.app!.textContent, /Shop/);
@@ -895,4 +896,131 @@ test("integer-range를 골라 만들면 그 전략 그대로 POST된다", async 
   assert.ok(post, "생성 요청이 나가야 한다");
   assert.deepEqual(post.body.versionMatch, { strategy: "integer-range", value: ">=4200 <4300" });
   assert.equal(post.body.name, "빌드 4200대");
+});
+
+// ── 사용자 관리(7.3) — admin 전용 패널 ────────────────────────────────────────
+
+const USERS = {
+  users: [
+    {
+      id: "alice", name: "Alice", role: "translator", projects: ["shop"], disabled: false,
+      createdAt: "2026-08-19T00:00:00.000Z",
+      tokens: [{ id: "tok-1111aaaa", label: "ci", createdAt: "2026-08-19T00:00:00.000Z" }],
+    },
+    {
+      id: "root", name: "Root", role: "admin", projects: "*", disabled: false,
+      createdAt: "2026-08-19T00:00:00.000Z", tokens: [],
+    },
+  ],
+};
+
+async function openUsersList(table = projectTable()) {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const calls = installFetch(table);
+  await loadApp();
+  return { byId, calls };
+}
+
+test("사용자 패널: 목록·역할·스코프·토큰 라벨을 그대로 반영한다", async () => {
+  const table = projectTable();
+  table["GET /users"] = USERS;
+  const { byId } = await openUsersList(table);
+
+  const text = byId.app!.textContent;
+  assert.match(text, /alice/);
+  assert.match(text, /Alice/);
+  assert.match(text, /전체/, "projects '*' 는 사람 말('전체')로 보여준다");
+  assert.match(text, /shop/, "스코프 프로젝트 id 노출");
+  assert.match(text, /ci/, "토큰 라벨 노출");
+  const rowSel = tags(byId.app, "select").find((s) => s.attrs["aria-label"] === "alice 역할")!;
+  assert.equal(rowSel.value, "translator", "행의 역할 셀렉트는 현재 역할로 시작한다");
+});
+
+test("RBAC: admin이 아니면 사용자 패널이 없고 GET /users 도 부르지 않는다 (7.3 UI 미러)", async () => {
+  const { byId, calls } = await openUsersList(
+    projectTable({ actor: "mnt", role: "maintainer", projects: ["shop"], deliveryBaseUrl: "https://cdn.test" }),
+  );
+  assert.ok(!calls.some((c) => c.path === "/users"), "admin 전용 라우트는 아예 부르지 않는다(403 소음 방지)");
+  assert.equal(btn(byId.app, "사용자 추가"), undefined, "생성 폼이 없어야 한다");
+  assert.doesNotMatch(byId.app!.textContent, /사용자 관리|아직 사용자가 없습니다/);
+});
+
+test("생성 폼: 역할을 고르면 안내 문구가 그 역할의 것으로 바뀐다 (ROLE_HINTS)", async () => {
+  const { byId } = await openUsersList();
+  const roleSel = tags(byId.app, "select").find((s) => s.attrs["aria-label"] === "역할")!;
+
+  assert.equal(roleSel.value, "viewer", "최소 권한이 기본값");
+  assert.match(byId.app!.textContent, /읽기 전용/, "viewer 안내가 먼저 보인다");
+
+  roleSel.value = "maintainer";
+  roleSel.fire("change");
+  assert.match(byId.app!.textContent, /릴리스 생성·publish·롤백/, "maintainer 안내로 바뀐다");
+
+  roleSel.value = "admin";
+  roleSel.fire("change");
+  assert.match(byId.app!.textContent, /프로젝트·사용자 관리/, "admin 안내로 바뀐다");
+});
+
+test("생성은 id·이름·역할·프로젝트 스코프를 그대로 POST /users 로 보낸다", async () => {
+  const table = projectTable();
+  table["POST /users"] = { id: "bob", name: "Bob", role: "maintainer", projects: ["shop"], disabled: false, tokens: [] };
+  const { byId, calls } = await openUsersList(table);
+
+  const inputs = tags(byId.app, "input");
+  inputs.find((i) => i.attrs.placeholder === "user-id")!.value = "bob";
+  inputs.find((i) => i.attrs.placeholder === "사용자 이름")!.value = "Bob";
+  const roleSel = tags(byId.app, "select").find((s) => s.attrs["aria-label"] === "역할")!;
+  roleSel.value = "maintainer";
+  roleSel.fire("change");
+
+  // '모든 프로젝트'를 끄고 shop만 고른다.
+  const allBox = inputs.find((i) => i.attrs["aria-label"] === "모든 프로젝트")! as any;
+  assert.equal(allBox.checked, true, "전체 스코프가 기본값");
+  allBox.checked = false;
+  allBox.fire("change");
+  const scopeBox = tags(byId.app, "select").find((s) => s.attrs["aria-label"] === "접근 가능한 프로젝트")! as any;
+  assert.equal(scopeBox.disabled, false, "체크를 끄면 프로젝트 선택이 열린다");
+  scopeBox.selectedOptions = [{ value: "shop" }];
+
+  btn(byId.app, "사용자 추가")!.fire("click");
+  await settle();
+
+  const post = calls.find((c) => c.method === "POST" && c.path === "/users")!;
+  assert.ok(post, "생성 요청이 나가야 한다");
+  assert.deepEqual(post.body, { id: "bob", name: "Bob", role: "maintainer", projects: ["shop"] });
+});
+
+test("토큰 발급: 평문은 1회 노출 패널에만 보이고 닫으면 사라진다", async () => {
+  const table = projectTable();
+  table["GET /users"] = USERS;
+  table["POST /users/alice/tokens"] = { id: "tok-9999", token: "rl10n_only-shown-once", label: "" };
+  const { byId } = await openUsersList(table);
+
+  btn(byId.app, "토큰 발급")!.fire("click"); // 첫 행 = alice
+  await settle();
+
+  assert.match(byId.app!.textContent, /지금만 볼 수 있습니다/);
+  const box = tags(byId.app, "input").find((i) => i.value === "rl10n_only-shown-once")!;
+  assert.ok(box, "평문은 복사할 수 있게 입력 상자로 보여준다");
+  assert.equal(box.attrs.readonly, "", "편집은 잠근다");
+
+  btn(byId.app, "닫기")!.fire("click");
+  await settle();
+  assert.doesNotMatch(byId.app!.textContent, /rl10n_only-shown-once/, "닫으면 평문은 다시 볼 수 없다");
+});
+
+test("마지막 admin 강등 409는 역할 셀렉트를 되돌리고 오류를 표면화한다", async () => {
+  const table = projectTable();
+  table["GET /users"] = USERS;
+  table["PATCH /users/root"] = Object.assign(
+    new Error("마지막 admin은 강등·비활성화할 수 없습니다"), { status: 409, code: "conflict" });
+  const { byId } = await openUsersList(table);
+
+  const rowSel = tags(byId.app, "select").find((s) => s.attrs["aria-label"] === "root 역할")!;
+  rowSel.value = "viewer";
+  rowSel.fire("change");
+  await settle();
+
+  assert.equal(rowSel.value, "admin", "409면 셀렉트를 원래 역할로 되돌린다");
 });

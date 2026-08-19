@@ -349,6 +349,87 @@ export class Repo {
     this.db.prepare("INSERT INTO audit_log(project_id,actor,action,detail_json,created_at) VALUES(?,?,?,?,?)")
       .run(projectId, actor, action, JSON.stringify(detail ?? null), nowIso());
   }
+
+  // ── 사용자 관리(7.3) ──────────────────────────────────────────────────────────
+  // 인스턴스 수준 엔티티 — 프로젝트 export/import(9.2)에 넣지 않는다(복원에 권한이 딸려오는 사고 차단).
+  createUser(id: string, name: string, role: string, projects: "*" | readonly string[]): void {
+    this.db.prepare("INSERT INTO users(id,name,role,projects,disabled,created_at) VALUES(?,?,?,?,0,?)")
+      .run(id, name, role, serializeScope(projects), nowIso());
+  }
+  getUser(id: string): UserRow | undefined {
+    const r = this.db.prepare("SELECT id,name,role,projects,disabled,created_at FROM users WHERE id=?").get(id) as any;
+    return r ? mapUser(r) : undefined;
+  }
+  /** 전체 사용자 + 토큰 요약(id·label·발급 시각 — **해시는 내보내지 않는다**). */
+  listUsers(): Array<UserRow & { tokens: Array<{ id: string; label: string; createdAt: string }> }> {
+    const users = (this.db.prepare("SELECT id,name,role,projects,disabled,created_at FROM users ORDER BY id").all() as any[])
+      .map(mapUser);
+    const tokenRows = this.db.prepare("SELECT id,user_id,label,created_at FROM user_tokens ORDER BY created_at,id").all() as
+      { id: string; user_id: string; label: string; created_at: string }[];
+    const byUser = new Map<string, Array<{ id: string; label: string; createdAt: string }>>();
+    for (const t of tokenRows) {
+      let bucket = byUser.get(t.user_id);
+      if (!bucket) { bucket = []; byUser.set(t.user_id, bucket); }
+      bucket.push({ id: t.id, label: t.label, createdAt: t.created_at });
+    }
+    return users.map((u) => ({ ...u, tokens: byUser.get(u.id) ?? [] }));
+  }
+  updateUser(id: string, patch: { name?: string; role?: string; projects?: "*" | readonly string[]; disabled?: boolean }): void {
+    const cur = this.getUser(id);
+    if (!cur) return;
+    this.db.prepare("UPDATE users SET name=?, role=?, projects=?, disabled=? WHERE id=?").run(
+      patch.name ?? cur.name,
+      patch.role ?? cur.role,
+      serializeScope(patch.projects ?? cur.projects),
+      (patch.disabled ?? cur.disabled) ? 1 : 0,
+      id,
+    );
+  }
+  deleteUser(id: string): void {
+    this.db.prepare("DELETE FROM users WHERE id=?").run(id); // 토큰은 FK CASCADE
+  }
+  /** 활성 admin 수 — 마지막 admin 강등·비활성·삭제 가드(스스로 잠그는 사고 차단) 입력. */
+  countActiveAdmins(): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND disabled=0").get() as { n: number }).n;
+  }
+  addUserToken(userId: string, tokenId: string, hash: string, label: string): void {
+    this.db.prepare("INSERT INTO user_tokens(id,user_id,token_hash,label,created_at) VALUES(?,?,?,?,?)")
+      .run(tokenId, userId, hash, label, nowIso());
+  }
+  /** 토큰 폐기. 지운 행이 있으면 true — 없는 토큰은 404로 표면화할 수 있게 한다. */
+  deleteUserToken(userId: string, tokenId: string): boolean {
+    const r = this.db.prepare("DELETE FROM user_tokens WHERE id=? AND user_id=?").run(tokenId, userId);
+    return Number(r.changes) > 0;
+  }
+  /** 토큰 해시 → 사용자(인증 경로, rbac.UserPrincipalSource). disabled 판정은 호출자(401) 몫. */
+  findUserByTokenHash(hash: string): UserRow | undefined {
+    const r = this.db.prepare(
+      "SELECT u.id,u.name,u.role,u.projects,u.disabled,u.created_at FROM user_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=?",
+    ).get(hash) as any;
+    return r ? mapUser(r) : undefined;
+  }
+}
+
+/** 사용자 행 — projects는 '*'(전체) 또는 프로젝트 id 배열(rbac.Principal.projects와 대응). */
+export interface UserRow {
+  readonly id: string;
+  readonly name: string;
+  readonly role: string;
+  readonly projects: "*" | string[];
+  readonly disabled: boolean;
+  readonly createdAt: string;
+}
+
+function serializeScope(projects: "*" | readonly string[]): string {
+  return projects === "*" ? "*" : JSON.stringify(projects);
+}
+
+function mapUser(r: any): UserRow {
+  return {
+    id: r.id, name: r.name, role: r.role,
+    projects: r.projects === "*" ? "*" : (JSON.parse(r.projects) as string[]),
+    disabled: !!r.disabled, createdAt: r.created_at,
+  };
 }
 
 function mapRelease(r: any): ReleaseRow {

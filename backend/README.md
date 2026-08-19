@@ -8,7 +8,7 @@
 ```bash
 npm run backend            # 대시보드 + 관리 API :8787 · 배포 플레인 :8788 (node:sqlite 내장, 외부 의존성 0)
                            # → 브라우저로 http://localhost:8787 접속, 토큰으로 로그인
-npm run test:backend       # node --test — 파이프라인 + API 통합 + 대시보드 (37 tests)
+npm run test:backend       # node --test — 파이프라인 + API 통합 + 대시보드 + 사용자 관리 (118 tests)
 npm run typecheck:backend  # tsc --noEmit
 docker compose up          # 단일 노드 셀프호스트 (9.1)
 ```
@@ -51,7 +51,8 @@ docker compose up          # 단일 노드 셀프호스트 (9.1)
 ## 데이터 모델 (5 / 7.4)
 
 `node:sqlite` 정규화 관계형 SoT — `projects` / `locales` / `keys` / `translations` / `releases` /
-`release_keys`(다대다, 백포트 대상) / `jobs` / `published_manifests`(롤백 보존 창) / `audit_log`.
+`release_keys`(다대다, 백포트 대상) / `jobs` / `published_manifests`(롤백 보존 창) / `audit_log` /
+`users` · `user_tokens`(사용자 관리 7.3 — 인스턴스 수준, export/import 비포함).
 
 **키 설명(`keys.description`, 5.1)** — 번역자가 읽는 맥락(화면·톤·제약). 값이 아니라 '의미'에 붙으므로
 로케일별이 아닌 **키 단위**이며, 로케일을 늘려도 같은 설명이 그대로 쓰인다.
@@ -90,6 +91,10 @@ export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없
 | `POST /projects/{p}/translations/{key}/backport` | Maintainer+ | 200 · **207** 부분 | 404 |
 | `GET /projects/{p}/jobs/{jobId}` | Viewer+ | 200 | 404 |
 | `GET /projects/{p}/releases` · `GET /projects/{p}/manifest` | Viewer+ | 200 | 404 |
+| `GET /users` · `POST /users` | Admin | 200 · 201 | 400 · **409** 중복 id |
+| `PATCH /users/{id}` · `DELETE /users/{id}` | Admin | 200 | **409** 마지막 admin · 404 |
+| `POST /users/{id}/tokens` | Admin | 201 `{id,token,label}` — **평문 1회 노출** | 404 |
+| `DELETE /users/{id}/tokens/{tid}` | Admin | 200 (즉시 무효) | 404 |
 
 인증 없음 → **401**. 권한 부족 → **403**.
 
@@ -97,6 +102,14 @@ export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없
 
 머신(CI 플러그인)=스코프 제한 Bearer 토큰. 사람=OIDC는 통합 지점만(β는 토큰 경로).
 역할 4종: **Admin**(전체) / **Maintainer**(릴리스·publish·롤백·백포트) / **Translator**(번역 편집) / **Viewer**(읽기).
+
+**사용자 관리** — `users`·`user_tokens` 테이블 + `DbTokenRegistry`(main.ts 배선). 부트스트랩 env 토큰
+(`RYNL10N_ADMIN_TOKEN`)으로 첫 admin 사용자를 만든 뒤 발급 토큰으로 갈아탄다(env 토큰은 회전 권장).
+토큰은 **sha256 해시만 저장**되고 평문은 발급 응답에 한 번만 담긴다 — 잃어버리면 폐기 후 재발급.
+폐기·비활성·삭제는 DB 조회 기반이라 **즉시** 401이 되며(세션 캐시 없음), 마지막 활성 admin의
+강등·비활성·삭제는 409로 막는다(스스로 잠그는 사고 차단). 모든 변경은 `audit_log`(project_id=`*`)에 남는다.
+사용자는 인스턴스 수준이라 프로젝트 export/import(9.2)에 포함되지 않는다 — 복원에 권한이 딸려오지 않는다.
+`users.oidc_subject`는 OIDC 통합 지점(β 미사용).
 
 ## 배포 파이프라인 (7.4 / 8.1–8.3)
 
@@ -127,7 +140,9 @@ publish 시: ① 버전 범위 충돌·자동 상한 닫힘 검증(쓰기 전, 4
 - `m3.test.ts` — 메트릭 노출 · 텔레메트리 집계/PII 거부 · **export→import→rebuild 바이트 동일**(이식성+결정성).
 - `dashboard.test.ts` — 자산 서빙·허용 목록 밖 404 · `/me` · 스코프 필터 · **로케일 등록이 스냅샷 포함으로 이어짐**.
 - `dashboard-ui.test.ts` — 최소 DOM 스텁으로 `src/ui/app.js` 동작 계약 검증(로그인 분기 · 그리드 반영 ·
-  편집→PUT 매핑 · 422 롤백 · RBAC UI 미러 · 배포 플레인 링크).
+  편집→PUT 매핑 · 422 롤백 · RBAC UI 미러 · 배포 플레인 링크 · 사용자 패널).
+- `users.test.ts` — 사용자 관리 API + DB 토큰 인증(발급 토큰의 역할·스코프 적용 · 평문/해시 비노출 ·
+  폐기/비활성/삭제 즉시 401 · 마지막 admin 409 · 부트스트랩 공존).
 
 ## 프로덕션 경로 (M3)
 

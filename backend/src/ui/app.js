@@ -114,6 +114,8 @@ const state = {
   live: false,
   filter: emptyFilter(), // 번역 탭 검색·필터(클라이언트 측 — 키 목록은 이미 전부 받아온다)
   pendingImport: null,   // {fileName, data} — 파일을 고른 뒤 복원 전까지 들고 있는 export(9.2)
+  users: [],             // 사용자 관리(7.3) — admin일 때만 채운다
+  issuedToken: null,     // {userId, token} — 방금 발급한 토큰 평문. **이 화면이 유일한 노출**이다
 };
 
 const ROLE_CAPS = {
@@ -135,6 +137,8 @@ function logout() {
   localStorage.removeItem("rynl10n.token");
   state.token = "";
   state.me = null;
+  state.users = [];
+  state.issuedToken = null; // 토큰 평문을 세션 밖까지 들고 있지 않는다
   closeStream();
   renderLogin();
 }
@@ -208,6 +212,8 @@ async function openProjects() {
   state.projectId = null; state.project = null;
   const data = await api("GET", "/projects");
   state.projects = data.projects;
+  // 사용자 관리(7.3)는 admin 전용 라우트라 다른 역할은 아예 부르지 않는다(403 소음 방지).
+  if (can("admin")) state.users = (await api("GET", "/users")).users;
   renderProjects();
 }
 
@@ -322,6 +328,174 @@ function importPanel() {
   );
 }
 
+// ── 사용자 관리(7.3) — admin 전용, 인스턴스 수준(프로젝트 스코프 아님)이라 목록 화면에 둔다 ──
+
+/**
+ * 역할별 안내의 단일 원천(릴리스 폼의 MATCH_HINTS와 같은 패턴). 역할을 고르면 그 자리에서
+ * "무엇을 할 수 있는지"가 바뀐다 — 조직 호칭(어드민·편집자·일반)과 시스템 역할 4종을 잇는 자리.
+ */
+const ROLE_HINTS = {
+  viewer: "일반 — 읽기 전용(번역·릴리스·배포 열람만)",
+  translator: "편집자(번역) — 번역 값·키 설명 편집까지",
+  maintainer: "편집자(릴리스) — 번역 편집 + 릴리스 생성·publish·롤백",
+  admin: "어드민 — 전부 + 프로젝트·사용자 관리",
+};
+
+async function reloadUsers() {
+  state.users = (await api("GET", "/users")).users;
+  renderProjects();
+}
+
+/** 방금 발급한 토큰 안내 — 평문은 DB에 없으므로(해시만) 이 패널을 닫으면 다시 볼 수 없다. */
+function issuedTokenNotice() {
+  const { userId, token } = state.issuedToken;
+  const box = el("input", { value: token, readonly: true, class: "grow mono" });
+  return el("div", { class: "panel", style: "border-color:var(--accent)" },
+    el("h2", {}, `${userId} 의 새 토큰`, el("span", { class: "hint", text: "지금만 볼 수 있습니다 — 복사해 전달하세요" })),
+    el("p", { class: "small muted", text: "서버에는 해시만 저장됩니다. 잃어버리면 폐기하고 다시 발급하세요." }),
+    el("div", { class: "row" },
+      box,
+      el("button", { class: "tiny", text: "복사", onClick: () => globalThis.navigator?.clipboard?.writeText(token) }),
+      el("button", { class: "tiny", text: "닫기", onClick: () => { state.issuedToken = null; renderProjects(); } }),
+    ),
+  );
+}
+
+function userRow(u) {
+  // 역할 인라인 변경 — 실패(마지막 admin 409 등)하면 셀렉트를 원래 값으로 되돌린다.
+  const roleSel = el("select", { "aria-label": `${u.id} 역할` },
+    ...Object.keys(ROLE_HINTS).map((r) => el("option", { value: r, text: r, selected: u.role === r })));
+  roleSel.value = u.role;
+  roleSel.addEventListener("change", async () => {
+    const ok = await run(`${u.id} 역할 → ${roleSel.value}`, () =>
+      api("PATCH", `/users/${enc(u.id)}`, { role: roleSel.value }));
+    if (ok) await reloadUsers();
+    else roleSel.value = u.role;
+  });
+
+  const issue = async () => {
+    const out = await run(null, () => api("POST", `/users/${enc(u.id)}/tokens`, { label: "" }));
+    if (!out) return;
+    state.issuedToken = { userId: u.id, token: out.token };
+    await reloadUsers();
+  };
+
+  const revoke = (t) => async () => {
+    const ok = await run("토큰을 폐기했습니다", () =>
+      api("DELETE", `/users/${enc(u.id)}/tokens/${enc(t.id)}`));
+    if (ok) await reloadUsers();
+  };
+
+  const toggle = async () => {
+    const ok = await run(`${u.id} ${u.disabled ? "활성화" : "비활성"}`, () =>
+      api("PATCH", `/users/${enc(u.id)}`, { disabled: !u.disabled }));
+    if (ok) await reloadUsers();
+  };
+
+  const remove = () => {
+    const echo = el("input", { placeholder: u.id, class: "grow" });
+    confirmPanel(
+      `${u.id} 삭제`,
+      [
+        el("p", {}, "이 사용자와 ", el("b", {}, "모든 토큰"), "이 즉시 폐기됩니다. 되돌릴 수 없습니다."),
+        el("label", { class: "field grow" }, `확인하려면 사용자 ID "${u.id}" 를 입력하세요`, echo),
+      ],
+      async () => {
+        const out = await run(null, () => api("DELETE", `/users/${enc(u.id)}`));
+        if (!out) return; // 409(마지막 admin)는 패널을 남겨 다른 admin을 만들고 돌아올 수 있게 둔다
+        toast("ok", `${u.id} 를 삭제했습니다`);
+        await openProjects();
+      },
+      {
+        onCancel: openProjects, // 목록 화면 — state.project가 없으므로 renderProject로 가면 안 된다
+        confirmLabel: "영구 삭제",
+        confirmClass: "danger",
+        arm: (btn) => {
+          btn.disabled = true;
+          echo.addEventListener("input", () => { btn.disabled = echo.value.trim() !== u.id; });
+        },
+      },
+    )();
+  };
+
+  return el("tr", {},
+    el("td", { class: "mono" }, u.id,
+      u.disabled ? el("div", {}, el("span", { class: "badge off", text: "비활성" })) : null),
+    el("td", { text: u.name }),
+    el("td", {}, roleSel),
+    el("td", { class: "small mono", text: u.projects === "*" ? "전체" : u.projects.join(", ") }),
+    el("td", { class: "small" },
+      ...u.tokens.map((t) => el("div", { class: "row" },
+        el("span", { class: "mono muted", text: t.label || t.id.slice(0, 8) }),
+        el("button", { class: "tiny danger", text: "폐기", onClick: revoke(t) }),
+      )),
+      el("button", { class: "tiny", text: "토큰 발급", onClick: issue }),
+    ),
+    el("td", {}, el("div", { class: "row" },
+      el("button", { class: "tiny", text: u.disabled ? "활성화" : "비활성", onClick: toggle }),
+      el("button", { class: "tiny danger", text: "삭제", onClick: remove }),
+    )),
+  );
+}
+
+function usersPanel() {
+  const idIn = el("input", { placeholder: "user-id", class: "grow" });
+  const nameIn = el("input", { placeholder: "사용자 이름", class: "grow" });
+  const hint = el("span", { class: "hint", text: ROLE_HINTS.viewer });
+  const roleSel = el("select", { "aria-label": "역할" },
+    ...Object.keys(ROLE_HINTS).map((r) => el("option", { value: r, text: r })));
+  roleSel.value = "viewer"; // 최소 권한이 기본값
+  roleSel.addEventListener("change", () => { hint.textContent = ROLE_HINTS[roleSel.value]; });
+
+  const allBox = el("input", { type: "checkbox", "aria-label": "모든 프로젝트" });
+  allBox.checked = true; // checked는 속성이 아니라 프로퍼티로 확정한다
+  const scopeBox = el("select", {
+    multiple: true, "aria-label": "접근 가능한 프로젝트",
+    size: String(Math.min(6, Math.max(3, state.projects.length || 3))),
+  }, ...state.projects.map((p) => el("option", { value: p.id, text: p.id })));
+  scopeBox.disabled = true;
+  allBox.addEventListener("change", () => { scopeBox.disabled = allBox.checked; });
+
+  const create = async () => {
+    const id = idIn.value.trim(), name = nameIn.value.trim();
+    if (!id || !name) { toast("error", "id · 이름은 필수입니다"); return; }
+    const projects = allBox.checked ? "*" : [...scopeBox.selectedOptions].map((o) => o.value);
+    if (projects !== "*" && !projects.length) {
+      toast("error", "프로젝트를 선택하거나 '모든 프로젝트'를 켜세요"); return;
+    }
+    const ok = await run("사용자를 만들었습니다", () =>
+      api("POST", "/users", { id, name, role: roleSel.value, projects }));
+    if (ok) { idIn.value = nameIn.value = ""; await reloadUsers(); }
+  };
+
+  return [
+    state.issuedToken ? issuedTokenNotice() : null,
+    el("div", { class: "panel" },
+      el("h2", {}, "사용자", el("span", { class: "hint", text: "역할·프로젝트 스코프로 접근을 구분합니다 (7.3)" })),
+      state.users.length
+        ? el("div", { class: "tablewrap" }, el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", { text: "ID" }), el("th", { text: "이름" }), el("th", { text: "역할" }),
+              el("th", { text: "프로젝트" }), el("th", { text: "토큰" }), el("th", { text: "작업" }),
+            )),
+            el("tbody", {}, ...state.users.map(userRow)),
+          ))
+        : el("p", { class: "muted", text: "아직 사용자가 없습니다. 아래에서 추가하세요 — 부트스트랩 env 토큰은 사용자를 만든 뒤 회전하세요." }),
+      el("div", { class: "row", style: "margin-top:10px" },
+        el("label", { class: "field grow" }, "사용자 ID", idIn),
+        el("label", { class: "field grow" }, "이름", nameIn),
+        el("label", { class: "field" }, "역할", roleSel),
+      ),
+      el("div", { class: "row", style: "margin-top:6px; align-items:flex-start" },
+        el("label", { class: "row small muted" }, allBox, "모든 프로젝트(*)"),
+        el("label", { class: "field grow" }, "프로젝트 선택 (다중)", scopeBox),
+        el("button", { class: "primary", text: "사용자 추가", onClick: create }),
+      ),
+      hint,
+    ),
+  ];
+}
+
 function renderProjects() {
   const admin = can("admin");
   const rows = state.projects.map((p) =>
@@ -375,6 +549,7 @@ function renderProjects() {
           ),
         )
       : null,
+    admin ? usersPanel() : null,
     admin ? importPanel() : null,
   );
 }
@@ -384,6 +559,7 @@ function renderProjects() {
 async function openProject(id) {
   state.projectId = id;
   state.pendingImport = null;   // 목록을 떠나면 고른 파일도 버린다 — 돌아왔을 때 남아 있으면 유령이다
+  state.issuedToken = null;     // 토큰 평문도 같은 규칙 — 화면을 떠나면 노출을 끝낸다
   state.filter = emptyFilter(); // 프로젝트마다 키·로케일이 다르므로 필터를 물고 넘어가지 않는다
   const [project, keys, releases] = await Promise.all([
     api("GET", `/projects/${enc(id)}`),

@@ -7,7 +7,7 @@ import { openDatabase } from "./db/schema.ts";
 import { Repo } from "./db/repo.ts";
 import { FsArtifactStore } from "./storage/store.ts";
 import { createDeliveryServer } from "./storage/delivery-server.ts";
-import { TokenRegistry } from "./auth/rbac.ts";
+import { TokenRegistry, DbTokenRegistry } from "./auth/rbac.ts";
 import { createManagementServer } from "./api/server.ts";
 
 const MGMT_PORT = Number(process.env.RYNL10N_PORT ?? 8787);
@@ -20,8 +20,11 @@ const DELIVERY_ALLOW_ORIGIN = process.env.RYNL10N_DELIVERY_ALLOW_ORIGIN ?? "*";
 
 const repo = new Repo(openDatabase(DB_PATH));
 const store = new FsArtifactStore(STORAGE_ROOT);
-const tokens = new TokenRegistry();
-tokens.issue(ADMIN_TOKEN, { actor: "bootstrap-admin", role: "admin", projects: "*" });
+// 부트스트랩 env 토큰(첫 admin을 만들 수단) + DB 사용자 토큰(대시보드 '사용자' 패널에서 발급 —
+// DB에 영속되므로 재시작해도 살아남는다). 프로덕션은 사용자 생성 후 env 토큰을 회전할 것.
+const bootstrap = new TokenRegistry();
+bootstrap.issue(ADMIN_TOKEN, { actor: "bootstrap-admin", role: "admin", projects: "*" });
+const tokens = new DbTokenRegistry(repo, bootstrap);
 
 // 배포 플레인 base URL — 대시보드가 산출물 링크를 만들 때 쓴다(프로덕션은 CDN 도메인).
 const DELIVERY_BASE_URL = process.env.RYNL10N_DELIVERY_URL ?? `http://localhost:${DELIVERY_PORT}`;

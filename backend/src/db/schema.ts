@@ -134,4 +134,26 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail_json    TEXT,
   created_at     TEXT NOT NULL
 );
+
+-- 사용자(7.3): 인스턴스 수준 엔티티 — 프로젝트 스코프가 아니므로 export/import(9.2)에 포함하지 않는다.
+-- projects: '*'(전체) 또는 프로젝트 id JSON 배열. oidc_subject는 OIDC 통합 지점(β 미사용, 7.3).
+CREATE TABLE IF NOT EXISTS users (
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  role           TEXT NOT NULL,
+  projects       TEXT NOT NULL DEFAULT '*',
+  disabled       INTEGER NOT NULL DEFAULT 0,
+  oidc_subject   TEXT,
+  created_at     TEXT NOT NULL
+);
+
+-- 사용자 토큰: 사용자당 N개(대시보드용·CI용 분리 발급/폐기). 평문은 저장하지 않는다 —
+-- sha256 hex 해시만 남고 평문은 발급 응답에 1회 노출된다.
+CREATE TABLE IF NOT EXISTS user_tokens (
+  id             TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash     TEXT NOT NULL UNIQUE,
+  label          TEXT NOT NULL DEFAULT '',
+  created_at     TEXT NOT NULL
+);
 `;
