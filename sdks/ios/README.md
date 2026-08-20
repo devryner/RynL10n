@@ -187,6 +187,44 @@ func applicationDidBecomeActive(_ application: UIApplication) {
 네트워크가 끊겨 있으면 마지막으로 받은 manifest·산출물 캐시로 진행하고, 캐시조차 없으면
 `DeliveryError.unavailable`을 던진 뒤 번들 그대로 동작한다.
 
+### 4-c-1. 주기 폴링 — 켜 두면 알아서 따라간다
+
+앱이 오래 떠 있는 동안에도 갱신을 받고 싶으면 폴링을 켠다. 즉시 한 번 돌고 간격마다 반복한다.
+
+```swift
+L10n.remote.startPolling(L10n.client, interval: 60)   // 기본 60초
+```
+
+배터리·트래픽 관리는 **앱이 정한다** — SDK가 생명주기를 가로채지 않는다. 백그라운드 전환 때 끄고
+복귀할 때 켜는 것이 기본 패턴이다:
+
+```swift
+.onChange(of: scenePhase) { _, phase in
+    if phase == .active { L10n.remote.startPolling(L10n.client) }
+    else { L10n.remote.stopPolling() }
+}
+```
+
+이미 가진 산출물은 다시 받지 않고(내용해시 URL), manifest는 ETag 조건부 요청이라 변경이 없으면
+304 한 번으로 끝난다. 실패는 삼킨다 — 다음 주기에 다시 시도하면 되기 때문이다.
+
+### 4-c-2. 실시간 푸시 — 폴링 지연을 없애고 싶을 때 (옵트인)
+
+publish 즉시 반영되게 하려면 알림 채널을 붙인다. **프레임은 "manifest가 바뀌었다"는 신호뿐이고,
+번역 데이터는 여전히 배포 플레인에서 받는다** — 데이터 경로는 정적으로 유지된다(플레인 분리).
+
+```swift
+let push = ServerPushChannel(
+    endpoint: URL(string: "https://admin.example.com")!,   // 알림(관리) 플레인 — CDN이 아니다
+    project: "myapp"
+)
+push.start(updating: L10n.client, via: L10n.remote)        // 신호 → 즉시 update
+// 백그라운드 전환 등에서 push.stop()
+```
+
+**폴링과 함께 켜 두는 것이 정상 구성이다.** 푸시는 지연 단축용이고, 연결이 끊긴 구간(3초 → 최대 60초
+백오프로 재연결)의 갱신은 폴링이 덮는다. 알림 플레인을 배치하지 않았다면 이 절은 통째로 건너뛰면 된다.
+
 ### 4-d. SwiftUI 자동 리렌더
 
 `RynL10nObservable`이 카탈로그 갱신 때 `version`을 올려 뷰를 다시 그린다.
@@ -214,6 +252,41 @@ struct ContentView: View {
 ```
 
 `update(_:)`는 스왑과 리스너 통지를 **메인 액터에서** 수행하므로 `@Published` 갱신이 안전하다.
+
+---
+
+## 4-e. 배포 건전성 텔레메트리 (옵트인)
+
+대시보드 **관측성** 탭과 `releases/{r}/health`(카나리 판정의 입력)를 채우는 익명 집계다.
+두 번 옵트인해야 한다 — **수집**(클라이언트 옵션)과 **전송**(리포터 객체 생성).
+
+```swift
+let client = RynL10nClient(
+    bundle: bundled, store: remote, context: .init(appVersion: version),
+    telemetry: "aggregate"                                  // ① 수집 켜기(기본 "off")
+)
+
+let reporter = TelemetryReporter(
+    endpoint: URL(string: "https://admin.example.com")!,    // 관리 플레인(업로드 경로)
+    project: "myapp"
+)
+reporter.start(client, every: 300)                          // ② 5분마다 전송
+// 백그라운드 전환처럼 확실히 올리고 싶은 시점: await reporter.flush(client)
+```
+
+올라가는 것은 서버가 정의한 **5개 필드가 전부**다(`projectId`·`releaseId`·`event`·`count`·
+`appVersionBucket`). 그 외 필드는 서버가 배치째 거부하므로(프라이버시 가드) **키 이름·번역 값·기기
+식별자는 구조적으로 나갈 수 없다.** 카나리 버킷에 쓰는 `installId`도 보내지 않는다.
+
+| 이벤트 | 언제 | 읽는 법 |
+| --- | --- | --- |
+| `overlay_applied` | 원격 오버레이가 실제로 적용됨 | 카나리 분모 |
+| `format_guard_rejected` | 플레이스홀더 서명 불일치로 그 키만 번들 fallback | 올라가면 배포 중단 신호 |
+| `key_unresolved` | 어느 계층에서도 못 찾음(`⟪key⟫` 표면화) | 카탈로그 누락 |
+| `delta_failed` | 델타 체크섬 불일치·미수신 | 산출물/캐시 문제 |
+
+`appVersionBucket`은 개별 빌드가 아니라 **버전군**이다(`3.2.1` → `3.2`) — 그래야 익명 집계로 남는다.
+전송에 실패하면 카운트를 되돌려 다음 주기에 다시 올린다(실패 구간이 사라지면 거부율이 실제보다 낮게 보인다).
 
 ---
 

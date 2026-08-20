@@ -90,6 +90,14 @@ export class RynL10nClient {
     return snapshot;
   }
 
+  /**
+   * 전송에 실패한 배치를 되돌린다(리포터 전용, 9.3). 드레인 이후 새로 쌓인 카운트에 **더한다**.
+   * 실패 구간이 사라지면 배포 건전성(8.4)의 거부율이 실제보다 건강해 보인다.
+   */
+  mergeTelemetry(counts: TelemetryCounts): void {
+    for (const key of Object.keys(this.tel) as (keyof TelemetryCounts)[]) this.tel[key] += counts[key];
+  }
+
   onCatalogUpdated(listener: UpdateListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

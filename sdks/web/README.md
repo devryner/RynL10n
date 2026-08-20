@@ -84,6 +84,32 @@ sdk.connectServerPush(() => rerender());  // SSE 'manifest' 신호 → 즉시 re
 ```
 신호는 캐시 무효화용일 뿐(번역 데이터 없음) — 데이터는 여전히 배포 플레인에서 fetch. 연결 실패 시 폴링으로 폴백.
 
+### ④ 익명 집계 텔레메트리 (옵트인, 9.3)
+
+대시보드 **관측성** 탭과 `releases/{r}/health`(카나리 판정의 입력)를 채운다. 옵트인이 두 겹이다 —
+**수집**(`telemetry: "aggregate"`)과 **전송**(`telemetryEndpoint`). 하나라도 없으면 아무것도 나가지 않는다.
+
+```ts
+const sdk = new HttpRynL10n({
+  ...cfg,
+  telemetry: "aggregate",                       // ① 수집(기본 off)
+  telemetryEndpoint: "https://api.example.com", // ② 업로드 = 관리 플레인(CDN 아님)
+});
+sdk.start();                                     // 폴링 + 텔레메트리 주기 전송(기본 5분)
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") void sdk.flushTelemetry(); // 탭 종료 직전 마지막 배치
+});
+```
+
+올라가는 것은 서버가 정의한 **5개 필드가 전부**다(`projectId`·`releaseId`·`event`·`count`·
+`appVersionBucket`). 그 외 필드는 서버가 배치째 거부하므로(프라이버시 가드) **키 이름·번역 값·기기
+식별자는 구조적으로 나갈 수 없다.** 카나리 버킷의 `installId`도 보내지 않는다.
+`appVersionBucket`은 개별 빌드가 아니라 버전군이다(`3.2.1` → `3.2`).
+전송 실패 시 카운트를 되돌려 다음 주기에 다시 올린다 — 실패 구간이 사라지면 거부율이 실제보다 낮게 보인다.
+
+`HttpRynL10n` 없이 코어 클라이언트만 쓰는 구성이라면 `TelemetryReporter`를 직접 만들어 붙인다.
+
 ## React 어댑터 (peer, 3줄)
 
 `createStore`는 `useSyncExternalStore` 계약(subscribe + getVersion)과 호환된다:

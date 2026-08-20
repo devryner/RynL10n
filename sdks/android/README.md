@@ -158,6 +158,60 @@ class MainActivity : ComponentActivity() {
 네트워크가 끊겨 있으면 마지막으로 받은 manifest·산출물 캐시로 진행하고, 캐시조차 없으면
 `DeliveryException.Unavailable`을 던진 뒤 번들 그대로 동작한다.
 
+### 4-e. 주기 폴링 — 켜 두면 알아서 따라간다
+
+앱이 오래 떠 있는 동안에도 갱신을 받고 싶으면 폴링을 켠다. 즉시 한 번 돌고 간격마다 반복한다.
+
+```kotlin
+// ProcessLifecycleOwner 관찰자 — 배터리·트래픽은 앱이 정한다(SDK가 생명주기를 가로채지 않는다).
+ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+    override fun onStart(owner: LifecycleOwner) = RynL10n.startPolling()      // 기본 60초
+    override fun onStop(owner: LifecycleOwner) = RynL10n.stopPolling()
+})
+```
+
+이미 가진 산출물은 다시 받지 않고(내용해시 URL), manifest는 ETag 조건부 요청이라 변경이 없으면
+304 한 번으로 끝난다. 실패는 삼킨다 — 다음 주기에 다시 시도하면 되기 때문이다.
+`RemoteDeliveryStore.startPolling(client, intervalMs, scope)`로 직접 스코프를 넘겨도 된다
+(뷰모델 스코프에 매달면 생명주기와 함께 정리된다).
+
+### 4-f. 실시간 푸시 — 폴링 지연을 없애고 싶을 때 (옵트인)
+
+publish 즉시 반영되게 하려면 알림 채널을 붙인다. **프레임은 "manifest가 바뀌었다"는 신호뿐이고,
+번역 데이터는 여전히 배포 플레인에서 받는다** — 데이터 경로는 정적으로 유지된다(플레인 분리).
+
+```kotlin
+RynL10n.connectServerPush("https://admin.example.com")  // 알림(관리) 플레인 — CDN이 아니다
+// 백그라운드 전환 등에서 RynL10n.disconnectServerPush()
+```
+
+**폴링과 함께 켜 두는 것이 정상 구성이다.** 푸시는 지연 단축용이고, 연결이 끊긴 구간(3초 → 최대 60초
+백오프로 재연결)의 갱신은 폴링이 덮는다. 알림 플레인을 배치하지 않았다면 이 절은 건너뛰면 된다.
+
+### 4-g. 배포 건전성 텔레메트리 (옵트인)
+
+대시보드 **관측성** 탭과 `releases/{r}/health`(카나리 판정의 입력)를 채우는 익명 집계다.
+두 번 옵트인해야 한다 — **수집**(`configure(telemetry = "aggregate")`)과 **전송**(`startTelemetry`).
+
+```kotlin
+RynL10n.configure(this, project = "myapp", endpoint = CDN, telemetry = "aggregate")  // ① 수집
+RynL10n.startTelemetry("https://admin.example.com")                                  // ② 5분마다 전송
+// 백그라운드 전환처럼 확실히 올리고 싶은 시점: lifecycleScope.launch { RynL10n.flushTelemetry() }
+```
+
+올라가는 것은 서버가 정의한 **5개 필드가 전부**다(`projectId`·`releaseId`·`event`·`count`·
+`appVersionBucket`). 그 외 필드는 서버가 배치째 거부하므로(프라이버시 가드) **키 이름·번역 값·기기
+식별자는 구조적으로 나갈 수 없다.** 카나리 버킷의 `installId`도 보내지 않는다.
+`appVersionBucket`은 개별 빌드가 아니라 버전군이다(`3.2.1` → `3.2`).
+전송 실패 시 카운트를 되돌려 다음 주기에 다시 올린다(실패 구간이 사라지면 거부율이 실제보다 낮게 보인다).
+
+| 이벤트 | 언제 | 읽는 법 |
+| --- | --- | --- |
+| `overlay_applied` | 원격 오버레이가 실제로 적용됨 | 카나리 분모 |
+| `format_guard_rejected` | 플레이스홀더 서명 불일치로 그 키만 번들 fallback | 올라가면 배포 중단 신호 |
+| `key_unresolved` | 어느 계층에서도 못 찾음(`⟪key⟫` 표면화) | 카탈로그 누락 |
+| `delta_failed` | 델타 체크섬 불일치·미수신 | 산출물/캐시 문제 |
+
 ---
 
 ## 5. 번역 고치고 배포하기
@@ -181,15 +235,17 @@ class MainActivity : ComponentActivity() {
 
 `RynL10n.configure(telemetry = "aggregate")`로 켜면 `client.drainTelemetry()`가 익명 집계 카운트
 (`overlayApplied` / `formatGuardRejected` / `keyUnresolved` / `deltaFailed`)를 돌려준다.
-값·키명·기기 식별자는 포함되지 않는다.
+값·키명·기기 식별자는 포함되지 않는다. 서버로 올려 관측성 탭에서 보려면 §4-g.
 
 ---
 
 ## 7. 검증 범위 (정직하게)
 
-- **검증됨**: 코어 40개 테스트 통과 — 골든 벡터 정합 + 시나리오 A/B/C + **배포 플레인 HTTP 9개**
+- **검증됨**: 코어 49개 테스트 통과 — 골든 벡터 정합 + 시나리오 A/B/C + **배포 플레인 HTTP 9개**
   (JDK 내장 HTTP 서버를 실제로 띄워 ETag·304·오프라인 폴백·불변 캐싱까지) + **번들 로더 8개**
-  (bake 산출물을 실제로 구워 다시 읽는 왕복). AAR 빌드와 `publishToMavenLocal`도 확인됨.
+  (bake 산출물을 실제로 구워 다시 읽는 왕복) + **폴링·푸시·텔레메트리 9개**(폴링 정지 보장,
+  SSE 프레임 계수, 업로드 본문이 5개 필드뿐인지, 실패 시 카운트 되돌리기).
+  AAR 빌드와 `publishToMavenLocal`도 확인됨.
 - **미검증**: **실제 Android 앱 모듈에서의 end-to-end.** assets 병합, `PackageInfo` 기반 버전 판정,
   Compose 재구성은 코드만 준비된 상태다 — 이 저장소에 앱 모듈이 없어 계측 테스트를 돌리지 못했다.
   처음 붙일 때 ① 빌드 로그의 `[rynl10n] bake 완료` ② `RynL10n.client.status()`가 기대한 릴리스를

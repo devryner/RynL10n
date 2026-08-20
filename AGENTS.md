@@ -5,8 +5,10 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 327개 전부 통과(TS 참조 64 · 백엔드 126 · Web 23 · iOS 34 · Android 40 · Flutter 40 —
-2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행).
+테스트 359개 전부 통과(TS 참조 64 · 백엔드 126 · Web 28 · iOS 44 · Android 49 · Flutter 48 —
+2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
+같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
+iOS는 실제 백엔드 대상 왕복 확인).
 남은 것은 실제 앱/외부 환경 의존 항목뿐(아래 "열려 있는 항목" 참조). 전체 지도는 `HANDOVER.md`.
 
 - **코어 스택**: TypeScript/Node ≥ 23.6 (네이티브 타입 스트리핑, 빌드 스텝 없음). 참조 구현·백엔드 모두
@@ -141,22 +143,41 @@ CLI: `rynl10n-bake --descriptions <path|url> --emit-native` (읽기 실패 시 �
   분리한다 — `update(_:)`가 manifest(ETag)→릴리스 선택→필요한 산출물만 다운로드→메인 액터 스왑까지 처리하고,
   프로토콜 메서드는 캐시만 읽는다. 산출물은 내용해시 URL이라 영구 캐싱, 오프라인이면 마지막 캐시로 진행.
   Xcode 앱 타깃은 플러그인이 `XcodeBuildToolPlugin`을 구현해야 붙는다(Build Phases → Run Build Tool Plug-ins).
+  갱신 시점은 셋 다 제공한다: 수동 `update(_:)`(앱 시작·포그라운드 복귀) · `startPolling(_:interval:)`
+  (기본 60초, 보장선) · `ServerPushChannel`(SSE 신호 → 즉시 `update`, 지연 단축용. 끊기면 3→60초 백오프
+  재연결이고 그 사이는 폴링이 덮는다). **푸시 엔드포인트는 알림(관리) 플레인이지만 프레임은 신호뿐이고
+  데이터는 여전히 배포 플레인에서 받는다** — 플레인 분리는 유지된다(4.1). SSE 줄 분해는 직접 한다:
+  `AsyncLineSequence`가 빈 줄을 내보내지 않아 프레임 경계가 사라진다.
+  익명 집계 전송은 `TelemetryReporter`(옵트인 — 객체를 만들어야 전송, 수집 자체도 `telemetry: "aggregate"`
+  일 때만). `POST /projects/{p}/telemetry`로 서버 스키마의 5개 필드만 올리고(9.3 프라이버시 가드가
+  그 외 필드를 거부), 전송 실패면 카운트를 **되돌린다** — 실패 구간이 사라지면 카나리 판정(8.4)이
+  실제보다 건강해 보인다. `appVersionBucket`은 앱 버전군(`3.2.1` → `3.2`), `installId`는 보내지 않는다.
+  **4개 SDK가 같은 3종을 가진다**(2026-08-20 파리티): 폴링 · SSE 푸시 · 텔레메트리 업로드.
+  표면 이름과 실패 정책(폴링이 보장선 · 푸시는 지연 단축 · 전송 실패 시 카운트 되돌리기 ·
+  릴리스 미정이면 드레인 보류 · 버전군 라벨)은 언어를 넘어 동일하고, 각 SDK 테스트가 같은 축을 본다.
 - **Android 앱 적용 경로(`sdks/android/README.md`)**: 배포 아티팩트는 `:library` AAR 모듈(코어 소스를
   재컴파일해 넣고 Android 바인딩만 더함, 루트는 bake CLI·골든 벡터 검증용 JVM 모듈로 남음).
   `BakedBundle`(assets 로더, Android API 의존 0 → JVM에서 그대로 테스트) + `RemoteDeliveryStore`
   (`HttpURLConnection` + 디스크 캐시, iOS와 동작 대칭이나 스왑은 호출 코루틴 컨텍스트에서).
+  폴링·푸시·텔레메트리는 코루틴 기반(`startPolling(scope=…)` · `ServerPushChannel` · `TelemetryReporter`)이고
+  파사드 단축키도 있다(`RynL10n.startPolling/connectServerPush/startTelemetry`).
+  SSE 구독 중단은 코루틴 취소만으로는 안 된다 — 블로킹 `readLine`을 깨우려면 **연결을 직접 끊어야** 한다.
 - **Web 앱 적용 경로(`sdks/web/README.md`)**: `BakedBundle.parse/load`(번들러 import 검증 + 정적 자산
   fetch) + `PersistentCache`(기본 `localStorage`, 없으면 메모리) 기반 영속 캐시. `refresh()`는 폴링 루프
   자리라 던지지 않고 오프라인이면 마지막 캐시 manifest로 진행하며, 진단용 `loadManifest()`만 `DeliveryError`
   (`bad-status`·`unavailable`·`malformed`)를 던진다. `defaultCache`는 `globalThis.localStorage`가 아니라
   **`window`를 먼저 본다** — Node의 실험적 전역을 집으면 SSR·테스트에서 엉뚱한 백엔드를 쓰게 된다.
+  텔레메트리 업로드는 `telemetryEndpoint`를 주면 `start()`가 함께 켠다(`sdks/web/src/telemetry.ts`).
 - **Flutter 앱 적용 경로(`sdks/flutter/README.md`)**: `parseBakedSnapshot`(자산 문자열 검증) +
   `RemoteDeliveryStore`. **HTTP·저장소 의존은 어댑터에만** — 코어(`rynl10n.dart`)는 `DeliveryFetch`·
   `ArtifactCache`를 주입받는 순수 Dart이고, 진입점은 둘 중 택일:
   `rynl10n_io.dart`(`dart:io`, 추가 의존성 0, **웹 컴파일 불가**) · `rynl10n_http.dart`(`package:http`,
   **Flutter Web 포함 전 플랫폼**). 웹은 파일 시스템이 없으므로 `FileArtifactCache` 대신
   `CallbackArtifactCache`(코어, 의존성 0)에 `localStorage`·`shared_preferences`를 클로저로 꽂는다 —
-  SDK가 저장소 패키지를 고르지 않기 위한 이음새다.
+  SDK가 저장소 패키지를 고르지 않기 위한 이음새다. 푸시·텔레메트리도 같은 방식으로 구멍만 뚫어 뒀다
+  (`PushConnect`·`TelemetryPost`, 어댑터는 `io*`/`http*`). **Flutter Web의 `httpPushConnect`는 SSE가
+  스트리밍되지 않는다**(BrowserClient=XHR) — 웹은 `EventSource`를 `PushConnect`로 감싸 넣고,
+  그대로 둬도 폴링이 보장선이라 기능은 안 깨지고 지연만 남는다.
 
 ### 배포 플레인은 CDN처럼 굴어야 한다 (`backend/src/storage/delivery-server.ts`)
 

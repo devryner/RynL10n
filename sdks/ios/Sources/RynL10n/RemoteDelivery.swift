@@ -33,6 +33,7 @@ public final class RemoteDeliveryStore: DeliveryStore, @unchecked Sendable {
     private let lock = NSLock()
     private var snapshotCache: [String: Snapshot] = [:]
     private var deltaCache: [String: Delta] = [:]
+    private var pollTask: Task<Void, Never>?
 
     /// - Parameters:
     ///   - baseURL: 배포 플레인 루트. 로컬 셀프호스트는 `http://localhost:8788`, 운영은 CDN 도메인.
@@ -105,6 +106,44 @@ public final class RemoteDeliveryStore: DeliveryStore, @unchecked Sendable {
 
         // 스왑과 리스너 통지는 메인에서 — SwiftUI 바인딩(RynL10nObservable)이 여기에 붙는다.
         return await MainActor.run { client.refresh(manifest: manifest) }
+    }
+
+    // MARK: - 주기 폴링
+
+    /// 주기 폴링 시작(기본 60초). 즉시 한 번 갱신한 뒤 간격마다 반복한다.
+    ///
+    /// 실패는 삼킨다 — 실패 = 이전 상태 유지이고 다음 주기에 다시 시도하면 되기 때문이다.
+    /// 앱이 `update(_:)`를 직접 부르는 것(앱 시작·포그라운드 복귀)과 배타적이지 않다:
+    /// 산출물은 내용해시 URL이라 이미 가진 것은 다시 받지 않고, manifest는 ETag로 재검증된다.
+    ///
+    /// 배터리·트래픽은 **호출자가 정한다** — 백그라운드 전환 때 `stopPolling()`, 복귀 때 다시 `startPolling`이
+    /// 기본 패턴이다(README 4-c). SDK가 앱 생명주기를 가로채지 않는다.
+    /// - Parameter onUpdate: 사이클마다 호출(카탈로그가 실제로 바뀌었으면 true). 메인 액터 보장은 없다 —
+    ///   UI 갱신은 `RynL10nObservable`이 `onCatalogUpdated`로 처리한다.
+    public func startPolling(_ client: RynL10nClient, interval: TimeInterval = 60,
+                             onUpdate: (@Sendable (Bool) -> Void)? = nil) {
+        stopPolling()
+        let started = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let changed = (try? await self.update(client)) ?? false
+                if Task.isCancelled { return } // stopPolling 직후 콜백이 한 번 더 나가지 않게
+                onUpdate?(changed)
+                do { try await Task.sleep(nanoseconds: UInt64(max(interval, 0.001) * 1_000_000_000)) } catch { return }
+            }
+        }
+        setPollTask(started)
+    }
+
+    /// 폴링 중단(백그라운드 전환·로그아웃). 진행 중인 사이클은 취소되며, 이미 적용된 카탈로그는 그대로 남는다.
+    public func stopPolling() {
+        lock.lock(); let running = pollTask; pollTask = nil; lock.unlock()
+        running?.cancel()
+    }
+
+    // NSLock의 lock()/unlock()은 async 컨텍스트에서 직접 호출할 수 없다(Swift 6) → 동기 헬퍼로 감싼다.
+    private func setPollTask(_ new: Task<Void, Never>) {
+        lock.lock(); pollTask = new; lock.unlock()
     }
 
     /// manifest 조회(짧은 TTL + ETag 재검증, 7.2). 네트워크 실패·304면 캐시본을 쓴다.
@@ -210,6 +249,8 @@ public final class RemoteDeliveryStore: DeliveryStore, @unchecked Sendable {
     private func fileURL(for path: String) -> URL {
         cacheDir.appendingPathComponent(path.replacingOccurrences(of: "/", with: "_"))
     }
+
+    deinit { pollTask?.cancel() }
 
     /// 캐시 비우기(로그아웃·프로젝트 전환 등). 번들 fallback은 그대로라 번역 공백은 생기지 않는다.
     public func clearCache() {

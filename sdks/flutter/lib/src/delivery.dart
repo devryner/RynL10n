@@ -14,6 +14,7 @@
 /// **HTTP와 저장소를 주입받는다**(`dart:io` 직접 의존 없음). 기본 어댑터는 `rynl10n_io.dart`에 있고
 /// (`ioDeliveryFetch()` + `FileArtifactCache`), Flutter Web처럼 `dart:io`가 없는 타깃은
 /// `package:http` 등으로 [DeliveryFetch]만 채워 넣으면 나머지 동작은 동일하다.
+import 'dart:async';
 import 'dart:convert';
 
 import 'client.dart';
@@ -214,6 +215,45 @@ class RemoteDeliveryStore implements DeliveryStore {
     }
 
     return client.refresh(manifest);
+  }
+
+  // --- 주기 폴링 ---
+
+  Timer? _pollTimer;
+
+  /// 주기 폴링 시작(기본 60초). 즉시 한 번 갱신한 뒤 간격마다 반복한다.
+  ///
+  /// 실패는 삼킨다 — 실패 = 이전 상태 유지이고 다음 주기에 다시 시도하면 되기 때문이다.
+  /// 앱이 [update]를 직접 부르는 것(앱 시작·포그라운드 복귀)과 배타적이지 않다: 산출물은 내용해시
+  /// URL이라 이미 가진 것은 다시 받지 않고, manifest는 ETag로 재검증된다.
+  ///
+  /// 배터리·트래픽은 **호출자가 정한다** — `AppLifecycleState.paused`에서 [stopPolling],
+  /// `resumed`에서 다시 [startPolling]이 기본 패턴이다. SDK가 앱 생명주기를 가로채지 않는다.
+  void startPolling(
+    RynL10nClient client, {
+    Duration interval = const Duration(seconds: 60),
+    void Function(bool changed)? onUpdate,
+  }) {
+    stopPolling();
+    Future<void> cycle() async {
+      bool changed;
+      try {
+        changed = await update(client);
+      } catch (_) {
+        changed = false; // 다음 주기에 다시 시도한다
+      }
+      if (_pollTimer == null) return; // stopPolling 직후 콜백이 한 번 더 나가지 않게
+      onUpdate?.call(changed);
+    }
+
+    _pollTimer = Timer.periodic(interval, (_) => unawaited(cycle()));
+    unawaited(cycle());
+  }
+
+  /// 폴링 중단(백그라운드 전환·로그아웃). 이미 적용된 카탈로그는 그대로 남는다.
+  void stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
   }
 
   /// manifest 조회(짧은 TTL + ETag 재검증, 7.2). 네트워크 실패·304면 캐시본을 쓴다.
