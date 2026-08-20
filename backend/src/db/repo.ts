@@ -302,6 +302,29 @@ export class Repo {
     for (const r of rows) out[r.event] = r.n;
     return out;
   }
+  /** 대시보드 열람용 익명 집계. 원문·키·기기 식별자는 스키마상 포함하지 않는다. */
+  listTelemetry(projectId: string): {
+    releaseId: string;
+    event: string;
+    appVersionBucket: string;
+    count: number;
+  }[] {
+    return (this.db.prepare(
+      `SELECT release_id,event,app_version_bucket,count
+       FROM telemetry WHERE project_id=?
+       ORDER BY release_id,app_version_bucket,event`,
+    ).all(projectId) as {
+      release_id: string;
+      event: string;
+      app_version_bucket: string;
+      count: number;
+    }[]).map((r) => ({
+      releaseId: r.release_id,
+      event: r.event,
+      appVersionBucket: r.app_version_bucket,
+      count: r.count,
+    }));
+  }
 
   // ── 데이터 이식성(9.2) / 백업(9.4) ───────────────────────────────────────────
   /** 프로젝트 전체를 id 비의존 구조로 export(키·번역·릴리스·매핑). 락인 없음을 보증. */

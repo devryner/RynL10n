@@ -81,6 +81,7 @@ export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없
 | `GET /projects/{p}/releases/{r}/keys` | Viewer+ | 200 `{keys}` | 404 |
 | `GET /projects/{p}/releases/{r}/descriptions` | Viewer+ | 200 `{release,descriptions}` (bake 사이드카) | 404 |
 | `GET /projects/{p}/manifests` | Viewer+ | 200 (게시 이력 — 롤백 대상) | — |
+| `GET /projects/{p}/telemetry` | Viewer+ | 200 (릴리스·앱 버전군·이벤트별 익명 집계) | 404 |
 | `PUT /projects/{p}/keys/{key}` | Translator+ | 200 `{id,name,signature,isPlural,description}` | — |
 | `PUT /projects/{p}/translations/{key}/{locale}` | Translator+ | 200 | **422** 서명 불일치 · 404 |
 | `POST /projects/{p}/translations/import` | Translator+ | 200 `{createdKeys,updatedKeys,translations}` | 400 형식·로케일 · **422** 서명/복수형 불일치 |
@@ -124,6 +125,7 @@ publish 시: ① 버전 범위 충돌·자동 상한 닫힘 검증(쓰기 전, 4
 - `GET /metrics` — Prometheus 노출: `rynl10n_publish_total{result}` · `rynl10n_publish_duration_seconds` ·
   `rynl10n_api_requests_total` · `rynl10n_telemetry_events_total{event}`. 구조화 JSON 로그(stdout).
 - `POST /projects/{p}/telemetry` — 옵트인·익명·집계 수집(인증 없음). **정의된 5개 필드 외 유입은 거부**(프라이버시 가드).
+- `GET /projects/{p}/telemetry` — Viewer+ 익명 집계 열람. 릴리스·앱 버전군·이벤트별 누적 카운트만 반환.
   이벤트 ∈ {overlay_applied, format_guard_rejected, key_unresolved, delta_failed}.
 - `GET /projects/{p}/releases/{r}/health` — 카나리 판정(8.4) 입력: 포맷 가드 거부율·미해결율·델타 실패율.
 

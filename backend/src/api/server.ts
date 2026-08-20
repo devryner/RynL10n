@@ -531,6 +531,12 @@ const routes: Route[] = [
     return { status: 200, body: { accepted, rejected } };
   }),
 
+  // 텔레메트리 열람 — Viewer+. 익명 집계 행만 반환하며 원문·키·기기 식별자는 저장·노출하지 않는다.
+  route("GET", "/projects/:p/telemetry", "read", ({ params, repo }) => {
+    if (!repo.getProject(params.p!)) throw new NotFoundError(`project ${params.p}`);
+    return { status: 200, body: { telemetry: repo.listTelemetry(params.p!) } };
+  }),
+
   // 배포 건전성(카나리 8.4 입력) — Viewer+
   route("GET", "/projects/:p/releases/:r/health", "read", ({ params, repo }) => {
     return { status: 200, body: releaseHealth(repo, params.p!, params.r!) };

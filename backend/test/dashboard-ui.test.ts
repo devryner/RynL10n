@@ -139,6 +139,7 @@ function projectTable(me: Me = ME_ADMIN) {
     "GET /projects/shop": PROJECT,
     "GET /projects/shop/keys": KEYS,
     "GET /projects/shop/releases": RELEASES,
+    "GET /projects/shop/telemetry": { telemetry: [] },
     "GET /projects/shop/manifest": { schemaVersion: 1, project: "shop", releases: [] },
     "GET /projects/shop/manifests": { history: [] },
     "GET /users": { users: [] }, // 목록 화면은 admin이면 사용자도 함께 읽는다(7.3)
@@ -416,6 +417,40 @@ test("배포 탭은 배포 플레인 URL로 산출물 링크를 만든다 (플�
   assert.ok(hrefs.includes("https://cdn.test/shop/manifest.json"), "manifest는 배포 플레인 주소로");
   assert.ok(hrefs.some((h) => h === "https://cdn.test/shop/releases/R1/snapshot-aaaa1111bbbb2222.json"));
   assert.ok(hrefs.some((h) => h?.includes("delta-aaaa1111bbbb2222-cccc3333dddd4444.json")));
+});
+
+test("관측성 탭은 익명 집계를 요약하고 릴리스·앱 버전군별로 보여준다", async () => {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-view";
+  const table = projectTable({ actor: "vw", role: "viewer", projects: ["shop"], deliveryBaseUrl: "https://cdn.test" });
+  table["GET /projects/shop/telemetry"] = { telemetry: [
+    { releaseId: "R1", appVersionBucket: "1.0", event: "overlay_applied", count: 100 },
+    { releaseId: "R1", appVersionBucket: "1.0", event: "format_guard_rejected", count: 10 },
+    { releaseId: "R1", appVersionBucket: "1.0", event: "key_unresolved", count: 5 },
+    { releaseId: "R1", appVersionBucket: "1.0", event: "delta_failed", count: 2 },
+    { releaseId: "R1", appVersionBucket: "1.1", event: "overlay_applied", count: 25 },
+  ] };
+  const calls = installFetch(table);
+  await loadApp();
+
+  tags(byId.app, "button").find((b) => b.textContent === "shop")!.fire("click");
+  await settle();
+  tags(byId.app, "button").find((b) => b.textContent === "관측성")!.fire("click");
+
+  const text = byId.app!.textContent;
+  assert.match(text, /익명 운영 신호/);
+  assert.match(text, /번역 원문, 키 이름, 기기 식별자는 저장하지 않습니다/);
+  assert.match(text, /125/, "전체 오버레이 적용 횟수를 합산한다");
+  assert.match(text, /7\.41%/, "포맷 가드 거부율은 guard \/ \(applied \+ guard\)");
+  assert.match(text, /1\.57%/, "델타 실패율은 failed \/ \(applied \+ failed\)");
+  assert.match(text, /1\.0/);
+  assert.match(text, /1\.1/);
+  assert.match(text, /published/, "알려진 릴리스는 현재 상태도 함께 표시한다");
+
+  const before = calls.filter((c) => c.path === "/projects/shop/telemetry").length;
+  tags(byId.app, "button").find((b) => b.textContent === "새로고침")!.fire("click");
+  await settle();
+  assert.equal(calls.filter((c) => c.path === "/projects/shop/telemetry").length, before + 1);
 });
 
 // ── 검색·필터 ────────────────────────────────────────────────────────────────

@@ -14,11 +14,13 @@ import { canonicalStringify } from "../../src/serialize/jcs.ts";
 let base = "";
 let server: ReturnType<typeof createManagementServer>;
 const ADMIN = "t-admin";
+const VIEWER = "t-viewer";
 
 before(async () => {
   const repo = new Repo(openDatabase());
   const tokens = new TokenRegistry();
   tokens.issue(ADMIN, { actor: "admin", role: "admin", projects: "*" });
+  tokens.issue(VIEWER, { actor: "viewer", role: "viewer", projects: new Set(["shop"]) });
   server = createManagementServer({ repo, store: new MemoryArtifactStore(), tokens });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -66,6 +68,28 @@ test("텔레메트리: 유효 이벤트 집계 + PII 필드 거부(프라이버�
   const health = await api("GET", "/projects/shop/releases/R1/health", { token: ADMIN });
   assert.equal(health.status, 200);
   assert.ok(Math.abs(health.body.formatGuardRejectedRate - 0.1) < 1e-9); // 10/(90+10)
+});
+
+test("GET /projects/{p}/telemetry: Viewer+가 릴리스·버전군별 익명 집계를 열람", async () => {
+  await api("POST", "/projects/shop/telemetry", { body: [
+    { projectId: "shop", releaseId: "R1", event: "overlay_applied", count: 7, appVersionBucket: "1.1" },
+    { projectId: "shop", releaseId: "R1", event: "delta_failed", count: 2, appVersionBucket: "1.1" },
+  ] });
+
+  const unauthorized = await api("GET", "/projects/shop/telemetry");
+  assert.equal(unauthorized.status, 401, "수집은 public이어도 열람은 인증이 필요하다");
+
+  const listed = await api("GET", "/projects/shop/telemetry", { token: VIEWER });
+  assert.equal(listed.status, 200);
+  assert.deepEqual(listed.body.telemetry, [
+    { releaseId: "R1", event: "format_guard_rejected", appVersionBucket: "1.0", count: 10 },
+    { releaseId: "R1", event: "overlay_applied", appVersionBucket: "1.0", count: 90 },
+    { releaseId: "R1", event: "delta_failed", appVersionBucket: "1.1", count: 2 },
+    { releaseId: "R1", event: "overlay_applied", appVersionBucket: "1.1", count: 7 },
+  ]);
+
+  const missing = await api("GET", "/projects/nope/telemetry", { token: ADMIN });
+  assert.equal(missing.status, 404);
 });
 
 // ── 데이터 이식성 + 결정적 재생성 (9.2 / 9.4) ─────────────────────────────────

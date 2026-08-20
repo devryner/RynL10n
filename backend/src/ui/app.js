@@ -108,6 +108,7 @@ const state = {
   project: null,     // {id,name,defaultLocale,locales}
   keys: [],          // [{name, signature, isPlural, refCount, translations}]
   releases: [],
+  telemetry: [],     // [{releaseId,event,appVersionBucket,count}] — 익명 집계만
   manifest: null,
   history: [],
   tab: "translations",
@@ -564,14 +565,16 @@ async function openProject(id) {
   state.pendingTranslationImport = null;
   state.issuedToken = null;     // 토큰 평문도 같은 규칙 — 화면을 떠나면 노출을 끝낸다
   state.filter = emptyFilter(); // 프로젝트마다 키·로케일이 다르므로 필터를 물고 넘어가지 않는다
-  const [project, keys, releases] = await Promise.all([
+  const [project, keys, releases, telemetry] = await Promise.all([
     api("GET", `/projects/${enc(id)}`),
     api("GET", `/projects/${enc(id)}/keys`),
     api("GET", `/projects/${enc(id)}/releases`),
+    api("GET", `/projects/${enc(id)}/telemetry`),
   ]);
   state.project = project;
   state.keys = keys.keys;
   state.releases = releases.releases;
+  state.telemetry = telemetry.telemetry;
   await loadDelivery();
   openStream(id);
   renderProject();
@@ -588,12 +591,14 @@ async function loadDelivery() {
 
 async function refresh({ delivery = true } = {}) {
   const id = state.projectId;
-  const [keys, releases] = await Promise.all([
+  const [keys, releases, telemetry] = await Promise.all([
     api("GET", `/projects/${enc(id)}/keys`),
     api("GET", `/projects/${enc(id)}/releases`),
+    api("GET", `/projects/${enc(id)}/telemetry`),
   ]);
   state.keys = keys.keys;
   state.releases = releases.releases;
+  state.telemetry = telemetry.telemetry;
   state.project = await api("GET", `/projects/${enc(id)}`);
   if (delivery) await loadDelivery();
   renderProject();
@@ -603,6 +608,7 @@ const TABS = [
   ["translations", "번역"],
   ["releases", "릴리스"],
   ["delivery", "배포"],
+  ["telemetry", "관측성"],
 ];
 
 function renderProject() {
@@ -615,7 +621,8 @@ function renderProject() {
   ));
   const body = state.tab === "translations" ? tabTranslations()
     : state.tab === "releases" ? tabReleases()
-    : tabDelivery();
+    : state.tab === "delivery" ? tabDelivery()
+    : tabTelemetry();
   shell(tabs, body);
 }
 
@@ -1167,6 +1174,99 @@ function tabDelivery() {
             ))),
           ))
         : el("p", { class: "muted", text: "이력이 없습니다." }),
+    ),
+  ];
+}
+
+// ── 탭: 관측성 ──────────────────────────────────────────────────────────────
+
+const TELEMETRY_EVENTS = [
+  ["overlay_applied", "오버레이 적용"],
+  ["format_guard_rejected", "포맷 가드 거부"],
+  ["key_unresolved", "미해결 키"],
+  ["delta_failed", "델타 실패"],
+];
+const number = new Intl.NumberFormat("ko-KR");
+const rate = (n, d) => d ? `${(n / d * 100).toFixed(2)}%` : "—";
+
+function tabTelemetry() {
+  const totals = Object.fromEntries(TELEMETRY_EVENTS.map(([event]) => [event, 0]));
+  const grouped = new Map();
+  for (const row of state.telemetry) {
+    if (Object.hasOwn(totals, row.event)) totals[row.event] += row.count;
+    const key = JSON.stringify([row.releaseId, row.appVersionBucket]);
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        releaseId: row.releaseId,
+        appVersionBucket: row.appVersionBucket,
+        counts: Object.fromEntries(TELEMETRY_EVENTS.map(([event]) => [event, 0])),
+      });
+    }
+    const group = grouped.get(key);
+    if (Object.hasOwn(group.counts, row.event)) group.counts[row.event] += row.count;
+  }
+
+  const applied = totals.overlay_applied;
+  const guard = totals.format_guard_rejected;
+  const unresolved = totals.key_unresolved;
+  const delta = totals.delta_failed;
+  const cards = [
+    ["overlay_applied", "오버레이 적용", number.format(applied), "원격 오버레이가 적용된 횟수"],
+    ["format_guard_rejected", "포맷 가드 거부율", rate(guard, applied + guard), `${number.format(guard)}건 거부`],
+    ["key_unresolved", "미해결 키 비율", rate(unresolved, applied + guard), `${number.format(unresolved)}건 미해결`],
+    ["delta_failed", "델타 실패율", rate(delta, applied + delta), `${number.format(delta)}건 실패`],
+  ];
+
+  const reload = async () => {
+    const data = await run(null, () => api("GET", `/projects/${enc(state.projectId)}/telemetry`));
+    if (!data) return;
+    state.telemetry = data.telemetry;
+    renderProject();
+  };
+
+  const rows = [...grouped.values()];
+  return [
+    el("div", { class: "telemetry-intro" },
+      el("div", {},
+        el("div", { class: "telemetry-eyebrow", text: "익명 운영 신호" }),
+        el("h2", { text: "배포가 현장에서 어떻게 작동하는지 봅니다" }),
+        el("p", { text: "릴리스와 앱 버전군별 누적 카운트만 수집합니다. 번역 원문, 키 이름, 기기 식별자는 저장하지 않습니다." }),
+      ),
+      el("button", { class: "tiny", text: "새로고침", onClick: reload }),
+    ),
+    el("div", { class: "signal-grid" },
+      ...cards.map(([event, label, value, detail]) => el("div", { class: `signal-card ${event}` },
+        el("div", { class: "signal-label", text: label }),
+        el("div", { class: "signal-value", text: value }),
+        el("div", { class: "small muted", text: detail }),
+      )),
+    ),
+    el("div", { class: "panel" },
+      el("h2", {}, "릴리스 · 앱 버전군",
+        el("span", { class: "hint", text: `${rows.length}개 집계 구간` })),
+      rows.length
+        ? el("div", { class: "tablewrap" }, el("table", { class: "telemetry-table" },
+            el("thead", {}, el("tr", {},
+              el("th", { text: "릴리스" }), el("th", { text: "앱 버전군" }),
+              ...TELEMETRY_EVENTS.map(([, label]) => el("th", { text: label })),
+            )),
+            el("tbody", {}, ...rows.map((row) => {
+              const release = state.releases.find((r) => r.id === row.releaseId);
+              return el("tr", {},
+                el("td", { class: "mono" }, row.releaseId,
+                  release ? el("div", {}, el("span", { class: `badge ${release.state}`, text: release.state })) : null),
+                el("td", { class: "mono", text: row.appVersionBucket || "미지정" }),
+                ...TELEMETRY_EVENTS.map(([event]) => el("td", {
+                  class: `telemetry-count ${event === "overlay_applied" ? "good" : "risk"}`,
+                  text: number.format(row.counts[event]),
+                })),
+              );
+            })),
+          ))
+        : el("div", { class: "telemetry-empty" },
+            el("strong", { text: "아직 수집된 운영 신호가 없습니다." }),
+            el("p", { class: "small muted", text: "SDK에서 telemetry를 aggregate로 켜고 익명 집계를 보내면 이곳에 표시됩니다." }),
+          ),
     ),
   ];
 }
