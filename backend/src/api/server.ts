@@ -18,7 +18,7 @@ import { Metrics, METRIC } from "../observability/metrics.ts";
 import { Notifier } from "../observability/notifier.ts";
 import { ingest, releaseHealth } from "../observability/telemetry.ts";
 import { rebuildAllArtifacts } from "../admin/rebuild.ts";
-import type { ProjectExport } from "../db/repo.ts";
+import type { ProjectExport, TranslationImport } from "../db/repo.ts";
 import { uiAsset } from "../ui/serve.ts";
 
 class HttpError extends Error {
@@ -98,6 +98,8 @@ function requireVersionMatch(vm: any): VersionMatch {
 }
 /** 릴리스 상태 4종(4.3 라이프사이클) — import 본문 검증용 런타임 목록. */
 const RELEASE_STATES: readonly string[] = ["draft", "published", "superseded", "archived"];
+const TRANSLATION_STATES: readonly string[] = ["draft", "reviewed"];
+const PLURAL_CATEGORIES = new Set(["zero", "one", "two", "few", "many", "other"]);
 
 /** 사용자 role 검증(7.3) — rbac.ROLES가 단일 원천. */
 function requireRole(v: unknown): Role {
@@ -179,6 +181,98 @@ function requireProjectExport(body: any): ProjectExport {
     }
   }
   return body as ProjectExport;
+}
+
+/**
+ * 기존 프로젝트용 키·번역 import를 검증하고 DB에 바로 넣을 수 있는 형태로 정규화한다.
+ * 형식은 전체 export의 `keys[].translations[]` 부분집합이라 export에서 키 배열만 떼어 재사용할 수 있다.
+ */
+function requireTranslationImport(body: any, repo: Repo, projectId: string): {
+  data: TranslationImport;
+  createdKeys: number;
+  updatedKeys: number;
+  translations: number;
+} {
+  const bad = (m: string): never => { throw new BadRequestError(`번역 import 형식이 아닙니다: ${m}`); };
+  if (!Array.isArray(body?.keys) || body.keys.length === 0) bad("keys는 비지 않은 배열이어야 합니다");
+
+  const supportedLocales = new Set(repo.listLocales(projectId));
+  const existing = new Map(repo.listKeyDetails(projectId).map((k) => [k.name, k]));
+  const names = new Set<string>();
+  const keys: TranslationImport["keys"][number][] = [];
+  let createdKeys = 0;
+  let updatedKeys = 0;
+  let translationCount = 0;
+
+  const value = (v: unknown, where: string): TranslationValue => {
+    if (typeof v === "string") return v;
+    if (!v || typeof v !== "object" || Array.isArray(v)) bad(`${where}.value는 문자열 또는 CLDR 복수형 맵이어야 합니다`);
+    const entries = Object.entries(v as Record<string, unknown>);
+    if (!entries.length || entries.some(([category, text]) => !PLURAL_CATEGORIES.has(category) || typeof text !== "string")) {
+      bad(`${where}.value의 복수형 맵은 CLDR 카테고리와 문자열 값만 포함해야 합니다`);
+    }
+    if (!("other" in (v as object))) bad(`${where}.value의 복수형 맵에는 other가 필요합니다`);
+    return v as TranslationValue;
+  };
+
+  for (const [keyIndex, rawKey] of body.keys.entries()) {
+    const name = typeof rawKey?.name === "string" ? rawKey.name.trim() : "";
+    if (!name) bad(`keys[${keyIndex}].name이 필요합니다`);
+    if (names.has(name)) bad(`키 "${name}"가 중복되었습니다`);
+    names.add(name);
+    if (rawKey.description !== undefined && typeof rawKey.description !== "string") bad(`키 "${name}"의 description은 문자열이어야 합니다`);
+    if (!Array.isArray(rawKey.translations) || rawKey.translations.length === 0) bad(`키 "${name}"의 translations는 비지 않은 배열이어야 합니다`);
+
+    const locales = new Set<string>();
+    const translations: TranslationImport["keys"][number]["translations"][number][] = [];
+    let importedSignature: string | undefined;
+    let importedPlural: boolean | undefined;
+    for (const [translationIndex, rawTranslation] of rawKey.translations.entries()) {
+      const where = `키 "${name}" translations[${translationIndex}]`;
+      const locale = typeof rawTranslation?.locale === "string" ? rawTranslation.locale.trim() : "";
+      if (!locale) bad(`${where}.locale이 필요합니다`);
+      if (!supportedLocales.has(locale)) bad(`${where}.locale "${locale}"는 프로젝트 지원 로케일이 아닙니다`);
+      if (locales.has(locale)) bad(`키 "${name}"의 로케일 "${locale}"가 중복되었습니다`);
+      locales.add(locale);
+      const translationValue = value(rawTranslation?.value, where);
+      const state = rawTranslation?.state ?? "draft";
+      if (!TRANSLATION_STATES.includes(state)) bad(`${where}.state는 ${TRANSLATION_STATES.join(" 또는 ")}여야 합니다`);
+
+      const sig = signature(translationValue);
+      const plural = isPluralMap(translationValue);
+      if (importedSignature === undefined) { importedSignature = sig; importedPlural = plural; }
+      else if (importedSignature !== sig || importedPlural !== plural) {
+        throw new SignatureMismatchError(`키 "${name}"의 번역끼리 플레이스홀더 서명 또는 복수형 형태가 다릅니다`);
+      }
+      translations.push({ locale, value: translationValue, state });
+      translationCount += 1;
+    }
+
+    const current = existing.get(name);
+    let resolvedSignature = importedSignature!;
+    let resolvedPlural = importedPlural!;
+    if (current) {
+      updatedKeys += 1;
+      const currentValues = Object.values(current.translations);
+      const establishedSignature = current.signature || (currentValues.length ? signature(currentValues[0]!.value) : undefined);
+      if (current.isPlural !== resolvedPlural || (establishedSignature !== undefined && establishedSignature !== resolvedSignature)) {
+        throw new SignatureMismatchError(`키 "${name}"의 기존 플레이스홀더 서명 또는 복수형 형태와 import 값이 다릅니다`);
+      }
+      resolvedSignature = establishedSignature ?? resolvedSignature;
+      resolvedPlural = current.isPlural;
+    } else {
+      createdKeys += 1;
+    }
+    keys.push({
+      name,
+      signature: resolvedSignature,
+      isPlural: resolvedPlural,
+      ...(rawKey.description !== undefined ? { description: rawKey.description } : {}),
+      translations,
+    });
+  }
+
+  return { data: { keys }, createdKeys, updatedKeys, translations: translationCount };
 }
 
 const routes: Route[] = [
@@ -285,6 +379,21 @@ const routes: Route[] = [
     repo.putTranslation(params.p!, keyRow.id, params.locale!, value, state);
     const t = repo.getTranslation(keyRow.id, params.locale!)!;
     return { status: 200, body: { key: params.key, locale: params.locale, value: t.value, state: t.state, updatedAt: t.updatedAt } };
+  }),
+
+  // 기존 프로젝트에 키·번역 JSON 일괄 upsert — Translator+. 전체 검증 후 단일 트랜잭션 적용.
+  route("POST", "/projects/:p/translations/import", "edit_translation", ({ params, body, repo }) => {
+    if (!repo.getProject(params.p!)) throw new NotFoundError(`project ${params.p}`);
+    const normalized = requireTranslationImport(body, repo, params.p!);
+    repo.importTranslations(params.p!, normalized.data);
+    return {
+      status: 200,
+      body: {
+        createdKeys: normalized.createdKeys,
+        updatedKeys: normalized.updatedKeys,
+        translations: normalized.translations,
+      },
+    };
   }),
 
   // 릴리스 생성 — Maintainer+

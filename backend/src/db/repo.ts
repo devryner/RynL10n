@@ -53,6 +53,21 @@ export interface ProjectExport {
   }>;
 }
 
+/** 기존 프로젝트에 키·번역만 병합하는 import. API 계층에서 검증·메타 추론을 마친 정규화 형태. */
+export interface TranslationImport {
+  readonly keys: ReadonlyArray<{
+    readonly name: string;
+    readonly signature: string;
+    readonly isPlural: boolean;
+    readonly description?: string;
+    readonly translations: ReadonlyArray<{
+      readonly locale: string;
+      readonly value: TranslationValue;
+      readonly state: string;
+    }>;
+  }>;
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -336,6 +351,25 @@ export class Repo {
         // 그때 undefined가 바인딩까지 내려가 TypeError로 터진다.
         if (r.base != null && r.overlay != null) this.updateReleasePointers(data.project.id, r.id, r.base, r.overlay);
         for (const name of r.keys) { const id = keyId.get(name); if (id !== undefined) this.addReleaseKey(data.project.id, r.id, id); }
+      }
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  /**
+   * 기존 프로젝트에 키·번역만 upsert. 검증은 호출 전에 끝내고, 실제 쓰기는 한 트랜잭션으로 묶어
+   * 대량 입력 도중 하나가 실패해도 일부 키만 반영되는 상태를 만들지 않는다.
+   */
+  importTranslations(projectId: string, data: TranslationImport): void {
+    this.db.exec("BEGIN");
+    try {
+      for (const k of data.keys) {
+        const id = this.upsertKey(projectId, k.name, k.signature, k.isPlural);
+        if (k.description !== undefined) this.setKeyDescription(projectId, k.name, k.description);
+        for (const t of k.translations) this.putTranslation(projectId, id, t.locale, t.value, t.state);
       }
       this.db.exec("COMMIT");
     } catch (e) {

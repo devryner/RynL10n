@@ -244,6 +244,63 @@ test("값을 바꾸지 않고 포커스만 빠져나가면 요청을 보내지 �
   assert.equal(calls.length, before, "변경 없는 blur는 네트워크를 타면 안 된다");
 });
 
+test("번역 JSON 파일은 미리보기 후 현재 프로젝트 import API로 그대로 보낸다", async () => {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const table = projectTable();
+  table["POST /projects/shop/translations/import"] = { createdKeys: 1, updatedKeys: 1, translations: 3 };
+  const calls = installFetch(table);
+  await loadApp();
+  tags(byId.app, "button").find((b) => b.textContent === "shop")!.fire("click");
+  await settle();
+
+  const data = {
+    keys: [
+      { name: "cart.title", translations: [{ locale: "ko", value: "카트", state: "reviewed" }] },
+      { name: "home.title", translations: [{ locale: "en", value: "Home" }, { locale: "ko", value: "홈" }] },
+    ],
+  };
+  const picker = tags(byId.app, "input").find((i) => i.attrs.type === "file")!;
+  picker.files = [{ name: "translations.json", text: async () => JSON.stringify(data) }];
+  const before = calls.filter((c) => c.method === "POST").length;
+  picker.fire("change");
+  await settle();
+
+  assert.match(byId.app!.textContent, /번역 가져오기 확인/);
+  assert.match(byId.app!.textContent, /키 2 · 번역 3 · 로케일 2/);
+  assert.equal(calls.filter((c) => c.method === "POST").length, before, "파일 선택만으로 쓰지 않는다");
+
+  tags(byId.app, "button").find((b) => b.textContent === "가져오기")!.fire("click");
+  await settle();
+  const post = calls.find((c) => c.method === "POST" && c.path === "/projects/shop/translations/import")!;
+  assert.deepEqual(post.body, data);
+  assert.match((globalThis as any).document.getElementById("toasts").textContent, /새 키 1 · 기존 키 1 · 번역 3/);
+});
+
+test("깨진 번역 JSON은 로컬에서 막고 viewer에게는 파일 선택기를 보이지 않는다", async () => {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const calls = installFetch(projectTable());
+  await loadApp();
+  tags(byId.app, "button").find((b) => b.textContent === "shop")!.fire("click");
+  await settle();
+  const picker = tags(byId.app, "input").find((i) => i.attrs.type === "file")!;
+  picker.files = [{ name: "broken.json", text: async () => "{ bad" }];
+  picker.fire("change");
+  await settle();
+  assert.ok(!calls.some((c) => c.method === "POST"));
+  assert.match((globalThis as any).document.getElementById("toasts").textContent, /JSON을 읽지 못했습니다/);
+
+  const viewer = installDom();
+  viewer.store["rynl10n.token"] = "tok-viewer";
+  installFetch(projectTable({ actor: "viewer", role: "viewer", projects: ["shop"], deliveryBaseUrl: "https://cdn.test" }));
+  await loadApp();
+  tags(viewer.byId.app, "button").find((b) => b.textContent === "shop")!.fire("click");
+  await settle();
+  assert.equal(tags(viewer.byId.app, "input").some((i) => i.attrs.type === "file"), false);
+  assert.equal(viewer.byId.app!.textContent.includes("번역 JSON 가져오기"), false);
+});
+
 test("422 서명 불일치는 입력값을 되돌리고 오류를 표면화한다", async () => {
   const { byId, store } = installDom();
   store["rynl10n.token"] = "tok-admin";

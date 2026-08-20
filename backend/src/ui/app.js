@@ -114,6 +114,7 @@ const state = {
   live: false,
   filter: emptyFilter(), // 번역 탭 검색·필터(클라이언트 측 — 키 목록은 이미 전부 받아온다)
   pendingImport: null,   // {fileName, data} — 파일을 고른 뒤 복원 전까지 들고 있는 export(9.2)
+  pendingTranslationImport: null, // {fileName, data} — 현재 프로젝트에 키·번역을 병합하기 전 미리보기
   users: [],             // 사용자 관리(7.3) — admin일 때만 채운다
   issuedToken: null,     // {userId, token} — 방금 발급한 토큰 평문. **이 화면이 유일한 노출**이다
 };
@@ -210,6 +211,7 @@ function shell(...content) {
 async function openProjects() {
   closeStream();
   state.projectId = null; state.project = null;
+  state.pendingTranslationImport = null;
   const data = await api("GET", "/projects");
   state.projects = data.projects;
   // 사용자 관리(7.3)는 admin 전용 라우트라 다른 역할은 아예 부르지 않는다(403 소음 방지).
@@ -559,6 +561,7 @@ function renderProjects() {
 async function openProject(id) {
   state.projectId = id;
   state.pendingImport = null;   // 목록을 떠나면 고른 파일도 버린다 — 돌아왔을 때 남아 있으면 유령이다
+  state.pendingTranslationImport = null;
   state.issuedToken = null;     // 토큰 평문도 같은 규칙 — 화면을 떠나면 노출을 끝낸다
   state.filter = emptyFilter(); // 프로젝트마다 키·로케일이 다르므로 필터를 물고 넘어가지 않는다
   const [project, keys, releases] = await Promise.all([
@@ -706,6 +709,7 @@ function tabTranslations() {
         can("manage_release") ? localeAdder() : null,
       ),
     ),
+    editable ? translationImportPanel() : null,
     el("div", { class: "panel" },
       el("h2", {}, "번역",
         el("span", { class: "hint", text: "값을 고치고 Enter 또는 포커스 아웃으로 저장합니다" }),
@@ -715,6 +719,70 @@ function tabTranslations() {
       el("div", { class: "tablewrap" }, el("table", {}, el("thead", {}, head), tbody)),
     ),
   ];
+}
+
+/**
+ * 현재 프로젝트에 키·번역만 병합하는 JSON import. 전체 프로젝트 import와 달리 기존 값은
+ * 같은 (키, 로케일)이 있으면 갱신되고, 파일에 없는 값은 그대로 남는다.
+ */
+function translationImportPanel() {
+  const picker = el("input", { type: "file", accept: "application/json,.json" });
+  picker.addEventListener("change", async () => {
+    const file = picker.files?.[0];
+    if (!file) return;
+    let data;
+    try { data = JSON.parse(await file.text()); } catch (e) {
+      toast("error", "JSON을 읽지 못했습니다", String(e.message ?? e));
+      return;
+    }
+    if (!Array.isArray(data?.keys) || !data.keys.length) {
+      toast("error", "번역 import 파일이 아닙니다", "비어 있지 않은 keys 배열이 필요합니다.");
+      return;
+    }
+    state.pendingTranslationImport = { fileName: file.name ?? "translations.json", data };
+    renderProject();
+  });
+
+  if (!state.pendingTranslationImport) {
+    return el("div", { class: "panel" },
+      el("h2", {}, "번역 JSON 가져오기",
+        el("span", { class: "hint", text: "현재 프로젝트에 키·번역만 일괄 추가·갱신" })),
+      el("div", { class: "row" },
+        el("label", { class: "field grow" }, "JSON 파일", picker),
+      ),
+      el("p", { class: "small muted" },
+        "형식: ", el("code", { text: '{"keys":[{"name":"home.title","translations":[{"locale":"ko","value":"홈","state":"reviewed"}]}]}' }),
+      ),
+    );
+  }
+
+  const { fileName, data } = state.pendingTranslationImport;
+  const translationCount = data.keys.reduce((n, k) => n + (Array.isArray(k?.translations) ? k.translations.length : 0), 0);
+  const localeCount = new Set(data.keys.flatMap((k) => Array.isArray(k?.translations)
+    ? k.translations.map((t) => t?.locale).filter(Boolean) : [])).size;
+  const counts = `키 ${data.keys.length} · 번역 ${translationCount} · 로케일 ${localeCount}`;
+
+  const apply = async () => {
+    const out = await run(null, () => api(
+      "POST", `/projects/${enc(state.projectId)}/translations/import`, data,
+    ));
+    if (!out) return;
+    state.pendingTranslationImport = null;
+    toast("ok", "번역을 가져왔습니다",
+      `새 키 ${out.createdKeys} · 기존 키 ${out.updatedKeys} · 번역 ${out.translations}`);
+    await refresh({ delivery: false });
+  };
+
+  return el("div", { class: "panel", style: "border-color:var(--accent)" },
+    el("h2", {}, "번역 가져오기 확인", el("span", { class: "hint", text: fileName })),
+    el("p", { class: "small", text: counts }),
+    el("p", { class: "small muted",
+      text: "같은 키·로케일의 기존 값은 갱신됩니다. 파일에 없는 번역은 유지되며, 하나라도 잘못되면 전부 반영되지 않습니다." }),
+    el("div", { class: "row" },
+      el("button", { class: "primary", text: "가져오기", onClick: apply }),
+      el("button", { text: "취소", onClick: () => { state.pendingTranslationImport = null; renderProject(); } }),
+    ),
+  );
 }
 
 /**

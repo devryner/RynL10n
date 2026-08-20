@@ -125,6 +125,91 @@ test("GET /projects/{p}/keys: 키 + 로케일별 번역 + 릴리스 참조 수",
   assert.equal(key.refCount, 0); // 아직 어떤 릴리스에도 속하지 않음
 });
 
+test("번역 JSON import: 기존 값 갱신 + 새 키·복수형 생성 + 기본 draft를 한 번에 처리", async () => {
+  const r = await api("POST", "/projects/shop/translations/import", {
+    token: TOK.trans,
+    body: {
+      keys: [
+        {
+          name: "cart.title",
+          description: "가져오기로 갱신한 설명",
+          translations: [
+            { locale: "en", value: "Shopping cart", state: "reviewed" },
+            { locale: "ja", value: "買い物かご" },
+          ],
+        },
+        {
+          name: "cart.items",
+          translations: [
+            { locale: "en", value: { one: "{n} item", other: "{n} items" }, state: "reviewed" },
+            { locale: "ja", value: { other: "{n}個" }, state: "draft" },
+          ],
+        },
+      ],
+    },
+  });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { createdKeys: 1, updatedKeys: 1, translations: 4 });
+
+  const keys = (await api("GET", "/projects/shop/keys", { token: TOK.view })).body.keys;
+  const title = keys.find((k: any) => k.name === "cart.title");
+  assert.equal(title.description, "가져오기로 갱신한 설명");
+  assert.equal(title.translations.en.value, "Shopping cart");
+  assert.equal(title.translations.ja.state, "draft", "state를 생략하면 draft");
+  const items = keys.find((k: any) => k.name === "cart.items");
+  assert.equal(items.isPlural, true);
+  assert.equal(items.signature, "n:simple");
+  assert.deepEqual(items.translations.en.value, { one: "{n} item", other: "{n} items" });
+});
+
+test("번역 JSON import는 잘못된 항목 하나가 있으면 앞의 정상 항목도 반영하지 않는다", async () => {
+  const r = await api("POST", "/projects/shop/translations/import", {
+    token: TOK.trans,
+    body: {
+      keys: [
+        { name: "valid.before-error", translations: [{ locale: "en", value: "Valid" }] },
+        { name: "bad.locale", translations: [{ locale: "ko", value: "미등록" }] },
+      ],
+    },
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.body.error.message, /지원 로케일/);
+  const keys = (await api("GET", "/projects/shop/keys", { token: TOK.view })).body.keys;
+  assert.equal(keys.some((k: any) => k.name === "valid.before-error"), false);
+});
+
+test("번역 JSON import는 중복·형식 오류와 기존 키의 서명 불일치를 구분해 거절한다", async () => {
+  const duplicate = await api("POST", "/projects/shop/translations/import", {
+    token: TOK.trans,
+    body: { keys: [
+      { name: "dup.key", translations: [{ locale: "en", value: "A" }] },
+      { name: "dup.key", translations: [{ locale: "ja", value: "B" }] },
+    ] },
+  });
+  assert.equal(duplicate.status, 400);
+  assert.match(duplicate.body.error.message, /중복/);
+
+  const badPlural = await api("POST", "/projects/shop/translations/import", {
+    token: TOK.trans,
+    body: { keys: [{ name: "bad.plural", translations: [{ locale: "en", value: { one: "one" } }] }] },
+  });
+  assert.equal(badPlural.status, 400);
+  assert.match(badPlural.body.error.message, /other/);
+
+  const mismatch = await api("POST", "/projects/shop/translations/import", {
+    token: TOK.trans,
+    body: { keys: [{ name: "cart.title", translations: [{ locale: "en", value: "Cart for {name}" }] }] },
+  });
+  assert.equal(mismatch.status, 422);
+  assert.equal(mismatch.body.error.code, "signature_mismatch");
+});
+
+test("번역 JSON import는 Translator 이상만 가능", async () => {
+  const body = { keys: [{ name: "rbac.key", translations: [{ locale: "en", value: "Allowed" }] }] };
+  assert.equal((await api("POST", "/projects/shop/translations/import", { token: TOK.view, body })).status, 403);
+  assert.equal((await api("POST", "/projects/shop/translations/import", { body })).status, 401);
+});
+
 test("키 설명(5.1): 생성·수정·조회 — 로케일이 아니라 '의미'에 붙는다", async () => {
   const created = await api("PUT", "/projects/shop/keys/cart.empty", {
     token: TOK.trans, body: { description: "장바구니가 비었을 때 본문. 안내 톤, 느낌표 금지." },

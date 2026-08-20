@@ -83,6 +83,7 @@ export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없
 | `GET /projects/{p}/manifests` | Viewer+ | 200 (게시 이력 — 롤백 대상) | — |
 | `PUT /projects/{p}/keys/{key}` | Translator+ | 200 `{id,name,signature,isPlural,description}` | — |
 | `PUT /projects/{p}/translations/{key}/{locale}` | Translator+ | 200 | **422** 서명 불일치 · 404 |
+| `POST /projects/{p}/translations/import` | Translator+ | 200 `{createdKeys,updatedKeys,translations}` | 400 형식·로케일 · **422** 서명/복수형 불일치 |
 | `POST /projects/{p}/releases` | Maintainer+ | 201 | 400 |
 | `POST /projects/{p}/releases/{r}/keys` | Maintainer+ | 200 | 404 |
 | `POST /projects/{p}/releases/{r}/publish` | Maintainer+ | **202** {jobId} | **409** 범위 충돌 |
@@ -129,6 +130,7 @@ publish 시: ① 버전 범위 충돌·자동 상한 닫힘 검증(쓰기 전, 4
 ## 데이터 이식성 · 재해 복구 (9.2 / 9.4, M3)
 
 - `GET /projects/{p}/export` / `POST /projects/import` — 전체 export/import(락인 없음).
+- `POST /projects/{p}/translations/import` — 기존 프로젝트에 키·번역만 일괄 upsert. 전체 검증 후 단일 트랜잭션 적용.
 - `POST /projects/{p}/rebuild` — DB(SoT)만으로 산출물 재생성(결정적). 스토리지 유실 복구.
 - 운영 절차 전체는 [`../OPERATIONS.md`](../OPERATIONS.md).
 

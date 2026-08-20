@@ -96,6 +96,7 @@ rynl10n-bake --fetch "$API/projects/myapp/releases/R1/snapshot" --token "$TOKEN"
 - **RBAC 반영** — 토큰 역할(Admin/Maintainer/Translator/Viewer)에 따라 쓰기 UI가 잠깁니다. 최종 판정은 항상 서버입니다.
 - **프로젝트 삭제** — Admin만 가능하며 되돌릴 수 없습니다. 확인하려면 프로젝트 ID를 직접 입력해야 하고, published 릴리스가 남아 있으면 서버가 막습니다(먼저 보관하세요).
 - **가져오기(import)** — '전체 export'로 받은 JSON을 올려 프로젝트를 통째로 복원합니다(락인 없음). 파일을 고르면 먼저 미리보기(프로젝트 ID·로케일/키/릴리스 수)를 보여주고, 복원할 ID를 그 자리에서 바꿀 수 있습니다. **이미 있는 ID는 덮어쓰지 않고 거절합니다** — 복사본을 만들려면 ID를 바꾸고, 원본을 대체하려면 먼저 삭제하세요. 복원은 전부 되거나 전혀 안 되거나 둘 중 하나입니다(트랜잭션).
+- **번역 JSON 가져오기** — 번역 탭에서 현재 프로젝트에 키·번역만 일괄 upsert합니다(Translator+). 같은 키·로케일은 갱신하고 파일에 없는 값은 유지합니다. 등록되지 않은 로케일, 중복 키·로케일, 잘못된 복수형, 플레이스홀더 서명 불일치는 쓰기 전에 거절하며 전체 파일을 한 트랜잭션으로 반영합니다.
 - **실시간 반영** — publish·롤백이 일어나면 SSE 신호를 받아 화면이 자동 갱신됩니다(데이터는 정적 경로로만 이동).
 - **플레인 분리 유지** — 대시보드는 관리 플레인만 호출하고, 배포 플레인은 산출물 링크로만 노출합니다.
 - 헤드리스로 돌리려면 `createManagementServer({ serveDashboard: false })`.
@@ -126,6 +127,10 @@ curl -X PUT $API/projects/myapp/translations/home.greeting/en -H "$AUTH" -H "$JS
   -d '{"value":"Hello, {name}!"}'
 curl -X PUT $API/projects/myapp/translations/home.greeting/ko -H "$AUTH" -H "$JSON" \
   -d '{"value":"안녕하세요, {name}님!"}'
+
+# 번역 JSON 일괄 입력 — 기존 (키, 로케일)은 갱신, 나머지는 유지
+curl -X POST $API/projects/myapp/translations/import -H "$AUTH" -H "$JSON" \
+  -d '{"keys":[{"name":"home.title","description":"홈 화면 제목","translations":[{"locale":"en","value":"Home","state":"reviewed"},{"locale":"ko","value":"홈"}]}]}'
 
 # 4. 릴리스 생성 — 앱 버전 범위 매핑
 #    전략 3종: semver-range(명시적 하한·상한 필수) · integer-range(빌드넘버) · exact-label
