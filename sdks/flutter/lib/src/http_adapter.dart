@@ -41,9 +41,13 @@
 /// manifest 복원**은 영속 캐시가 있어야 동작한다.
 library;
 
+import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 
 import 'delivery.dart';
+import 'push.dart';
+import 'telemetry.dart';
 
 /// `package:http` 기반 [DeliveryFetch]. 웹·모바일·데스크톱·서버 모두에서 동작한다.
 ///
@@ -65,5 +69,49 @@ DeliveryFetch httpDeliveryFetch({
         .timeout(timeout);
     // package:http는 응답 헤더 키를 소문자로 정규화한다.
     return DeliveryResponse(response.statusCode, response.body, etag: response.headers['etag']);
+  };
+}
+
+/// `package:http` 기반 [PushConnect] — 실시간 푸시 신호(SSE) 연결.
+///
+/// **Flutter Web 주의**: 브라우저 백엔드(`BrowserClient`)는 XHR 기반이라 응답을 **끝까지 모아** 한 번에
+/// 넘긴다 — SSE처럼 열어 두는 스트림에서는 신호가 제때 도착하지 않는다. 웹에서는 브라우저의
+/// `EventSource`를 [PushConnect]로 감싸 넣는다(코어는 함수 하나만 요구하므로 이음새는 그대로다):
+///
+/// ```dart
+/// import 'package:web/web.dart' as web;
+///
+/// PushConnect eventSourceConnect() => (url) async {
+///       final source = web.EventSource(url);
+///       final controller = StreamController<String>(onCancel: source.close);
+///       source.addEventListener('manifest', (web.Event _) {
+///         controller.add('event: manifest\ndata: {}\n\n'); // 파서가 읽는 프레임 형태 그대로
+///       }.toJS);
+///       return PushResponse(200, controller.stream);
+///     };
+/// ```
+///
+/// 폴링이 갱신의 보장선이므로, 웹에서 이 어댑터를 그대로 써도 기능이 깨지지는 않는다(지연만 남는다).
+PushConnect httpPushConnect({http.Client? client}) {
+  final c = client ?? http.Client();
+  return (String url) async {
+    final request = http.Request('GET', Uri.parse(url))..headers['accept'] = 'text/event-stream';
+    final response = await c.send(request);
+    return PushResponse(response.statusCode, response.stream.transform(utf8.decoder));
+  };
+}
+
+/// `package:http` 기반 [TelemetryPost] — 익명 집계 업로드(9.3).
+/// **관리 플레인으로 가는 유일한 쓰기 경로**이고, 실패해도 화면의 번역은 영향을 받지 않는다.
+TelemetryPost httpTelemetryPost({
+  http.Client? client,
+  Duration timeout = const Duration(seconds: 15),
+}) {
+  final c = client ?? http.Client();
+  return (String url, String body) async {
+    final response = await c
+        .post(Uri.parse(url), headers: {'content-type': 'application/json'}, body: body)
+        .timeout(timeout);
+    return response.statusCode;
   };
 }

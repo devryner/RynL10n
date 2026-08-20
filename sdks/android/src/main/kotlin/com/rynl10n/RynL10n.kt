@@ -68,6 +68,18 @@ class RynL10nClient(
         val s = tel.copy(); tel = TelemetryCounts(); s
     }
 
+    /**
+     * 전송에 실패한 배치를 되돌린다([TelemetryReporter] 전용, 9.3).
+     * 드레인 이후 새로 쌓인 카운트에 **더한다** — 실패 구간이 사라지면 카나리 판정(8.4)이
+     * 실제보다 건강해 보인다.
+     */
+    fun mergeTelemetry(counts: TelemetryCounts) = lock.withLock {
+        tel.overlayApplied += counts.overlayApplied
+        tel.formatGuardRejected += counts.formatGuardRejected
+        tel.keyUnresolved += counts.keyUnresolved
+        tel.deltaFailed += counts.deltaFailed
+    }
+
     fun onCatalogUpdated(listener: (UpdateInfo) -> Unit): Int = lock.withLock {
         listeners.add(listener); listeners.size - 1
     }

@@ -1,6 +1,12 @@
 package com.rynl10n
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -125,6 +131,49 @@ class RemoteDeliveryStore @JvmOverloads constructor(
         }
 
         return client.refresh(manifest)
+    }
+
+    // --- 주기 폴링 ---
+
+    private var pollJob: Job? = null
+
+    /**
+     * 주기 폴링 시작(기본 60초). 즉시 한 번 갱신한 뒤 간격마다 반복한다.
+     *
+     * 실패는 삼킨다 — 실패 = 이전 상태 유지이고 다음 주기에 다시 시도하면 되기 때문이다.
+     * 앱이 [update]를 직접 부르는 것(앱 시작·포그라운드 복귀)과 배타적이지 않다: 산출물은 내용해시
+     * URL이라 이미 가진 것은 다시 받지 않고, manifest는 ETag로 재검증된다.
+     *
+     * 배터리·트래픽은 **호출자가 정한다** — `ON_STOP`에서 [stopPolling], `ON_START`에서 다시
+     * [startPolling]이 기본 패턴이다. SDK가 앱 생명주기를 가로채지 않는다.
+     *
+     * @param scope 폴링을 소유하는 스코프. 뷰모델 스코프를 넘기면 생명주기와 함께 정리된다.
+     * @param onUpdate 사이클마다 호출(카탈로그가 실제로 바뀌었으면 true). 메인 스레드 보장은 없다 —
+     *   UI 갱신은 [RynL10nState]의 `StateFlow`로 흐른다.
+     */
+    @JvmOverloads
+    fun startPolling(
+        client: RynL10nClient,
+        intervalMs: Long = 60_000,
+        scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
+        onUpdate: ((Boolean) -> Unit)? = null,
+    ) {
+        stopPolling()
+        val started = scope.launch {
+            while (isActive) {
+                val changed = runCatching { update(client) }.getOrDefault(false)
+                if (!isActive) return@launch // stopPolling 직후 콜백이 한 번 더 나가지 않게
+                onUpdate?.invoke(changed)
+                delay(intervalMs)
+            }
+        }
+        lock.withLock { pollJob = started }
+    }
+
+    /** 폴링 중단(백그라운드 전환·로그아웃). 이미 적용된 카탈로그는 그대로 남는다. */
+    fun stopPolling() {
+        val running = lock.withLock { val j = pollJob; pollJob = null; j }
+        running?.cancel()
     }
 
     /** manifest 조회(짧은 TTL + ETag 재검증, 7.2). 네트워크 실패·304면 캐시본을 쓴다. */

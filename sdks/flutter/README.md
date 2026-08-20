@@ -59,10 +59,10 @@ await store.update(client);                  // 앱 시작 직후·포그라운�
 
 ### 어댑터 진입점 고르기
 
-| 진입점 | HTTP 백엔드 | Flutter Web | 추가 의존성 |
-| --- | --- | --- | --- |
-| `package:rynl10n/rynl10n_io.dart` | `dart:io` `HttpClient` | ✗ (컴파일 불가) | 없음 |
-| `package:rynl10n/rynl10n_http.dart` | `package:http` | ✓ | `http` |
+| 진입점 | HTTP 백엔드 | Flutter Web | 추가 의존성 | 채우는 구멍 |
+| --- | --- | --- | --- | --- |
+| `package:rynl10n/rynl10n_io.dart` | `dart:io` `HttpClient` | ✗ (컴파일 불가) | 없음 | `ioDeliveryFetch` · `ioPushConnect` · `ioTelemetryPost` · `FileArtifactCache` |
+| `package:rynl10n/rynl10n_http.dart` | `package:http` | ✓ | `http` | `httpDeliveryFetch` · `httpPushConnect` · `httpTelemetryPost` |
 
 웹을 포함해 하나로 가려면 `rynl10n_http.dart`를 쓴다 — `package:http`가 플랫폼마다 백엔드를
 알아서 고른다(웹=`BrowserClient`/fetch, 그 외=`dart:io`).
@@ -88,6 +88,55 @@ final store = RemoteDeliveryStore(
 이음새라, 모바일에서 `shared_preferences`를 꽂는 데도 같은 클래스를 쓴다. 저장소가 던지는 실패
 (사생활 모드·용량 초과)는 조용히 삼킨다.
 
+### 갱신 자동화 — 폴링 · 실시간 푸시 (옵트인)
+
+`update()`를 앱이 직접 부르는 것 외에, 켜 두면 알아서 따라오는 두 갈래가 있다.
+
+```dart
+// ① 주기 폴링(기본 60초) — 갱신의 보장선. 배터리·트래픽은 앱이 정한다.
+store.startPolling(client, interval: const Duration(seconds: 60));
+// AppLifecycleState.paused 에서 store.stopPolling(), resumed 에서 다시 startPolling.
+
+// ② 실시간 푸시(SSE) — publish 즉시 반영. 지연 단축용이라 폴링과 함께 켠다.
+final push = ServerPushChannel(
+  endpoint: 'https://admin.example.com',   // 알림(관리) 플레인 — CDN이 아니다
+  project: 'shop',
+  connect: ioPushConnect(),                // 또는 httpPushConnect()
+);
+push.startUpdating(client, store);         // 신호 → store.update(client)
+// 백그라운드 전환 등에서 push.stop()
+```
+
+**프레임은 "manifest가 바뀌었다"는 신호뿐이고, 번역 데이터는 여전히 배포 플레인에서 받는다** —
+데이터 경로는 정적으로 유지된다(4.1). 연결이 끊기면 3초 → 최대 60초 백오프로 재연결하고,
+그 사이 갱신은 폴링이 덮는다.
+
+> **Flutter Web에서 `httpPushConnect`**: 브라우저 백엔드는 XHR 기반이라 응답을 끝까지 모아 넘긴다 —
+> SSE가 제때 도착하지 않는다. 웹에서는 `EventSource`를 `PushConnect`로 감싸 넣는다(코어는 함수
+> 하나만 요구한다 — 예시는 `lib/src/http_adapter.dart` 문서 주석). 폴링이 보장선이라 그대로 둬도
+> 기능은 깨지지 않고 지연만 남는다.
+
+### 배포 건전성 텔레메트리 (옵트인, 9.3)
+
+대시보드 **관측성** 탭과 `releases/{r}/health`(카나리 판정의 입력)를 채우는 익명 집계다.
+두 번 옵트인해야 한다 — **수집**(`RynL10nClient(telemetry: 'aggregate')`)과 **전송**(리포터 생성).
+
+```dart
+final reporter = TelemetryReporter(
+  endpoint: 'https://admin.example.com',   // 관리 플레인(업로드는 쓰기 경로)
+  project: 'shop',
+  post: ioTelemetryPost(),                 // 또는 httpTelemetryPost()
+);
+reporter.start(client);                    // 기본 5분 주기
+// 백그라운드 전환처럼 확실히 올리고 싶은 시점: await reporter.flush(client);
+```
+
+올라가는 것은 서버가 정의한 **5개 필드가 전부**다(`projectId`·`releaseId`·`event`·`count`·
+`appVersionBucket`). 그 외 필드는 서버가 배치째 거부하므로(프라이버시 가드) **키 이름·번역 값·기기
+식별자는 구조적으로 나갈 수 없다.** 카나리 버킷의 `installId`도 보내지 않는다.
+`appVersionBucket`은 개별 빌드가 아니라 버전군이다(`3.2.1` → `3.2`).
+전송 실패 시 카운트를 되돌려 다음 주기에 다시 올린다(실패 구간이 사라지면 거부율이 실제보다 낮게 보인다).
+
 ### 브라우저에서 반드시 확인할 것 — 배포 플레인 CORS
 
 배포 플레인이 앱과 다른 오리진이면(= CDN을 쓰면 거의 항상) 다음 응답 헤더가 필요하다.
@@ -105,7 +154,8 @@ final store = RemoteDeliveryStore(
 ## 검증
 
 ```bash
-cd sdks/flutter && dart pub get && dart test   # 골든 10 + 시나리오 5 + 앱 적용 경로 19 + http 어댑터 6 = 40 tests
+cd sdks/flutter && dart pub get && dart test   # 골든 10 + 시나리오 5 + 앱 적용 경로 19 + http 어댑터 6
+                                               # + 폴링·푸시·텔레메트리 8 = 48 tests
 ```
 
 ## M4 기능

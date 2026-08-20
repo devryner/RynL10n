@@ -68,6 +68,9 @@ object RynL10n {
     @Volatile private var _client: RynL10nClient? = null
     @Volatile private var _store: RemoteDeliveryStore? = null
     @Volatile private var _state: RynL10nState? = null
+    @Volatile private var _project: String? = null
+    @Volatile private var _push: ServerPushChannel? = null
+    @Volatile private var _reporter: TelemetryReporter? = null
 
     /** [configure] 이후에만 유효하다. */
     val client: RynL10nClient
@@ -132,6 +135,7 @@ object RynL10n {
         synchronized(this) {
             _client = client
             _store = store
+            _project = project
             _state = null // 새 클라이언트에 맞춰 다시 만든다.
         }
         return client
@@ -155,13 +159,92 @@ object RynL10n {
      */
     suspend fun update(): Boolean = _store?.update(client) ?: false
 
+    // --- 갱신 자동화 (6.4) ---
+
+    /**
+     * 주기 폴링 시작(기본 60초). `ON_START`에서 켜고 `ON_STOP`에서 [stopPolling]이 기본 패턴이다 —
+     * 배터리·트래픽은 앱이 정한다. endpoint 없이 configure 했으면 아무 일도 없다.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun startPolling(intervalMs: Long = 60_000) {
+        _store?.startPolling(client, intervalMs)
+    }
+
+    /** 주기 폴링 중단. 이미 적용된 카탈로그는 그대로 남는다. */
+    @JvmStatic
+    fun stopPolling() {
+        _store?.stopPolling()
+    }
+
+    /**
+     * 실시간 푸시 신호 구독(옵트인, M4) — publish 즉시 갱신되게 한다.
+     *
+     * @param adminEndpoint 알림(관리) 플레인 루트. **배포 플레인/CDN이 아니다.** 프레임은 신호뿐이고
+     *   번역 데이터는 여전히 배포 플레인에서 받으므로 플레인 분리는 유지된다(4.1).
+     *   폴링이 갱신의 보장선이고 이 채널은 지연 단축용이다 — 둘 다 켜 두는 것이 정상 구성이다.
+     */
+    @JvmStatic
+    fun connectServerPush(adminEndpoint: String) {
+        val store = _store ?: return
+        val project = _project ?: return
+        disconnectServerPush()
+        val channel = ServerPushChannel(adminEndpoint, project)
+        channel.start(client, store)
+        _push = channel
+    }
+
+    /** 푸시 구독 해제(백그라운드 전환·로그아웃). */
+    @JvmStatic
+    fun disconnectServerPush() {
+        _push?.stop()
+        _push = null
+    }
+
+    // --- 익명 집계 텔레메트리 (9.3, 옵트인) ---
+
+    /**
+     * 익명 집계 주기 전송 시작(기본 5분). **수집도 옵트인이다** — `configure(telemetry = "aggregate")`
+     * 가 아니면 카운트 자체가 쌓이지 않아 보낼 것이 없다.
+     *
+     * @param adminEndpoint 관리 플레인 루트(업로드는 쓰기 경로라 배포 플레인이 아니다).
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun startTelemetry(adminEndpoint: String, intervalMs: Long = 300_000) {
+        val project = _project ?: return
+        stopTelemetry()
+        val reporter = TelemetryReporter(adminEndpoint, project)
+        reporter.start(client, intervalMs)
+        _reporter = reporter
+    }
+
+    /** 주기 전송 중단. 남은 카운트는 다음 [flushTelemetry]에서 함께 나간다. */
+    @JvmStatic
+    fun stopTelemetry() {
+        _reporter?.stop()
+        _reporter = null
+    }
+
+    /**
+     * 지금 한 번 전송한다(백그라운드 전환처럼 확실히 올리고 싶은 시점).
+     * [startTelemetry]를 부른 적이 없으면 보낼 곳이 없으므로 true를 돌려주고 아무 일도 하지 않는다.
+     */
+    suspend fun flushTelemetry(): Boolean = _reporter?.flush(client) ?: true
+
     /** 테스트·프로젝트 전환용. 캐시까지 비운다. */
     @JvmStatic
     fun reset() = synchronized(this) {
+        _push?.stop()
+        _reporter?.stop()
+        _store?.stopPolling()
         _store?.clearCache()
         _client = null
         _store = null
         _state = null
+        _project = null
+        _push = null
+        _reporter = null
     }
 
     // --- Android 자원 접근 ---

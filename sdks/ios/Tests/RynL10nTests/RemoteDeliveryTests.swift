@@ -263,21 +263,23 @@ final class RemoteDeliveryTests: XCTestCase {
 
 /// 스텁 라우팅 테이블. `URLProtocol`은 클래스 메서드에서 상태를 읽어야 해서 잠금으로 보호한 싱글턴을 쓴다.
 final class StubRegistry: @unchecked Sendable {
-    private struct Route { var body: String; var etag: String?; var notModified: Bool }
+    private struct Route { var body: String; var etag: String?; var notModified: Bool; var status: Int; var contentType: String }
     private let lock = NSLock()
     private var routes: [String: Route] = [:]
     private var _requested: [String] = []
     private var _conditional: [String] = []
+    private var _posted: [(path: String, body: String)] = []
     private var _failEverything = false
 
     func reset() {
         lock.lock(); defer { lock.unlock() }
-        routes = [:]; _requested = []; _conditional = []; _failEverything = false
+        routes = [:]; _requested = []; _conditional = []; _posted = []; _failEverything = false
     }
 
-    func set(_ path: String, body: String, etag: String? = nil) {
+    func set(_ path: String, body: String, etag: String? = nil,
+             status: Int = 200, contentType: String = "application/json") {
         lock.lock(); defer { lock.unlock() }
-        routes[path] = Route(body: body, etag: etag, notModified: false)
+        routes[path] = Route(body: body, etag: etag, notModified: false, status: status, contentType: contentType)
     }
 
     func setNotModified(_ path: String) {
@@ -293,17 +295,28 @@ final class StubRegistry: @unchecked Sendable {
     var requested: [String] { lock.lock(); defer { lock.unlock() }; return _requested }
     var conditionalRequests: [String] { lock.lock(); defer { lock.unlock() }; return _conditional }
 
+    /// 해당 경로로 올라간 요청 본문들(텔레메트리 업로드 검증용).
+    func postedBodies(_ path: String) -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        return _posted.filter { $0.path == path }.map(\.body)
+    }
+    func requestCount(_ path: String) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return _requested.filter { $0 == path }.count
+    }
+
     /// 요청 기록 + 응답 결정. nil이면 네트워크 실패로 취급한다.
-    fileprivate func handle(path: String, ifNoneMatch: String?) -> (status: Int, body: Data, headers: [String: String])? {
+    fileprivate func handle(path: String, ifNoneMatch: String?, body: Data?) -> (status: Int, body: Data, headers: [String: String])? {
         lock.lock(); defer { lock.unlock() }
         _requested.append(path)
         if let ifNoneMatch { _conditional.append(ifNoneMatch) }
+        if let body, !body.isEmpty { _posted.append((path, String(decoding: body, as: UTF8.self))) }
         if _failEverything { return nil }
         guard let route = routes[path] else { return (404, Data(), [:]) }
         if route.notModified { return (304, Data(), [:]) }
-        var headers = ["content-type": "application/json"]
+        var headers = ["content-type": route.contentType]
         if let etag = route.etag { headers["etag"] = etag }
-        return (200, Data(route.body.utf8), headers)
+        return (route.status, Data(route.body.utf8), headers)
     }
 }
 
@@ -316,7 +329,8 @@ final class StubURLProtocol: URLProtocol {
     override func startLoading() {
         let path = request.url?.path ?? ""
         let outcome = StubURLProtocol.registry.handle(path: path,
-                                                      ifNoneMatch: request.value(forHTTPHeaderField: "if-none-match"))
+                                                      ifNoneMatch: request.value(forHTTPHeaderField: "if-none-match"),
+                                                      body: StubURLProtocol.requestBody(request))
         guard let outcome else {
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
             return
@@ -329,4 +343,20 @@ final class StubURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+
+    /// URLSession은 POST 본문을 `httpBody`가 아니라 스트림으로 넘긴다 — 둘 다 읽어야 업로드를 검증할 수 있다.
+    static func requestBody(_ request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            if read <= 0 { break }
+            data.append(contentsOf: buffer[0..<read])
+        }
+        return data
+    }
 }

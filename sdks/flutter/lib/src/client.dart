@@ -75,6 +75,16 @@ class RynL10nClient {
     return s;
   }
 
+  /// 전송에 실패한 배치를 되돌린다(`TelemetryReporter` 전용, 9.3).
+  /// 드레인 이후 새로 쌓인 카운트에 **더한다** — 실패 구간이 사라지면 카나리 판정(8.4)이
+  /// 실제보다 건강해 보인다.
+  void mergeTelemetry(TelemetryCounts counts) {
+    _tel.overlayApplied += counts.overlayApplied;
+    _tel.formatGuardRejected += counts.formatGuardRejected;
+    _tel.keyUnresolved += counts.keyUnresolved;
+    _tel.deltaFailed += counts.deltaFailed;
+  }
+
   bool refresh(Manifest manifest) {
     final selection = selectRelease(manifest.releases, context);
     _selection = selection;

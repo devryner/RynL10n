@@ -22,6 +22,7 @@ import { RynL10nClient, type DeliveryStore, type TelemetryCounts } from "../../.
 import { selectRelease, type ClientContext } from "../../../src/core/matching.ts";
 import type { Manifest, Snapshot, Delta } from "../../../src/core/types.ts";
 import { defaultCache, type PersistentCache } from "./cache.ts";
+import { TelemetryReporter } from "./telemetry.ts";
 
 const MANIFEST_KEY = "manifest";
 const ETAG_KEY = "manifest.etag";
@@ -143,6 +144,13 @@ export interface WebConfig {
   readonly pollIntervalMs?: number;
   /** 실시간 푸시(옵트인) 알림 채널 base URL(관리/알림 플레인). 없으면 폴링만. */
   readonly pushEndpoint?: string;
+  /**
+   * 익명 집계 텔레메트리(9.3) 업로드 대상 = 관리 플레인 루트. 없으면 **아무것도 전송하지 않는다**.
+   * 수집 자체도 `telemetry: "aggregate"`일 때만 일어난다(둘 다 옵트인).
+   */
+  readonly telemetryEndpoint?: string;
+  /** 텔레메트리 전송 주기(기본 5분). */
+  readonly telemetryIntervalMs?: number;
   /** 테스트/커스텀용 fetch 주입(기본 전역 fetch). */
   readonly fetchImpl?: typeof fetch;
   /**
@@ -282,13 +290,18 @@ export class HttpRynL10n {
     return isManifestShape(decoded) ? decoded : undefined;
   }
 
-  /** 포그라운드/주기 폴링 시작. */
+  /** 포그라운드/주기 폴링 시작. `telemetryEndpoint`를 준 경우 텔레메트리 주기 전송도 함께 시작한다. */
   start(): void {
     const iv = this.cfg.pollIntervalMs ?? 60_000;
     void this.refresh();
     this.timer = setInterval(() => void this.refresh(), iv);
+    this.startTelemetry();
   }
-  stop(): void { if (this.timer) clearInterval(this.timer); this.disconnectServerPush(); }
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.disconnectServerPush();
+    this.stopTelemetry();
+  }
 
   /** 캐시 비우기(로그아웃·프로젝트 전환 등). 번들 fallback은 그대로라 번역 공백은 생기지 않는다. */
   clearCache(): void {
@@ -329,4 +342,36 @@ export class HttpRynL10n {
     } catch { /* abort/네트워크 종료 → 폴링으로 폴백 */ }
   }
   disconnectServerPush(): void { this.pushAbort?.abort(); this.pushAbort = undefined; }
+
+  // ── 익명 집계 텔레메트리(9.3, 옵트인) ─────────────────────────────────────────
+
+  private reporter: TelemetryReporter | undefined;
+
+  private ensureReporter(): TelemetryReporter | undefined {
+    if (this.cfg.telemetryEndpoint === undefined) return undefined;
+    this.reporter ??= new TelemetryReporter({
+      endpoint: this.cfg.telemetryEndpoint,
+      projectKey: this.cfg.projectKey,
+      ...(this.cfg.context.appVersion !== undefined ? { appVersion: this.cfg.context.appVersion } : {}),
+      ...(this.cfg.fetchImpl !== undefined ? { fetchImpl: this.cfg.fetchImpl } : {}),
+      ...(this.cfg.telemetryIntervalMs !== undefined ? { intervalMs: this.cfg.telemetryIntervalMs } : {}),
+    });
+    return this.reporter;
+  }
+
+  /**
+   * 누적 카운트를 한 번 전송한다(실패하면 되돌려 다음 기회에 다시 시도).
+   * 탭 종료 직전(`visibilitychange` → `hidden`)처럼 확실히 올리고 싶은 시점에 직접 부른다.
+   * @returns 서버가 수용했거나 보낼 것이 없으면 true. `telemetryEndpoint`가 없으면 전송 없이 true.
+   */
+  async flushTelemetry(): Promise<boolean> {
+    const reporter = this.ensureReporter();
+    if (!reporter) return true;
+    return reporter.flush(this.client);
+  }
+
+  /** 텔레메트리 주기 전송 시작(`start()`가 자동으로 부른다). 엔드포인트가 없으면 아무 일도 없다. */
+  startTelemetry(): void { this.ensureReporter()?.start(this.client); }
+  /** 주기 전송 중단. 남은 카운트는 다음 `flushTelemetry`에서 함께 나간다. */
+  stopTelemetry(): void { this.reporter?.stop(); }
 }

@@ -72,6 +72,16 @@ public final class RynL10nClient: @unchecked Sendable {
         lock.lock(); defer { tel = TelemetryCounts(); lock.unlock() }
         return tel
     }
+    /// 전송에 실패한 배치를 되돌린다(`TelemetryReporter` 전용, 9.3).
+    /// 드레인 이후 새로 쌓인 카운트에 **더한다** — 실패 구간의 거부율이 사라지면 카나리 판정(8.4)이
+    /// 실제보다 건강해 보인다.
+    public func mergeTelemetry(_ counts: TelemetryCounts) {
+        lock.lock(); defer { lock.unlock() }
+        tel.overlayApplied += counts.overlayApplied
+        tel.formatGuardRejected += counts.formatGuardRejected
+        tel.keyUnresolved += counts.keyUnresolved
+        tel.deltaFailed += counts.deltaFailed
+    }
 
     @discardableResult
     public func onCatalogUpdated(_ listener: @escaping (UpdateInfo) -> Void) -> Int {

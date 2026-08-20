@@ -10,6 +10,8 @@ import 'dart:io';
 
 import 'baked.dart';
 import 'delivery.dart';
+import 'push.dart';
+import 'telemetry.dart';
 import 'types.dart';
 
 /// `HttpClient` 기반 [DeliveryFetch]. 재검증은 ETag로 직접 하므로 HTTP 캐시는 쓰지 않는다.
@@ -132,4 +134,46 @@ BakedLockfile? loadBakedLockfile(Directory directory) {
     if (file.existsSync()) return parseBakedLockfile(file.readAsStringSync());
   }
   return null;
+}
+
+/// `HttpClient` 기반 [PushConnect] — 실시간 푸시 신호(SSE) 연결.
+///
+/// 스트림이 끝나면(정상 종료·끊김·[ServerPushChannel.stop]) 내부 클라이언트를 닫는다.
+/// 무음 상한을 두지 않는다 — 끊긴 연결의 탐지는 [ServerPushChannel]의 재연결 백오프가 맡고,
+/// 그 사이 갱신은 폴링이 덮는다.
+PushConnect ioPushConnect({Duration connectTimeout = const Duration(seconds: 10)}) {
+  return (String url) async {
+    final client = HttpClient()..connectionTimeout = connectTimeout;
+    final request = await client.getUrl(Uri.parse(url));
+    request.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
+    final response = await request.close();
+
+    Stream<String> body() async* {
+      try {
+        yield* response.transform(utf8.decoder);
+      } finally {
+        client.close(force: true);
+      }
+    }
+
+    return PushResponse(response.statusCode, body());
+  };
+}
+
+/// `HttpClient` 기반 [TelemetryPost] — 익명 집계 업로드(9.3).
+/// **관리 플레인으로 가는 유일한 쓰기 경로**이고, 실패해도 화면의 번역은 영향을 받지 않는다.
+TelemetryPost ioTelemetryPost({Duration timeout = const Duration(seconds: 15)}) {
+  return (String url, String body) async {
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(Uri.parse(url));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.write(body);
+      final response = await request.close().timeout(timeout);
+      await response.drain<void>();
+      return response.statusCode;
+    } finally {
+      client.close(force: true);
+    }
+  };
 }
