@@ -5,12 +5,22 @@ Web(JS/TS) SDK. **프레임워크 무관 코어 + fetch/ETag 폴링 + 영속 캐
 
 ## 설치
 
-> **아직 npm에 게시되지 않았다**(6.5 · 게시는 4개 SDK lockstep `0.1.0`). `package.json`이
-> `"private": true`라 지금은 `npm publish` 자체가 막혀 있다. 지금 붙이려면 저장소를 클론해
-> 소스를 직접 참조한다 — 번들러 alias나 `file:` 의존으로 바로 가리킬 수 있다.
->
-> 게시 후에도 **받는 것은 트랜스파일 산출물이 아니라 ES 모듈 소스 그대로**다(6.5 확정) —
-> 소비자 측에 번들러가 있다는 전제이고, "빌드 스텝 0·의존성 0"(9.1)이 배포에도 그대로 이어진다.
+```bash
+npm install @rynl10n/web
+```
+
+> **아직 레지스트리에 올라가 있지 않다**(npm org `@rynl10n` 확보가 선행 · 게시는 4개 SDK lockstep
+> `0.1.0`). 지금 붙이려면 저장소를 클론해 `"@rynl10n/web": "file:…/sdks/web"`으로 가리킨다 —
+> `prepack`이 게시 빌드를 돌리므로 `npm pack`한 tarball을 설치해도 동일하다.
+
+받는 것은 **컴파일된 `.js` + `.d.ts`**다. 저장소 개발은 여전히 빌드 스텝이 0이지만(Node 네이티브
+타입 스트리핑으로 `.ts`를 그대로 실행) **게시본은 트랜스파일해야 한다** — Node는 `node_modules`
+안의 `.ts`에 대해 타입 스트리핑을 정책적으로 거부하기 때문이다
+(`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`). 소스를 그대로 올리면 번들러 소비자만 쓸 수 있고
+SSR·스크립트·테스트에서는 하드 에러가 난다. 빌드는 `prepack`에서 자동으로 돈다(`npm run build:publish`).
+
+브라우저·Node·번들러 모두에서 동작한다 — 런타임 경로에 Node 내장 모듈 의존이 없다(카나리 버킷
+해시는 의존성 0 순수 TS SHA-256을 쓴다).
 
 ```jsonc
 // 앱 package.json

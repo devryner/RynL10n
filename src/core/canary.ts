@@ -11,12 +11,15 @@
  * ⚠️ 프라이버시 법무 확인 전 안전 기본값 = **카나리 비활성(rollout 100 고정)**.
  * 버킷팅 코드는 있되 실제 활성화(rollout<100)는 법무 승인 후.
  */
-import { createHash } from "node:crypto";
+// 브라우저에서도 도는 순수 구현을 쓴다 — Web SDK가 이 모듈을 그대로 재사용하므로
+// `node:crypto`를 import하면 rollout 100이어도 모듈 로드 시점에 깨진다(sha256.ts 주석 참조).
+import { sha256Utf8 } from "./sha256.ts";
 
 /** installId+releaseId의 결정적 버킷 0..99. */
 export function bucketOf(installId: string, releaseId: string): number {
-  const digest = createHash("sha256").update(`${installId}:${releaseId}`).digest();
-  return digest.readUInt32BE(0) % 100;
+  const digest = sha256Utf8(`${installId}:${releaseId}`);
+  const first32 = new DataView(digest.buffer, digest.byteOffset, digest.byteLength).getUint32(0);
+  return first32 % 100;
 }
 
 /**

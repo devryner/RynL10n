@@ -32,3 +32,6 @@ CLAUDE.md
 
 # Android 로컬 SDK 경로(환경마다 다름 — ANDROID_HOME으로도 해결됨)
 local.properties
+
+# Web SDK 게시 산출물(prepack에서 생성) — 저장소 개발은 .ts를 그대로 실행한다
+sdks/web/dist/

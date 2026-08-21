@@ -5,7 +5,7 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 382개 전부 통과(TS 참조 68 · 백엔드 126 · Web 33 · iOS 49 · Android 53 · Flutter 53 —
+테스트 386개 전부 통과(TS 참조 72 · 백엔드 126 · Web 33 · iOS 49 · Android 53 · Flutter 53 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
 iOS는 실제 백엔드 대상 왕복 확인).
