@@ -11,12 +11,16 @@ iOS(Swift/SPM)·Android(Kotlin/JVM)·**Web(TS)**·**Flutter(Dart)** 플랫폼 SD
 
 | SDK | 채널 / 좌표 | 지금 붙이는 법 |
 | --- | --- | --- |
-| iOS | SwiftPM (git 태그) | `.package(path: "…/sdks/ios")` — `examples/ios-consumer`가 이 방식 |
+| iOS | SwiftPM — **미러 저장소 `rynl10n-swift` 선행**(아래) | `.package(path: "…/sdks/ios")` — `examples/ios-consumer`가 이 방식 |
 | Android | Maven Central `com.devryner.rynl10n:android` | `./gradlew :library:publishToMavenLocal` + `mavenLocal()` |
-| Web | npm `@rynl10n/web` | `"@rynl10n/web": "file:…/sdks/web"` |
+| Web | npm `@rynl10n/web` (ES 모듈 **소스** 배포) | `"@rynl10n/web": "file:…/sdks/web"` |
 | Flutter | pub.dev `rynl10n` | `dependencies: rynl10n: { path: …/sdks/flutter }` |
 
-게시까지 남은 절차는 `HANDOVER.md`의 "SDK 배포 채널" 절.
+**iOS는 태그만으로 되지 않는다**: SPM은 저장소 루트의 `Package.swift`만 패키지로 인식하는데 이 모노레포는
+`sdks/ios/Package.swift`라, 지금 형태 그대로는 배포 경로가 존재하지 않는다. 기획서 6.5가 확정한 해법은
+`sdks/ios/`를 subtree push하는 **미러 저장소 `rynl10n-swift`**(모노레포의 4개 SDK 대칭을 지키기 위해).
+
+게시까지 남은 절차·레지스트리 게이트·릴리스 CI는 `HANDOVER.md`의 "SDK 배포 채널" 절.
 
 ## 정합성 전략 — 골든 벡터
 

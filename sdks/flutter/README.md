@@ -6,7 +6,8 @@ Flutter/Dart SDK. 순수 Dart 코어라 `dart test`로 검증 가능(Flutter 위
 ## 설치
 
 > **아직 pub.dev에 게시되지 않았다**(6.5 · 게시는 4개 SDK lockstep `0.1.0`). `pubspec.yaml`이
-> `publish_to: none`이라 지금은 게시 자체가 막혀 있다. 지금 붙이려면 경로 의존으로 참조한다.
+> `publish_to: none`이라 지금은 게시 자체가 막혀 있고, 해제 전에 pub.dev 점수 요건인
+> **`example/` 디렉토리와 공개 API dartdoc**이 선행돼야 한다. 지금 붙이려면 경로 의존으로 참조한다.
 
 ```yaml
 # 앱 pubspec.yaml
