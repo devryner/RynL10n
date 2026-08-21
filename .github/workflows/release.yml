@@ -1,0 +1,209 @@
+####################################################################################################
+# Release — 기획서 6.5 "릴리스 CI"
+#
+# 태그 하나(`v0.1.0`)에서 4개 채널을 동시 퍼블리시한다. 4개 SDK는 **lockstep**이라 버전 번호가 곧
+# "어느 조합이 정합인가"의 답이고, 부분 성공은 그 계약을 깬다.
+#
+# **되돌리는 롤백은 없다.** npm·pub.dev·Maven Central 모두 게시 후 사실상 불변이고, SPM은 태그가 곧
+# 버전이라 삭제·재작성이 소비자의 `Package.resolved`를 조용히 깨뜨린다. 그래서 이 워크플로의 구조는
+# 하나뿐이다 — **검증은 전부 앞에, 게시는 전부 뒤에.** gate와 lockstep이 끝나기 전에는 어떤 잡도
+# 레지스트리에 손대지 않는다.
+#
+# ── 필요한 시크릿 ──────────────────────────────────────────────────────────────────────────────
+#   NPM_TOKEN                 npm 게시 토큰(@rynl10n org)
+#   MAVEN_CENTRAL_URL         업로드 대상(레거시 OSSRH / Central Portal에 따라 다름 → 저장소에 박지 않는다)
+#   MAVEN_CENTRAL_USERNAME    Sonatype 계정
+#   MAVEN_CENTRAL_PASSWORD
+#   SIGNING_KEY               GPG 개인키(ASCII armored). 파일이 아니라 메모리로 넘긴다
+#   SIGNING_PASSWORD
+#   MIRROR_DEPLOY_KEY         rynl10n-swift 미러 저장소 쓰기용 SSH 개인키
+# pub.dev는 시크릿이 없다 — GitHub OIDC로 인증한다(pub.dev 패키지 설정에서 이 저장소를 허용해야 함).
+####################################################################################################
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "게시하지 않고 각 채널의 dry-run까지만 수행"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 게이트 ───────────────────────────────────────────────────────────────────────────────────
+  # 일상 CI와 **같은 워크플로**를 호출한다. 게이트를 따로 쓰면 둘이 갈라져 "테스트는 통과했는데
+  # 릴리스가 깨진다"가 생긴다. 5개 컴포넌트 테스트 + 골든 벡터 결정성이 여기서 끝난다.
+  gate:
+    uses: ./.github/workflows/ci.yml
+
+  lockstep:
+    name: lockstep 버전 검사
+    runs-on: ubuntu-latest
+    needs: gate
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 버전 결정 (태그 → 릴리스 · 수동 실행 → dry-run)
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            version="${GITHUB_REF_NAME#v}"
+            dry_run=false
+          else
+            # 수동 실행에는 태그가 없다. 매니페스트 값을 읽어 검사만 하고, 게시는 입력값을 따른다.
+            version="$(node -p "require('./sdks/web/package.json').version")"
+            dry_run="${{ inputs.dry_run }}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$dry_run" >> "$GITHUB_OUTPUT"
+          echo "릴리스 버전: $version (dry-run: $dry_run)"
+
+      # 네 매니페스트가 한 값을 가리키는지 본다. 여기서 걸러야 "npm은 0.1.0인데 pub.dev는 0.0.9"
+      # 같은 상태가 영구히 남는 사고를 막는다 — 게시 후에는 되돌릴 수 없다.
+      - name: 4개 매니페스트가 같은 버전인가
+        run: |
+          expected="${{ steps.resolve.outputs.version }}"
+          web="$(node -p "require('./sdks/web/package.json').version")"
+          flutter="$(sed -n 's/^version: *//p' sdks/flutter/pubspec.yaml | head -1 | tr -d '\r')"
+          android="$(sed -n 's/.*rynl10nVersion = "\([^"]*\)".*/\1/p' sdks/android/library/build.gradle.kts | head -1)"
+
+          fail=0
+          for pair in "web:$web" "flutter:$flutter" "android:$android"; do
+            name="${pair%%:*}"; value="${pair#*:}"
+            if [ "$value" != "$expected" ]; then
+              echo "::error::$name 버전이 $value 입니다(기대: $expected). lockstep이 깨졌습니다."
+              fail=1
+            fi
+          done
+          # iOS는 매니페스트에 버전이 없다 — SPM은 git 태그가 곧 버전이라 태그 자체가 값이다.
+          [ "$fail" = "0" ] && echo "lockstep OK — web·flutter·android 모두 $expected (iOS는 태그 $expected)"
+          exit "$fail"
+
+  # ── 게시 (게이트 통과 후에만) ────────────────────────────────────────────────────────────────
+  npm:
+    name: 게시 · npm (@rynl10n/web)
+    runs-on: ubuntu-latest
+    needs: [gate, lockstep]
+    permissions:
+      contents: read
+      id-token: write # provenance 서명
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install --no-audit --no-fund
+      # prepack이 게시 빌드(tsc → .js + .d.ts)를 돌린다. 소스를 그대로 올리면 Node 소비자가
+      # node_modules 안의 .ts를 실행하지 못한다(6.5 정정 사항).
+      - name: 게시
+        working-directory: sdks/web
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "${{ needs.lockstep.outputs.dry_run }}" = "true" ]; then
+            npm publish --dry-run --access public
+          else
+            npm publish --provenance --access public
+          fi
+
+  pub:
+    name: 게시 · pub.dev (rynl10n)
+    runs-on: ubuntu-latest
+    needs: [gate, lockstep]
+    permissions:
+      contents: read
+      id-token: write # pub.dev는 시크릿 없이 OIDC로 인증한다
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: "3.5"
+      - run: dart pub get
+        working-directory: sdks/flutter
+      - name: 게시
+        working-directory: sdks/flutter
+        run: |
+          if [ "${{ needs.lockstep.outputs.dry_run }}" = "true" ]; then
+            dart pub publish --dry-run
+          else
+            dart pub publish --force
+          fi
+
+  maven:
+    name: 게시 · Maven Central (com.devryner.rynl10n:android)
+    runs-on: ubuntu-latest
+    needs: [gate, lockstep]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      # 서명·업로드 설정은 환경변수가 있을 때만 켜진다(library/build.gradle.kts).
+      # dry-run에서는 URL을 주지 않아 로컬 저장소까지만 간다.
+      - name: 게시
+        working-directory: sdks/android
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          if [ "${{ needs.lockstep.outputs.dry_run }}" = "true" ]; then
+            ./gradlew :library:publishToMavenLocal
+          else
+            MAVEN_CENTRAL_URL="${{ secrets.MAVEN_CENTRAL_URL }}" \
+              ./gradlew :library:publishReleasePublicationToMavenCentralRepository
+          fi
+
+  swift-mirror:
+    name: 게시 · SPM 미러 (rynl10n-swift)
+    runs-on: ubuntu-latest
+    needs: [gate, lockstep]
+    steps:
+      # subtree split은 대상 경로의 전체 이력을 읽으므로 얕은 클론이면 안 된다.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # SPM은 저장소 루트의 Package.swift만 패키지로 인식한다. 이 모노레포는 sdks/ios/Package.swift라
+      # 외부 앱이 .package(url:)로 당길 수 없어, sdks/ios/를 루트로 끌어올린 미러가 배포 경로다(6.5).
+      - name: sdks/ios → 미러 저장소 push
+        env:
+          DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
+          VERSION: ${{ needs.lockstep.outputs.version }}
+          DRY_RUN: ${{ needs.lockstep.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          branch="$(git subtree split --prefix=sdks/ios HEAD)"
+          echo "subtree split → $branch"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            git ls-tree --name-only "$branch" | sed 's/^/  /'
+            echo "dry-run: 미러 push와 태그 v$VERSION 생성을 건너뜁니다."
+            # 루트에 Package.swift가 올라왔는지는 dry-run에서도 확인한다 — 이게 미러의 존재 이유다.
+            git ls-tree --name-only "$branch" | grep -qx "Package.swift" \
+              || { echo "::error::미러 루트에 Package.swift가 없습니다 — SPM이 패키지로 인식하지 못합니다."; exit 1; }
+            exit 0
+          fi
+
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+          git push "git@github.com:devryner/rynl10n-swift.git" "$branch:refs/heads/main" --force
+          # 태그는 미러에도 lockstep 버전 그대로 단다. **삭제·재작성 금지**(6.5) —
+          # 소비자의 Package.resolved가 커밋 해시를 고정하고 있어 조용히 깨진다.
+          git tag "v$VERSION" "$branch"
+          git push "git@github.com:devryner/rynl10n-swift.git" "v$VERSION"
