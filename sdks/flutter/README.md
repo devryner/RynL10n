@@ -24,13 +24,20 @@ import 'package:rynl10n/rynl10n.dart';
 final client = RynL10nClient(
   bundle: Snapshot.fromJson(jsonDecode(bakedSnapshotJson)), // 빌드타임 bake된 fallback
   store: myDeliveryStore,                                   // 배포 플레인(정적) 접근 — 아래 "앱 적용 경로"
-  context: ClientContext(appVersion: '3.2.1'),             // 또는 releaseLabel / buildNumber
+  context: ClientContext(appVersion: '3.2.1'),             // 어느 릴리스를 받을지(4.3)
+  locale: Localizations.localeOf(context).toLanguageTag(), // 그 안에서 어느 언어를 읽을지(3.1)
   installId: localInstallId,                                // 카나리용(옵션)
 );
 client.refresh(manifest);
 final s = client.t('cart.title', locale: 'ja');            // 동기 — 항상 번들 fallback
 ```
 
+- **로케일 축은 매칭 축과 별개다**: `context`는 어느 릴리스를 받을지(4.3), `locale`은 그 안에서 어느
+  언어를 읽을지(3.1). `t()`에 로케일을 주면 그것이, 없으면 `locale`이, 그것도 없으면 번들 기본
+  로케일이 쓰이며 어느 쪽이든 fallback 체인을 탄다. **코어는 플랫폼 API를 모르므로 기기 언어는 앱이
+  넘긴다** — Flutter는 `Localizations.localeOf(context).toLanguageTag()`(위젯 밖이면
+  `PlatformDispatcher.instance.locale`), 순수 Dart는 `rynl10n_io.dart`의 `ioDeviceLocale()`
+  (`Platform.localeName`의 POSIX 형식 `ko_KR.UTF-8`을 BCP 47 `ko-KR`로 정규화해 준다).
 - 갱신 이벤트: `client.onCatalogUpdated((info) => ...)`. Flutter는 이를 `ValueNotifier<int>`로 감싸
   `ValueListenableBuilder`로 리빌드(어댑터는 위젯 레이어, 이 패키지는 위젯 의존성 없음).
 - NFC 정규화는 `package:unorm_dart`, SHA-256은 `package:crypto` — JCS 결정성이 타 플랫폼과 일치.

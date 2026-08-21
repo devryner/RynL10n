@@ -109,6 +109,15 @@ class App : Application() {
 `appVersion`은 기본적으로 `PackageInfo.versionName`, `buildNumber`는 `longVersionCode`를 쓴다.
 릴리스 매칭을 다른 값으로 하려면 인자로 넘긴다.
 
+조회 로케일은 `locale` 인자이며 기본값은 **앱에 적용된 기기 언어**(`RynL10n.deviceLocale(context)` —
+`Locale.getDefault()`가 아니라 리소스 설정의 로케일 목록을 먼저 보므로 Android 13+ 앱별 언어 설정이
+그대로 반영된다). 앱이 자체 언어 설정 화면을 갖고 있다면 그 값을 넘긴다.
+
+> **릴리스 매칭 축과 헷갈리지 말 것.** `appVersion`·`buildNumber`·`releaseLabel`은 **어느 릴리스를
+> 받을지**를 정하고(4.3), `locale`은 **그 릴리스 안에서 어느 언어를 읽을지**를 정한다. 서로 다른
+> 축이라 하나가 다른 하나를 대신할 수 없다. 코어(`RynL10nClient`)는 기기 언어를 직접 읽지 않는다 —
+> 같은 입력이 어느 기계에서나 같은 결과를 내야 골든 벡터 계약이 성립하고, 주입은 이 바인딩 층의 일이다.
+
 번들이 없으면 `BakedBundle.BakedException`이 나면서 무엇을 확인해야 하는지 알려준다.
 `endpoint`를 생략하면 번들 전용으로 동작한다(에어갭 빌드).
 

@@ -154,7 +154,8 @@ enum L10n {
         return RynL10nClient(
             bundle: bundled,
             store: remote,
-            context: .init(appVersion: version)
+            context: .init(appVersion: version),       // 어느 릴리스를 받을지(4.3)
+            locale: RynL10nClient.deviceLocale()       // 그 안에서 어느 언어를 읽을지(3.1)
         )
     }()
 
@@ -178,6 +179,19 @@ Text(L10n.client.t("home.title", locale: "ja"))               // 로케일 강�
 
 `t`는 **동기**다. 항상 번들 fallback이 있으므로 블로킹 네트워크가 없다.
 미해결 키는 `⟪key⟫`로 표면화된다(조용한 빈 문자열 금지).
+
+**로케일은 두 갈래로 정해진다.** 호출에 `locale:`을 주면 그것, 없으면 `init(locale:)`에 넘긴 값,
+그것도 없으면 번들의 기본 로케일(5.1)이다. 어느 쪽이든 fallback 체인(3.1)을 탄다 —
+`ko-KR`을 줬는데 번들에 `ko`만 있으면 `ko`로, 그것도 없으면 기본 로케일로 내려간다.
+
+> **릴리스 매칭 축과 헷갈리지 말 것.** `context`의 `appVersion`·`buildNumber`·`releaseLabel`은
+> **어느 릴리스를 받을지**를 정하고(4.3), `locale`은 **그 릴리스 안에서 어느 언어를 읽을지**를 정한다.
+> 서로 다른 축이라 하나가 다른 하나를 대신할 수 없다.
+
+`RynL10nClient.deviceLocale()`은 `Locale.preferredLanguages.first`(이미 BCP 47)를 돌려준다.
+**코어가 이걸 자동으로 읽지는 않는다** — 같은 입력이 어느 기계에서나 같은 결과를 내야 골든 벡터
+계약과 CI 재현성이 성립하기 때문이고, 그래서 주입은 앱이 한 줄로 한다. 앱이 자체 언어 설정
+화면을 갖고 있다면 그 값을 대신 넘기면 된다.
 
 ### 4-c. 원격 갱신 — 언제 부르나
 
@@ -374,9 +388,9 @@ RYNL10N_ENDPOINT=http://localhost:8788 RYNL10N_PROJECT=myapp \
 ## 8. 검증 범위 (정직하게)
 
 - **검증됨**: SwiftPM 경로 전체(플러그인 bake → 번들 로드 → 실서버 대상 manifest·스냅샷·델타 수신 →
-  오버레이 적용). `swift test` **44개 통과**(2026-08-21 재실행) — Golden 8 · RemoteDelivery 12
-  (캐싱·ETag·오프라인 폴백) · PushTelemetry 10(폴링·SSE·집계 전송) · Scenario 4 · M4 4 ·
-  Convert 3 · Bake 2 · Observable 1.
+  오버레이 적용). `swift test` **49개 통과**(2026-08-21 재실행) — Golden 8 · RemoteDelivery 12
+  (캐싱·ETag·오프라인 폴백) · PushTelemetry 10(폴링·SSE·집계 전송) · Locale 5(로케일 축) ·
+  Scenario 4 · M4 4 · Convert 3 · Bake 2 · Observable 1.
 - **미검증**: **패키지 게시.** 미러 저장소·태그가 아직 없어 원격 참조 경로 자체가 없다(2절 참조).
   로컬 경로 참조로는 전 구간 검증됨.
 - **미검증**: **Xcode 앱 타깃(`.xcodeproj`)에서의 실제 빌드.** 플러그인에 `XcodeBuildToolPlugin`

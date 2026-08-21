@@ -139,6 +139,13 @@ export interface WebConfig {
   /** 빌드타임 bake된 번들 스냅샷(항상 존재하는 fallback). `BakedBundle.parse`로 검증해 넘긴다. */
   readonly bundle: Snapshot;
   readonly context: ClientContext;
+  /**
+   * 조회 로케일(6.1). `t()`에 로케일을 넘기지 않았을 때 쓰인다. **`context`와는 다른 축이다** —
+   * `context`는 어느 릴리스를 받을지(4.3), 이 값은 그 안에서 어느 언어를 읽을지를 정한다.
+   *
+   * 미지정이면 [browserLocale]("ko-KR" 등), 브라우저가 아니면 번들의 기본 로케일.
+   */
+  readonly locale?: string;
   readonly installId?: string;
   readonly telemetry?: "off" | "aggregate";
   readonly pollIntervalMs?: number;
@@ -160,6 +167,22 @@ export interface WebConfig {
   readonly cache?: PersistentCache;
 }
 
+/**
+ * 브라우저의 현재 언어(BCP 47). 없으면 `undefined` → 코어가 번들 기본 로케일을 쓴다.
+ *
+ * `defaultCache`와 같은 이유로 **`window`를 먼저 본다** — Node에도 `navigator` 전역이 있어
+ * 그걸 집으면 SSR·테스트가 실행 기계의 로케일에 따라 다른 문자열을 내놓는다.
+ */
+export function browserLocale(): string | undefined {
+  try {
+    const win = (globalThis as { window?: { navigator?: { language?: string } } }).window;
+    const lang = win?.navigator?.language;
+    return lang !== undefined && lang !== "" ? lang : undefined;
+  } catch {
+    return undefined; // 접근 자체가 막힌 환경(샌드박스 iframe)
+  }
+}
+
 export type Unsubscribe = () => void;
 
 export class HttpRynL10n {
@@ -173,8 +196,11 @@ export class HttpRynL10n {
     this.cfg = cfg;
     this.cache = cfg.cache ?? defaultCache(cfg.projectKey);
     this.store = new CachedStore(this.cache);
+    // 기기 로케일 주입은 여기서 한다 — 코어는 환경을 읽지 않아야 어느 기계에서나 같은 결과가 나온다.
+    const locale = cfg.locale ?? browserLocale();
     this.client = new RynL10nClient({
       bundle: cfg.bundle, store: this.store, context: cfg.context,
+      ...(locale !== undefined ? { locale } : {}),
       ...(cfg.installId !== undefined ? { installId: cfg.installId } : {}),
       ...(cfg.telemetry !== undefined ? { telemetry: cfg.telemetry } : {}),
     });

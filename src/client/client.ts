@@ -38,6 +38,16 @@ export interface ClientConfig {
   readonly bundle: Snapshot;
   readonly store: DeliveryStore;
   readonly context: ClientContext;
+  /**
+   * 조회 로케일(6.1의 configure options). `t()`에 로케일을 넘기지 않았을 때 쓰인다.
+   * **버전 매칭 컨텍스트(`context`)와는 다른 축이다** — `context`는 어느 릴리스를 받을지(4.3),
+   * 이 값은 그 릴리스 안에서 어느 언어를 읽을지를 정한다.
+   *
+   * 미지정이면 번들의 기본 로케일(5.1 Project.defaultLocale). 코어는 환경을 읽지 않는다 —
+   * 기기 로케일은 플랫폼 진입점이 채워 넣는다(Web `HttpRynL10n` · Android `RynL10n.configure`).
+   * 그래야 같은 입력이 어느 기계에서나 같은 결과를 낸다(골든 벡터 계약).
+   */
+  readonly locale?: string;
   readonly resolveOptions?: ResolveOptions;
   /** 텔레메트리(9.3): 기본 off. 'aggregate'는 익명 카운트만 집계(값·키명·기기 식별자 없음). */
   readonly telemetry?: "off" | "aggregate";
@@ -149,7 +159,7 @@ export class RynL10nClient {
 
   /** 동기 조회 — 항상 번들 fallback이 있어 블로킹 네트워크 없음(6.1). */
   t(key: string, args?: Readonly<Record<string, unknown>>, locale?: string): string {
-    const loc = locale ?? this.config.context.releaseLabel ?? this.activeBundle.defaultLocale;
+    const loc = locale ?? this.config.locale ?? this.activeBundle.defaultLocale;
     const r = this.resolve(key, loc);
     if (r.guardFallback) this.bump("format_guard_rejected");
     if (r.value === undefined) { this.bump("key_unresolved"); return `⟪${key}⟫`; } // 개발 모드 미해결 표면화(3.1)

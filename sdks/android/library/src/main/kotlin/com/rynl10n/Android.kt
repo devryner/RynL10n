@@ -3,6 +3,7 @@ package com.rynl10n
 import android.content.Context
 import android.content.pm.PackageInfo
 import android.os.Build
+import java.util.Locale
 import java.util.UUID
 
 /**
@@ -98,10 +99,27 @@ object RynL10n {
      * @param appVersion 릴리스 매칭 기준(4.3). 기본값은 `PackageInfo.versionName` —
      *   여기가 릴리스의 `versionMatch` 범위 밖이면 원격 갱신이 조용히 무시된다(가장 흔한 함정).
      * @param buildNumber `integer-range` 전략용. 기본값은 `PackageInfo.longVersionCode`.
+     * @param locale 조회 로케일(6.1). [t]에 로케일을 넘기지 않았을 때 쓰인다. **릴리스 매칭 축과 다르다** —
+     *   [appVersion]·[buildNumber]·[releaseLabel]은 어느 릴리스를 받을지(4.3), 이 값은 그 안에서 어느
+     *   언어를 읽을지를 정한다. 기본값은 앱에 적용된 기기 언어([deviceLocale]).
      * @param enableCanary 카나리 버킷팅(8.4)에 참여할지. **기본은 false** — 8.4 프라이버시 검토가
      *   끝나기 전까지 안전 기본값을 유지한다(서버 rollout도 100 고정). true면 기기 로컬 익명
      *   installId(UUID v4)를 SharedPreferences에 만들어 쓴다. **서버로 전송되지 않는다.**
      */
+    /**
+     * 앱에 적용된 현재 언어(BCP 47). [configure]의 `locale` 기본값이다.
+     *
+     * `Locale.getDefault()`가 아니라 **리소스 설정의 로케일 목록**을 먼저 본다 — 그래야 앱별 언어
+     * 설정(Android 13+ per-app language)과 리소스 병합 결과가 그대로 반영된다. 목록이 비면
+     * JVM 기본값으로 물러난다.
+     */
+    @JvmStatic
+    fun deviceLocale(context: Context): String? {
+        val locales = context.resources.configuration.locales
+        val tag = if (!locales.isEmpty) locales[0].toLanguageTag() else Locale.getDefault().toLanguageTag()
+        return tag.takeIf { it.isNotEmpty() && it != "und" }
+    }
+
     @JvmStatic
     @JvmOverloads
     fun configure(
@@ -112,6 +130,7 @@ object RynL10n {
         appVersion: String? = null,
         buildNumber: Int? = null,
         releaseLabel: String? = null,
+        locale: String? = null,
         localeOverrides: Map<String, String> = emptyMap(),
         enableCanary: Boolean = false,
         telemetry: String = "off",
@@ -128,6 +147,8 @@ object RynL10n {
             bundle = bundle,
             store = store ?: InMemoryDeliveryStore(),
             context = clientContext,
+            // 기기 언어 주입은 이 바인딩 층의 일이다 — 코어는 환경을 읽지 않는다(결정성).
+            locale = locale ?: deviceLocale(app),
             localeOverrides = localeOverrides,
             installId = if (enableCanary) installId(app) else null,
             telemetry = telemetry,
