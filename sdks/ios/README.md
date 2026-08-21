@@ -392,7 +392,13 @@ RYNL10N_ENDPOINT=http://localhost:8788 RYNL10N_PROJECT=myapp \
   (캐싱·ETag·오프라인 폴백) · PushTelemetry 10(폴링·SSE·집계 전송) · Locale 5(로케일 축) ·
   Scenario 4 · M4 4 · Convert 3 · Bake 2 · Observable 1.
 - **미검증**: **패키지 게시.** 미러 저장소·태그가 아직 없어 원격 참조 경로 자체가 없다(2절 참조).
-  로컬 경로 참조로는 전 구간 검증됨.
+  로컬 경로 참조로는 전 구간 검증됨. 릴리스 CI(`.github/workflows/release.yml`)가
+  `git subtree split --prefix=sdks/ios`로 미러를 만들도록 작성돼 있고, split 결과 루트에
+  `Package.swift`가 오는 것까지는 확인했다.
+
+> **미러 저장소에서는 `swift test`가 돌지 않는다.** 골든 테스트가 저장소 루트의 `fixtures/golden`을
+> 위로 올라가며 찾는데 미러에는 그 디렉토리가 없다. 미러는 **배포용**이고 SPM은 의존 패키지의 테스트를
+> 빌드하지 않으므로 소비자에게는 영향이 없다 — 테스트는 모노레포에서 돈다.
 - **미검증**: **Xcode 앱 타깃(`.xcodeproj`)에서의 실제 빌드.** 플러그인에 `XcodeBuildToolPlugin`
   구현을 추가했고(Xcode 타깃은 이 프로토콜이 없으면 플러그인이 붙지 않는다) 3-b의 절차는 그에 맞춰
   썼지만, 이 저장소에 Xcode 프로젝트가 없어 실제 앱 빌드로는 확인하지 못했다. 위젯 렌더·리소스 병합도
