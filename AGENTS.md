@@ -230,5 +230,5 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
 - **카나리 실제 활성화(rollout<100)**: 8.4 프라이버시 법무 승인 대기. 코드 완비, **안전 기본값 rollout 100 고정**
   (rollout을 쓰는 API 라우트는 없다 — 값을 담을 수 있는 유일한 경로가 import의 백업 복원이고, 거기서 0~100 정수로 검증한다). 버킷 판정은 기기 로컬 익명 `installId`(UUID v4, 서버 미전송) 기반 `hash(installId + releaseId) mod 100 < rollout%`.
 - **실제 앱 통합**: Xcode 앱 타깃·AGP 앱 모듈에서의 위젯 렌더·리소스 병합(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는 앱 모듈.
-- **SDK 패키지 게시**: 채널·좌표는 확정이고 매니페스트도 준비됐으나(iOS=SwiftPM 태그 · Android=`com.devryner.rynl10n:android` · Web=`@rynl10n/web` · Flutter=`rynl10n`, 버전 lockstep `0.1.0`) **어느 레지스트리에도 미게시**다 — 태그 0개, `.github/` CI 없음. Web은 `"private": true`, Flutter는 `publish_to: none`으로 게시가 아예 막혀 있다. 지금 붙이는 길은 경로/`mavenLocal` 참조이고, 남은 절차는 `HANDOVER.md`의 "SDK 배포 채널" 절.
+- **SDK 패키지 게시(6.5)**: 채널·좌표는 확정이고 매니페스트도 준비됐으나(Android=`com.devryner.rynl10n:android` · Web=`@rynl10n/web` · Flutter=`rynl10n` · iOS=SwiftPM, 버전 lockstep `0.1.0`) **어느 레지스트리에도 미게시**다 — 태그 0개, `.github/` CI 없음. Web은 `"private": true`, Flutter는 `publish_to: none`으로 막혀 있고, **iOS는 경로 자체가 없다** — SPM이 저장소 루트의 `Package.swift`만 인식하므로 `sdks/ios/`를 subtree push하는 미러 저장소 `rynl10n-swift`가 선행 조건이다(태그를 달아도 안 됨). Web 게시본은 트랜스파일하지 않고 **ES 모듈 소스 그대로** 나간다. 지금 붙이는 길은 경로/`mavenLocal` 참조이고, 남은 절차는 `HANDOVER.md`의 "SDK 배포 채널" 절.
 - **프로덕션 토폴로지(M3+)**: Postgres·MinIO/S3·CDN·별도 빌더 워커·OIDC·Helm/K8s. 플레인 분리·API 계약·결정적 빌더는 그대로 유지.

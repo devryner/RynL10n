@@ -56,9 +56,11 @@ curl http://localhost:8788/myapp/manifest.json    # SDK가 읽는 경로 그대�
 
 ## 2. 패키지 추가
 
-> **아직 버전 태그가 발행되지 않았다**(6.5 · 게시는 4개 SDK lockstep `0.1.0`). SwiftPM은 git 태그로
-> 버전을 해석하므로 `from: "0.1.0"`은 아직 통하지 않는다. 지금 붙이는 길은 둘이다 —
-> **로컬 경로 참조**(검증된 경로, `examples/ios-consumer`가 이 방식) 또는 **브랜치 지정**.
+> **원격 참조 경로가 아직 존재하지 않는다**(6.5). SPM은 **저장소 루트의 `Package.swift`만** 패키지로
+> 인식하는데 이 저장소는 `sdks/ios/Package.swift`다 — 그래서 `.package(url:)`은 태그를 달아도 통하지
+> 않는다. 기획서가 확정한 해법은 `sdks/ios/`를 subtree push하는 **미러 저장소 `rynl10n-swift`**이며
+> 아직 만들어지지 않았다. 지금 붙이는 길은 **로컬 경로 참조** 하나다(검증된 경로 —
+> `examples/ios-consumer`가 이 방식).
 
 로컬 체크아웃을 참조(권장):
 
@@ -70,17 +72,19 @@ targets: [
 ```
 
 Xcode에서는 **File → Add Package Dependencies… → Add Local…** 로 `sdks/ios` 디렉토리를 고른 뒤
-`RynL10n` 라이브러리를 앱 타깃에 추가한다. 원격 저장소를 쓰려면 태그 대신 브랜치를 지정한다
-(`.package(url: "<저장소 URL>", branch: "main")`) — 재현성이 필요한 CI에서는 `revision:`으로 커밋을 고정할 것.
+`RynL10n` 라이브러리를 앱 타깃에 추가한다.
 
-태그 발행 후에는 아래가 정규 경로가 된다:
+미러 저장소가 서고 `v0.1.0` 태그가 붙으면 아래가 정규 경로가 된다:
 
 ```swift
-dependencies: [.package(url: "<저장소 URL>", from: "0.1.0")],
+dependencies: [.package(url: "https://github.com/devryner/rynl10n-swift", from: "0.1.0")],
 targets: [
-    .target(name: "App", dependencies: [.product(name: "RynL10n", package: "RynL10n")])
+    .target(name: "App", dependencies: [.product(name: "RynL10n", package: "rynl10n-swift")])
 ]
 ```
+
+> 태그는 **삭제·재작성하지 않는다**(6.5). SPM은 레지스트리 심사가 없고 git 태그가 곧 버전이라,
+> 앱의 `Package.resolved`가 커밋 해시를 고정하고 있어 조용히 깨진다.
 
 ---
 
@@ -373,7 +377,8 @@ RYNL10N_ENDPOINT=http://localhost:8788 RYNL10N_PROJECT=myapp \
   오버레이 적용). `swift test` **44개 통과**(2026-08-21 재실행) — Golden 8 · RemoteDelivery 12
   (캐싱·ETag·오프라인 폴백) · PushTelemetry 10(폴링·SSE·집계 전송) · Scenario 4 · M4 4 ·
   Convert 3 · Bake 2 · Observable 1.
-- **미검증**: **패키지 게시.** git 태그·SPM 릴리스가 아직 없다(2절 참조). 로컬 경로 참조로는 전 구간 검증됨.
+- **미검증**: **패키지 게시.** 미러 저장소·태그가 아직 없어 원격 참조 경로 자체가 없다(2절 참조).
+  로컬 경로 참조로는 전 구간 검증됨.
 - **미검증**: **Xcode 앱 타깃(`.xcodeproj`)에서의 실제 빌드.** 플러그인에 `XcodeBuildToolPlugin`
   구현을 추가했고(Xcode 타깃은 이 프로토콜이 없으면 플러그인이 붙지 않는다) 3-b의 절차는 그에 맞춰
   썼지만, 이 저장소에 Xcode 프로젝트가 없어 실제 앱 빌드로는 확인하지 못했다. 위젯 렌더·리소스 병합도
