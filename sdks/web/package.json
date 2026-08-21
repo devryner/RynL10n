@@ -1,10 +1,36 @@
 {
   "name": "@rynl10n/web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "RynL10n Web SDK (M4 α) — 프레임워크 무관 코어 + fetch/ETag 폴링 + React 어댑터",
+  "description": "앱 업데이트·심사 없이 번역을 배포하는 오픈소스 원격 로컬라이제이션 SDK (Web) — 빌드타임 번들 + 런타임 원격 오버레이 2계층",
   "license": "Apache-2.0",
+  "author": "ChoiChiwon",
+  "homepage": "https://github.com/devryner/RynL10n/blob/main/sdks/web/README.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devryner/RynL10n.git",
+    "directory": "sdks/web"
+  },
+  "bugs": "https://github.com/devryner/RynL10n/issues",
+  "keywords": [
+    "localization",
+    "i18n",
+    "internationalization",
+    "ota",
+    "translations"
+  ],
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --test \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"

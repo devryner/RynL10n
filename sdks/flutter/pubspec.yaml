@@ -1,7 +1,16 @@
 name: rynl10n
-description: RynL10n Flutter/Dart SDK (M4 alpha) — 2계층 resolve + 버전 격리 + 카나리
-version: 0.0.0
-publish_to: none
+description: >-
+  앱 업데이트·심사 없이 번역을 배포하는 오픈소스 원격 로컬라이제이션 SDK.
+  빌드타임에 구운 번들(fallback)과 런타임 원격 오버레이의 2계층으로 항상 완전한 번역을 보장한다.
+# lockstep — ios·android·web과 항상 동일한 버전으로 동시 릴리스한다(기획서 6.5).
+version: 0.1.0
+repository: https://github.com/devryner/RynL10n
+issue_tracker: https://github.com/devryner/RynL10n/issues
+documentation: https://github.com/devryner/RynL10n/blob/main/sdks/flutter/README.md
+topics:
+  - localization
+  - i18n
+  - internationalization
 
 environment:
   sdk: ^3.5.0
