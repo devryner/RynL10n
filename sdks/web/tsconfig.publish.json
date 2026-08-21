@@ -1,0 +1,37 @@
+{
+  // 게시 전용 빌드 — `npm publish`의 prepack에서만 돈다. 저장소 개발은 여전히 빌드 스텝 0이다
+  // (Node 네이티브 타입 스트리핑으로 `.ts`를 그대로 실행한다).
+  //
+  // **왜 게시본은 트랜스파일해야 하는가**: Node는 `node_modules` 안의 `.ts`에 대해 타입 스트리핑을
+  // 정책적으로 거부한다(ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING). 소스를 그대로 올리면
+  // 번들러 소비자만 쓸 수 있고 SSR·스크립트·테스트에서는 하드 에러다.
+  //
+  // 덤으로 자족성 문제도 함께 풀린다 — 웹 소스가 import하는 코어(`../../../src`)는 패키지 디렉토리
+  // 밖이라 npm `files`로는 담을 수 없는데, tsc는 도달 가능한 모든 모듈을 산출물에 함께 컴파일한다.
+  // 그래서 `dist/`에는 `sdks/web/src/`와 `src/`(코어)가 저장소와 같은 상대 구조로 들어간다.
+  // 진입점 경로가 깊어 보이지만 소비자는 `exports`를 통해서만 접근하므로 드러나지 않는다.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023", "dom"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+
+    // 소스는 `.ts` 확장자로 import한다(Node 네이티브 실행 전제). 산출물에서는 `.js`로 다시 써야 한다.
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    // 입력이 저장소 루트의 `src/`와 `sdks/web/src/` 두 트리에 걸쳐 있어 공통 조상이 루트다.
+    "rootDir": "../..",
+    "outDir": "dist",
+    "types": []
+  },
+  "include": ["src/index.ts"]
+}

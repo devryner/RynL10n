@@ -1,7 +1,6 @@
 {
   "name": "@rynl10n/web",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "앱 업데이트·심사 없이 번역을 배포하는 오픈소스 원격 로컬라이제이션 SDK (Web) — 빌드타임 번들 + 런타임 원격 오버레이 2계층",
   "license": "Apache-2.0",
@@ -21,18 +20,24 @@
     "translations"
   ],
   "engines": {
-    "node": ">=23.6.0"
+    "node": ">=20.0.0"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/sdks/web/src/index.d.ts",
+      "default": "./dist/sdks/web/src/index.js"
+    }
   },
   "files": [
-    "src",
+    "dist",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "test": "node --test \"test/*.test.ts\"",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
-  }
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build:publish": "tsc -p tsconfig.publish.json",
+    "prepack": "npm run build:publish"
+  },
+  "types": "./dist/sdks/web/src/index.d.ts"
 }
