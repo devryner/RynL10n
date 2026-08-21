@@ -1,5 +1,5 @@
 /** RynL10n Web SDK (M4 α) 공개 표면. */
-export { HttpRynL10n, DeliveryError, type WebConfig, type Unsubscribe } from "./http.ts";
+export { HttpRynL10n, DeliveryError, browserLocale, type WebConfig, type Unsubscribe } from "./http.ts";
 export { createStore, type L10nStore } from "./store.ts";
 // 앱 적용 경로 ③ 익명 집계 텔레메트리 업로드(9.3) — 옵트인. HttpRynL10n에 telemetryEndpoint를 주면 자동.
 export {

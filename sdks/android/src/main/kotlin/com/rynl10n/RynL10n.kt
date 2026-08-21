@@ -36,6 +36,15 @@ class RynL10nClient(
     private val bundle: Snapshot,
     private val store: DeliveryStore,
     private val context: Matching.ClientContext,
+    /**
+     * 조회 로케일(6.1). [t]에 로케일을 넘기지 않았을 때 쓰인다. **[context]와는 다른 축이다** —
+     * [context]는 어느 릴리스를 받을지(4.3), 이 값은 그 릴리스 안에서 어느 언어를 읽을지를 정한다.
+     *
+     * null이면 번들의 기본 로케일(5.1). 기기 언어는 Android 바인딩(`RynL10n.configure`)이
+     * 채워 넣는다 — 코어가 환경을 직접 읽으면 같은 입력이 기계마다 다른 결과를 내 골든 벡터
+     * 계약이 성립하지 않는다.
+     */
+    private val locale: String? = null,
     private val localeOverrides: Map<String, String> = emptyMap(),
     private val installId: String? = null,       // 카나리(8.4) — 서버 미전송
     private val telemetry: String = "off",        // off | aggregate
@@ -119,7 +128,7 @@ class RynL10nClient(
     /** 동기 조회(6.1). 미해결 키는 개발 모드 표면화. */
     fun t(key: String, args: Map<String, Any?> = emptyMap(), locale: String? = null): String {
         val (b, o) = lock.withLock { activeBundle to overlay }
-        val loc = locale ?: context.releaseLabel ?: b.defaultLocale
+        val loc = locale ?: this.locale ?: b.defaultLocale
         val r = Resolve.resolveValue(b, o, key, loc, localeOverrides)
         if (r.guardFallback) bump("format_guard_rejected")
         val value = r.value ?: run { bump("key_unresolved"); return "⟪$key⟫" }

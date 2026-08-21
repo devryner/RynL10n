@@ -27,7 +27,8 @@ const sdk = new HttpRynL10n({
   projectKey: "shop",
   endpoint: "https://cdn.example.com",   // 배포 플레인(정적) — 관리 API 아님
   bundle: BakedBundle.parse(raw),        // import 값 검증(아래 "번들 로더")
-  context: { appVersion: "3.2.1" },      // 또는 releaseLabel / buildNumber
+  context: { appVersion: "3.2.1" },      // 어느 릴리스를 받을지(4.3) — 또는 releaseLabel / buildNumber
+  // locale: "ko-KR",                    // 그 안에서 어느 언어를 읽을지(3.1). 기본값 = navigator.language
   installId: localStorage.getItem("rynl10n_iid") ?? undefined, // 카나리용(옵션)
 });
 sdk.start();                              // 포그라운드 폴링(ETag 조건부)
@@ -37,6 +38,11 @@ sdk.t("cart.title");                       // 동기 — 항상 번들 fallback
 
 - 갱신 = manifest 조건부 요청(If-None-Match) → 변경 시 필요한 델타/스냅샷만 프리페치 → 동기 코어 적용.
 - 플레인 분리 준수: 배포 플레인의 정적 파일만 읽는다.
+- **로케일 축은 매칭 축과 별개다**: `context`(appVersion·buildNumber·releaseLabel)는 어느 릴리스를
+  받을지, `locale`은 그 안에서 어느 언어를 읽을지. `t()`에 로케일을 주면 그것이, 없으면 `locale`이,
+  그것도 없으면 번들 기본 로케일이 쓰이고 어느 쪽이든 fallback 체인(3.1)을 탄다.
+  `locale` 기본값은 `browserLocale()`(= `window.navigator.language`)이며 SSR·Node에서는 `undefined`라
+  번들 기본 로케일로 내려간다 — 서버 렌더 결과가 실행 기계 로케일에 따라 흔들리지 않는다.
 
 ## 앱 적용 경로 (6.3 / 6.4)
 
@@ -150,5 +156,5 @@ export function useTranslation() {
 ## 테스트
 
 ```bash
-cd sdks/web && node --test "test/*.test.ts"   # 정적 서버 기동 → fetch/ETag/캐시/번들 로더/카나리/텔레메트리 (28 tests)
+cd sdks/web && node --test "test/*.test.ts"   # 정적 서버 기동 → fetch/ETag/캐시/번들 로더/카나리/텔레메트리/로케일 (33 tests)
 ```

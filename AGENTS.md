@@ -5,7 +5,7 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 359개 전부 통과(TS 참조 64 · 백엔드 126 · Web 28 · iOS 44 · Android 49 · Flutter 48 —
+테스트 382개 전부 통과(TS 참조 68 · 백엔드 126 · Web 33 · iOS 49 · Android 53 · Flutter 53 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
 iOS는 실제 백엔드 대상 왕복 확인).
@@ -135,6 +135,15 @@ CLI: `rynl10n-bake --descriptions <path|url> --emit-native` (읽기 실패 시 �
 ### SDK 표면 (기획서 6)
 
 - 최소 API: `RynL10n.configure(projectKey, endpoint, options)` / `t(key, args)`(동기 — 항상 번들 fallback이 있어 블로킹 네트워크 없음) / `onCatalogUpdated(listener)`. 반응형 바인딩: SwiftUI Combine / Android StateFlow / React 어댑터.
+- **로케일 축 ≠ 릴리스 매칭 축** (2026-08-21 분리, 다시 붙이지 말 것): `t()`의 조회 로케일은
+  **호출 인자 → 설정 `locale` → `bundle.defaultLocale`** 순이다. 전에는 그 가운데가
+  `context.releaseLabel`이었는데 그건 `exact-label` 릴리스 판정값(5.2)이지 로케일이 아니라,
+  exact-label 앱이 조용히 기본 로케일로 떨어지고 기기 언어를 반영할 방법도 없었다.
+  **코어는 기기 언어를 직접 읽지 않는다** — 읽으면 같은 입력이 기계마다 다른 결과를 내 골든 벡터
+  계약이 깨진다. 주입은 플랫폼 진입점 몫: Web `HttpRynL10n`(`browserLocale()`, `window`를 먼저 봄) ·
+  Android `RynL10n.configure`(`deviceLocale(context)`, 리소스 설정 로케일이라 앱별 언어 반영) ·
+  iOS `RynL10nClient.deviceLocale()`·Flutter `Localizations.localeOf`/`ioDeviceLocale()`은 앱이 한 줄로.
+  4개 SDK 모두 회귀 테스트가 있다.
 - **빌드타임 자동 번들링 플러그인**(차별점 ①): SPM build tool plugin(실증 완료, `examples/ios-consumer`) / Gradle task / Flutter build hook. 빌드마다 현재 릴리스 스냅샷을 fetch → 네이티브 포맷으로 bake → base 해시를 lockfile에 기록(결정성·CI 재현성). 서버 실패 시 마지막 캐시로 진행, 에어갭용 vendored 모드 지원.
 - 공통 코어(resolve·캐시·폴링)는 골든 벡터로 정합성을 보증하며 이식하되, 표면은 각 플랫폼 관용구에 맞춘다.
 - **iOS 앱 적용 경로(`sdks/ios/README.md`)**: 빌드 산출물 로드 `Snapshot.baked(in:)`(Xcode 앱=`.main`,

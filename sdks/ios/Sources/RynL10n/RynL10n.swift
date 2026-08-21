@@ -31,6 +31,7 @@ public final class RynL10nClient: @unchecked Sendable {
     private let bundle: Snapshot
     private let store: DeliveryStore
     private let context: Matching.ClientContext
+    private let locale: String?
     private let localeOverrides: [String: String]
     private let installId: String?      // 카나리(8.4) — 서버 미전송
     private let telemetryMode: String   // "off" | "aggregate"
@@ -43,11 +44,22 @@ public final class RynL10nClient: @unchecked Sendable {
     private var tel = TelemetryCounts()
     private let lock = NSLock()
 
+    /// - Parameter locale: 조회 로케일(6.1). `t(_:args:locale:)`에 로케일을 넘기지 않았을 때 쓰인다.
+    ///   **`context`와는 다른 축이다** — `context`는 어느 릴리스를 받을지(4.3), 이 값은 그 릴리스 안에서
+    ///   어느 언어를 읽을지를 정한다. 기기 언어를 따르려면 ``RynL10nClient/deviceLocale()``을 넘긴다:
+    ///   ```swift
+    ///   RynL10nClient(bundle: bundle, store: store, context: ctx,
+    ///                 locale: RynL10nClient.deviceLocale())
+    ///   ```
+    ///   `nil`이면 번들의 기본 로케일(5.1). 코어가 환경을 직접 읽지 않는 이유는 결정성이다 —
+    ///   같은 입력이 어느 기계에서나 같은 결과를 내야 골든 벡터 계약이 성립한다.
     public init(bundle: Snapshot, store: DeliveryStore, context: Matching.ClientContext,
+                locale: String? = nil,
                 localeOverrides: [String: String] = [:], installId: String? = nil, telemetry: String = "off") {
         self.bundle = bundle
         self.store = store
         self.context = context
+        self.locale = locale
         self.localeOverrides = localeOverrides
         self.installId = installId
         self.telemetryMode = telemetry
@@ -58,6 +70,14 @@ public final class RynL10nClient: @unchecked Sendable {
     /// 원격 갱신기(`RemoteDeliveryStore.update`)가 **받아야 할 산출물을 미리 고르기 위해** 읽는다 —
     /// 릴리스 선택 규칙이 클라이언트 안에만 있으면 갱신기가 불필요한 스냅샷까지 내려받게 된다.
     public var clientContext: Matching.ClientContext { context }
+
+    /// 기기의 현재 언어(BCP 47). 앱이 `init(locale:)`에 넘겨 쓰는 용도다.
+    ///
+    /// `Locale.preferredLanguages`는 사용자가 설정에서 정렬한 선호 언어 목록이고 이미 BCP 47이라
+    /// (`"ko-KR"`) fallback 체인(3.1)이 그대로 절단해 쓸 수 있다. 목록이 비면 `nil`.
+    public static func deviceLocale() -> String? {
+        Locale.preferredLanguages.first
+    }
 
     /// 배포 건전성 익명 집계 카운트(9.3).
     public struct TelemetryCounts: Sendable, Equatable {
@@ -128,7 +148,7 @@ public final class RynL10nClient: @unchecked Sendable {
         let bundleRef = activeBundle
         let overlayRef = overlay
         lock.unlock()
-        let loc = locale ?? context.releaseLabel ?? bundleRef.defaultLocale
+        let loc = locale ?? self.locale ?? bundleRef.defaultLocale
         let r = Resolve.resolveValue(bundle: bundleRef, overlay: overlayRef, key: key, locale: loc, localeOverrides: localeOverrides)
         if r.guardFallback { bump(\.formatGuardRejected) }
         guard let value = r.value else { bump(\.keyUnresolved); return "⟪\(key)⟫" }

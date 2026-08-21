@@ -35,12 +35,16 @@ M0 TS 참조 구현이 정규화·해시·resolve·매칭·포맷·라우팅의 
 > **기존 앱에 붙이려면 [`ios/README.md`](ios/README.md)** — 서버 준비부터 Xcode 연결·런타임 갱신까지 단계별 가이드.
 
 - 런타임 의존성 0. 해싱은 CryptoKit(Apple), 문자열 정규화는 `precomposedStringWithCanonicalMapping`(NFC).
-- 공개 API: `RynL10nClient(bundle:store:context:)` · `t(_:args:locale:)`(동기) · `onCatalogUpdated` · `refresh(manifest:)` · `status()`.
+- 공개 API: `RynL10nClient(bundle:store:context:locale:)` · `t(_:args:locale:)`(동기) · `onCatalogUpdated` · `refresh(manifest:)` · `status()`.
+- **두 축을 구분한다**: `context`(appVersion·buildNumber·releaseLabel)는 **어느 릴리스**를 받을지(4.3),
+  `locale`은 **그 안에서 어느 언어**를 읽을지(3.1). 코어는 기기 언어를 직접 읽지 않고(결정성) 플랫폼
+  진입점이 주입한다 — iOS `RynL10nClient.deviceLocale()` · Android `RynL10n.configure`(기본값) ·
+  Web `browserLocale()`(기본값) · Flutter `Localizations.localeOf` 또는 `ioDeviceLocale()`.
 - **번들 로드**: `Snapshot.baked(in:)` — 빌드 플러그인이 구운 `snapshot.json`을 리소스 번들에서 읽는다(`BakedLockfile.baked(in:)`은 진단용).
 - **배포 플레인 접근**: `RemoteDeliveryStore(baseURL:project:)` — manifest(ETag·짧은 TTL) + 산출물(내용해시·영구 캐시)을
   HTTP로 받아 디스크에 캐싱한다. `update(_:)` 한 번이 조회→선택→다운로드→원자적 스왑 전체를 처리하며,
   오프라인이면 마지막 캐시로 진행한다. 동기 프로토콜(`DeliveryStore`) 조회는 **캐시만** 본다(네트워크 대기 없음).
-- 빌드·테스트: `cd sdks/ios && swift test` (44개: 골든 8 + 원격 배포 12 + 폴링·푸시·텔레메트리 10 + 시나리오 A/B/C·충돌 검사 4 + M4 4 + 변환 3 + bake 2 + 반응형 1).
+- 빌드·테스트: `cd sdks/ios && swift test` (49개: 골든 8 + 원격 배포 12 + 폴링·푸시·텔레메트리 10 + **로케일 축 5** + 시나리오 A/B/C·충돌 검사 4 + M4 4 + 변환 3 + bake 2 + 반응형 1).
 
 ```swift
 let client = RynL10nClient(bundle: bakedSnapshot, store: cdnStore,
@@ -63,7 +67,7 @@ let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallbac
   iOS와 동작이 대칭이나 스왑 스레드만 다르다 — 호출한 코루틴 컨텍스트에서 스왑하고, 통지는 `StateFlow`로 흐른다.
 - **Android 바인딩**(`library/`, AAR): `RynL10n.configure/t/update` 파사드 · `Context.rynl10n(key)` · Compose `rynl10nString(key)`.
   Compose 런타임은 `compileOnly`라 Compose를 쓰지 않는 앱에 딸려 들어가지 않는다.
-- 빌드·테스트: `cd sdks/android && ./gradlew test` (49개: 골든 + 시나리오 + **배포 플레인 9** + **번들 로더 8** + **폴링·푸시·텔레메트리 9**) ·
+- 빌드·테스트: `cd sdks/android && ./gradlew test` (53개: 골든 + 시나리오 + **배포 플레인 9** + **번들 로더 8** + **폴링·푸시·텔레메트리 9** + **로케일 축 4**) ·
   `./gradlew :library:assembleRelease` (AAR) · `./gradlew :library:publishToMavenLocal`.
 - 툴체인: AGP 8.7.3 / Gradle 8.11.1(wrapper) / Kotlin 2.1.0 / minSdk 26.
 
@@ -79,7 +83,7 @@ let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallbac
   내용해시 URL이라 **영속 캐시**(기본 `localStorage`, `PersistentCache`로 교체 가능)에 그대로 둔다 →
   탭을 새로 열거나 오프라인으로 들어와도 마지막 카탈로그가 살아 있다. `clearCache()`로 비운다.
   `refresh()`는 폴링 루프 자리라 던지지 않고, 진단용 `loadManifest()`가 `DeliveryError`를 던진다.
-- 빌드·테스트: `cd sdks/web && node --test "test/*.test.ts"` (28개: **앱 적용 경로 18** + 폴링·푸시·텔레메트리).
+- 빌드·테스트: `cd sdks/web && node --test "test/*.test.ts"` (33개: **앱 적용 경로 18** + 폴링·푸시·텔레메트리 + **로케일 축 5**).
 
 ## Flutter (`sdks/flutter`, Dart)
 
@@ -95,8 +99,8 @@ let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallbac
   **`rynl10n_http.dart`(`package:http`, Flutter Web 포함 전 플랫폼)**.
 - **웹 영속 캐시**: 파일 시스템이 없으므로 `CallbackArtifactCache`(코어, 의존성 0)에 앱이 이미 쓰는
   저장소를 꽂는다(웹=`localStorage`, 모바일=`shared_preferences`). SDK가 저장소 패키지를 고르지 않는다.
-- 빌드·테스트: `cd sdks/flutter && dart pub get && dart test` (48개: 골든·시나리오 + **앱 적용 경로 19** +
-  **http 어댑터 6** + **폴링·푸시·텔레메트리 8**).
+- 빌드·테스트: `cd sdks/flutter && dart pub get && dart test` (53개: 골든·시나리오 + **앱 적용 경로 19** +
+  **http 어댑터 6** + **폴링·푸시·텔레메트리 8** + **로케일 축 5**).
 
 ## 플랫폼 공통 매핑 (기획서 절)
 

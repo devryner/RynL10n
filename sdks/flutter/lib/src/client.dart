@@ -30,6 +30,16 @@ class RynL10nClient {
   final Snapshot bundle;
   final DeliveryStore store;
   final ClientContext context;
+
+  /// 조회 로케일(6.1). [t]에 로케일을 넘기지 않았을 때 쓰인다. **[context]와는 다른 축이다** —
+  /// [context]는 어느 릴리스를 받을지(4.3), 이 값은 그 릴리스 안에서 어느 언어를 읽을지를 정한다.
+  ///
+  /// null이면 번들의 기본 로케일(5.1). 코어는 플랫폼 API를 모르므로 기기 언어는 앱이 넘긴다 —
+  /// Flutter는 `Localizations.localeOf(context).toLanguageTag()`,
+  /// 위젯 밖이면 `PlatformDispatcher.instance.locale.toLanguageTag()`,
+  /// 순수 Dart는 `rynl10n_io.dart`의 `ioDeviceLocale()`.
+  final String? locale;
+
   final Map<String, String> localeOverrides;
   final String? installId;
   final String telemetry; // off | aggregate
@@ -45,6 +55,7 @@ class RynL10nClient {
     required this.bundle,
     required this.store,
     required this.context,
+    this.locale,
     this.localeOverrides = const {},
     this.installId,
     this.telemetry = 'off',
@@ -115,7 +126,7 @@ class RynL10nClient {
   }
 
   String t(String key, {Map<String, Object?> args = const {}, String? locale}) {
-    final loc = locale ?? context.releaseLabel ?? _activeBundle.defaultLocale;
+    final loc = locale ?? this.locale ?? _activeBundle.defaultLocale;
     final r = resolveValue(_activeBundle, _overlay, key, loc, localeOverrides);
     if (r.guardFallback) _bump('format_guard_rejected');
     if (r.value == null) { _bump('key_unresolved'); return '⟪$key⟫'; }

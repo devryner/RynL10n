@@ -14,6 +14,20 @@ import 'push.dart';
 import 'telemetry.dart';
 import 'types.dart';
 
+/// 기기의 현재 언어를 BCP 47 태그로. `RynL10nClient(locale: ...)`에 넘겨 쓴다.
+///
+/// `Platform.localeName`은 POSIX 형식(`ko_KR.UTF-8`)이라 그대로는 fallback 체인(3.1)이 절단하지
+/// 못한다 — 인코딩 접미사를 떼고 `_`를 `-`로 바꿔 BCP 47로 만든다. 판별 불가면 null.
+///
+/// **Flutter 앱은 이것 대신 위젯 트리의 로케일을 쓰는 편이 낫다** —
+/// `Localizations.localeOf(context).toLanguageTag()`가 앱에 실제 적용된 언어이고,
+/// Flutter Web에서는 `dart:io`를 import할 수 없다.
+String? ioDeviceLocale() {
+  final raw = Platform.localeName.split('.').first.replaceAll('_', '-').trim();
+  if (raw.isEmpty || raw == 'C' || raw == 'POSIX') return null;
+  return raw;
+}
+
 /// `HttpClient` 기반 [DeliveryFetch]. 재검증은 ETag로 직접 하므로 HTTP 캐시는 쓰지 않는다.
 DeliveryFetch ioDeliveryFetch({
   Duration connectTimeout = const Duration(seconds: 10),
