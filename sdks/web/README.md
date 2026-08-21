@@ -3,6 +3,18 @@
 Web(JS/TS) SDK. **프레임워크 무관 코어 + fetch/ETag 폴링 + 영속 캐시 + React 어댑터.** 코어 알고리즘
 (resolve·매칭·카나리)은 참조 구현(`../../src`)을 재사용 — 골든 벡터로 검증된 동작을 그대로 공유한다.
 
+## 설치
+
+> **아직 npm에 게시되지 않았다**(6.5 · 게시는 4개 SDK lockstep `0.1.0`). `package.json`이
+> `"private": true`라 지금은 `npm publish` 자체가 막혀 있다. 지금 붙이려면 저장소를 클론해
+> 소스를 직접 참조한다 — 빌드 스텝이 없는 TS 소스라(Node ≥ 23.6 네이티브 타입 스트리핑)
+> 번들러 alias나 `file:` 의존으로 바로 가리킬 수 있다.
+
+```jsonc
+// 앱 package.json
+"dependencies": { "@rynl10n/web": "file:../RynL10n/sdks/web" }
+```
+
 ## 사용
 
 ```ts
@@ -136,5 +148,5 @@ export function useTranslation() {
 ## 테스트
 
 ```bash
-cd sdks/web && node --test "test/*.test.ts"   # 정적 서버 기동 → fetch/ETag/캐시/번들 로더/카나리 (23 tests)
+cd sdks/web && node --test "test/*.test.ts"   # 정적 서버 기동 → fetch/ETag/캐시/번들 로더/카나리/텔레메트리 (28 tests)
 ```
