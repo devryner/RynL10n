@@ -3,6 +3,18 @@
 Flutter/Dart SDK. 순수 Dart 코어라 `dart test`로 검증 가능(Flutter 위젯 불요). 코어 알고리즘
 (JCS·resolve·매칭·카나리·정수 매칭)은 M0 TS 참조 구현과 **골든 벡터로 바이트·해시·동작 정합**.
 
+## 설치
+
+> **아직 pub.dev에 게시되지 않았다**(6.5 · 게시는 4개 SDK lockstep `0.1.0`). `pubspec.yaml`이
+> `publish_to: none`이라 지금은 게시 자체가 막혀 있다. 지금 붙이려면 경로 의존으로 참조한다.
+
+```yaml
+# 앱 pubspec.yaml
+dependencies:
+  rynl10n:
+    path: ../RynL10n/sdks/flutter
+```
+
 ## 사용
 
 ```dart
