@@ -76,9 +76,13 @@ class PushTelemetryTest {
         waitFor { cycles.get() >= 2 }
 
         store.stopPolling()
-        val afterStop = plane.countOf("/demo/manifest.json")
+        // 중단 시점에 이미 나가 있던 사이클 하나는 착지할 수 있다. 계약은 **새 주기를 더 잡지 않는다**이지
+        // "진행 중인 요청이 사라진다"가 아니므로, 드레인한 뒤에 스냅샷을 찍는다.
         Thread.sleep(300)
-        assertEquals(afterStop, plane.countOf("/demo/manifest.json"), "stopPolling 이후 요청이 더 나가면 안 된다")
+        val afterStop = plane.countOf("/demo/manifest.json")
+        Thread.sleep(300) // 간격 6회분 — 폴링이 살아 있으면 여기서 늘어난다
+        assertEquals(afterStop, plane.countOf("/demo/manifest.json"), "stopPolling 이후 새 주기가 잡히면 안 된다")
+        assertTrue(afterStop >= 2, "멈추기 전에 주기가 실제로 돌았다")
         assertEquals("R42", client.status().releaseId, "폴링이 실제 갱신 사이클을 돌린다")
     }
 

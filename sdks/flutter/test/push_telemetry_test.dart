@@ -136,10 +136,15 @@ void main() {
     }
 
     store.stopPolling();
-    final afterStop = requested.where((p) => p == '/demo/manifest.json').length;
+    // 중단 시점에 이미 나가 있던 사이클 하나는 착지할 수 있다. 계약은 **새 주기를 더 잡지 않는다**이지
+    // "진행 중인 요청이 사라진다"가 아니므로, 드레인한 뒤에 스냅샷을 찍어야 그 착지가 실패로 둔갑하지
+    // 않는다(스냅샷을 즉시 찍으면 느린 CI에서 실제로 그렇게 됐다).
     await Future<void>.delayed(const Duration(milliseconds: 300));
+    final afterStop = requested.where((p) => p == '/demo/manifest.json').length;
+    await Future<void>.delayed(const Duration(milliseconds: 300)); // 간격 6회분
     expect(requested.where((p) => p == '/demo/manifest.json').length, afterStop,
-        reason: 'stopPolling 이후 요청이 더 나가면 안 된다');
+        reason: 'stopPolling 이후 새 주기가 잡히면 안 된다');
+    expect(afterStop, greaterThanOrEqualTo(2), reason: '멈추기 전에 주기가 실제로 돌았다');
     expect(client.releaseId, 'R42', reason: '폴링이 실제 갱신 사이클을 돌린다');
   });
 
