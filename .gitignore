@@ -25,9 +25,10 @@ pubspec.lock
 *.db
 *.db-journal
 
-# 내부 문서(SoT=Craft 문서로 이전, 로컬에만 유지)
-# OPERATIONS.md는 제외 — README·backend·SDK 문서가 링크로 가리키는 대고객 문서라 추적한다.
-HANDOVER.md
+# 내부 문서(SoT=Craft 문서로 이전)
+# OPERATIONS.md(대고객 운영 가이드)와 HANDOVER.md(저장소 지도)는 추적한다 —
+# 추적 파일들이 링크로 가리키므로 클론에 없으면 GitHub에서 404가 된다.
+# CLAUDE.md는 AGENTS.md의 사본이라 로컬에만 둔다.
 CLAUDE.md
 
 # Android 로컬 SDK 경로(환경마다 다름 — ANDROID_HOME으로도 해결됨)
