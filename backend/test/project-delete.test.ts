@@ -196,6 +196,15 @@ test("산출물이 없는 프로젝트를 지워도 실패하지 않는다", () 
   assert.doesNotThrow(() => store.deleteProject("never-published"));
 });
 
+test("스토리지 루트가 비면 생성 자체를 거부한다", () => {
+  // 루트가 ""이면 join("", project, ...)이 cwd 기준 상대경로가 되어, deleteProject("src")가
+  // 프로젝트 트리가 아니라 작업 디렉토리의 ./src를 재귀 삭제한다. 프로젝트 id 가드는
+  // 세그먼트만 보므로 여기서 걸러야 한다(빈 RYNL10N_STORAGE가 실제 유입 경로).
+  for (const bad of ["", " ", "\t"]) {
+    assert.throws(() => new FsArtifactStore(bad), /스토리지 루트/, `막지 못함: ${JSON.stringify(bad)}`);
+  }
+});
+
 test("경로 순회가 가능한 프로젝트 id는 거부한다", () => {
   const root = mkdtempSync(join(tmpdir(), "rynl-store-"));
   const store = new FsArtifactStore(root);

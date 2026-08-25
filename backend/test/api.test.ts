@@ -64,6 +64,40 @@ test("키·번역 편집(translator) + 422 서명 불일치", async () => {
   assert.equal(g2.body.error.code, "signature_mismatch");
 });
 
+test('PUT /keys의 signature:""는 확정된 서명을 풀지 못한다', async () => {
+  // "" 는 값이 아니라 "아직 확정 안 됨" 센티널이다 — 번역 PUT이 `signature === ""`를 그렇게 읽고
+  // 첫 값으로 서명을 확정한다. 값으로 받아주면 이 한 번의 요청이 포맷 안전 가드(3.1)를 풀어,
+  // 422로 막혔던 값이 그대로 통과하며 새 서명으로 굳는다.
+  await api("PUT", "/projects/shop/keys/guard.reset", { token: TOK.trans, body: { signature: "name:simple" } });
+  const ok = await api("PUT", "/projects/shop/translations/guard.reset/en", { token: TOK.trans, body: { value: "Hello {name}" } });
+  assert.equal(ok.status, 200);
+
+  const mismatch = { value: "Hi {count} {extra}" };
+  assert.equal((await api("PUT", "/projects/shop/translations/guard.reset/ja", { token: TOK.trans, body: mismatch })).status, 422);
+
+  // 리셋 시도 — 200이되 서명은 그대로여야 한다.
+  const reset = await api("PUT", "/projects/shop/keys/guard.reset", { token: TOK.trans, body: { signature: "" } });
+  assert.equal(reset.status, 200);
+  assert.equal(reset.body.signature, "name:simple", "빈 문자열이 확정된 서명을 지웠다");
+
+  // 가드가 살아 있으므로 아까 막힌 값은 여전히 422다.
+  assert.equal((await api("PUT", "/projects/shop/translations/guard.reset/ja", { token: TOK.trans, body: mismatch })).status, 422);
+});
+
+test("설명만 고치는 요청은 서명·복수형을 건드리지 않는다", async () => {
+  const before = await api("PUT", "/projects/shop/keys/guard.reset", { token: TOK.trans, body: { description: "홈 화면 인사말" } });
+  assert.equal(before.status, 200);
+  assert.equal(before.body.signature, "name:simple");
+  assert.equal(before.body.description, "홈 화면 인사말");
+});
+
+test("서명이 아직 없는 키는 명시적으로 서명을 붙일 수 있다", async () => {
+  // 빈 문자열을 거부한다고 해서 "미확정 → 확정" 경로까지 막으면 안 된다.
+  await api("PUT", "/projects/shop/keys/guard.fresh", { token: TOK.trans });
+  const set = await api("PUT", "/projects/shop/keys/guard.fresh", { token: TOK.trans, body: { signature: "n:number" } });
+  assert.equal(set.body.signature, "n:number");
+});
+
 test("viewer는 편집 불가(403)", async () => {
   const r = await api("PUT", "/projects/shop/translations/pay.button/ko", { token: TOK.view, body: { value: "결제" } });
   assert.equal(r.status, 403);

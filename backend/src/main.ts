@@ -9,14 +9,18 @@ import { FsArtifactStore } from "./storage/store.ts";
 import { createDeliveryServer } from "./storage/delivery-server.ts";
 import { TokenRegistry, DbTokenRegistry } from "./auth/rbac.ts";
 import { createManagementServer } from "./api/server.ts";
+import { loadConfig } from "./config.ts";
 
-const MGMT_PORT = Number(process.env.RYNL10N_PORT ?? 8787);
-const DELIVERY_PORT = Number(process.env.RYNL10N_DELIVERY_PORT ?? 8788);
-const DB_PATH = process.env.RYNL10N_DB ?? ":memory:";
-const STORAGE_ROOT = process.env.RYNL10N_STORAGE ?? "./.rynl10n-storage";
-const ADMIN_TOKEN = process.env.RYNL10N_ADMIN_TOKEN ?? "dev-admin-token";
-// 브라우저 SDK(Web·Flutter Web)가 교차 오리진으로 읽는다. 공개 읽기 전용 정적 파일이라 기본은 `*`.
-const DELIVERY_ALLOW_ORIGIN = process.env.RYNL10N_DELIVERY_ALLOW_ORIGIN ?? "*";
+// 환경 판정은 전부 config.ts에 있다 — 빈 문자열을 "설정 없음"으로 접는 자리가 한 곳이어야 한다.
+const {
+  managementPort: MGMT_PORT,
+  deliveryPort: DELIVERY_PORT,
+  dbPath: DB_PATH,
+  storageRoot: STORAGE_ROOT,
+  adminToken: ADMIN_TOKEN,
+  deliveryAllowOrigin: DELIVERY_ALLOW_ORIGIN,
+  deliveryBaseUrl: DELIVERY_BASE_URL,
+} = loadConfig();
 
 const repo = new Repo(openDatabase(DB_PATH));
 const store = new FsArtifactStore(STORAGE_ROOT);
@@ -25,9 +29,6 @@ const store = new FsArtifactStore(STORAGE_ROOT);
 const bootstrap = new TokenRegistry();
 bootstrap.issue(ADMIN_TOKEN, { actor: "bootstrap-admin", role: "admin", projects: "*" });
 const tokens = new DbTokenRegistry(repo, bootstrap);
-
-// 배포 플레인 base URL — 대시보드가 산출물 링크를 만들 때 쓴다(프로덕션은 CDN 도메인).
-const DELIVERY_BASE_URL = process.env.RYNL10N_DELIVERY_URL ?? `http://localhost:${DELIVERY_PORT}`;
 
 // 관리 플레인 (쓰기, 인증 필요) + 대시보드(어드민 앱, 9.2 코어 ③).
 createManagementServer({ repo, store, tokens, deliveryBaseUrl: DELIVERY_BASE_URL }).listen(MGMT_PORT, () => {

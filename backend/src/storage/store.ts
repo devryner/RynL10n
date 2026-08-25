@@ -46,7 +46,15 @@ function deltaPath(releaseId: string, from: string, to: string): string {
 /** 로컬 FS 구현(단일 노드 셀프호스트 · 테스트). 스냅샷·델타는 JCS 정규화로 방출(결정적). */
 export class FsArtifactStore implements ArtifactStore {
   private readonly root: string;
-  constructor(root: string) { this.root = root; }
+  /**
+   * 루트가 비어 있으면 모든 경로가 **cwd 기준 상대경로**가 된다 — 산출물이 작업 디렉토리에
+   * 쏟아지고, `deleteProject("src")`가 프로젝트 트리가 아니라 `./src`를 재귀 삭제한다.
+   * `assertSafeSegment`는 프로젝트 id만 보므로 그 가드로는 막히지 않는다. 기동 시점에 끊는다.
+   */
+  constructor(root: string) {
+    if (root.trim() === "") throw new Error("스토리지 루트가 비어 있습니다(경로가 cwd로 접힙니다)");
+    this.root = root;
+  }
 
   private abs(project: string, rel: string): string {
     assertSafeSegment(project, "프로젝트 id");

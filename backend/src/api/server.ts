@@ -356,7 +356,11 @@ const routes: Route[] = [
     const existing = repo.getKeyByName(params.p!, params.key!);
     // 서명·복수형은 **명시적으로 준 경우에만** 갱신한다. 설명만 고치려는 요청이 기존 서명을
     // 지워 포맷 안전 가드(3.1)를 무력화하면 안 된다.
-    const signature = typeof body?.signature === "string" ? body.signature : existing?.signature ?? "";
+    // 빈 문자열은 값이 아니라 "아직 확정 안 됨" 센티널이다(아래 번역 PUT이 `=== ""`로 그렇게 읽는다).
+    // 값으로 받아주면 `{"signature":""}` 한 번으로 확정된 서명이 풀려, 그 다음 번역이 어떤
+    // 플레이스홀더든 새 서명으로 확정해버린다 — 위 문단이 막으려던 무력화를 우회하는 경로가 된다.
+    const givenSignature = typeof body?.signature === "string" && body.signature !== "" ? body.signature : undefined;
+    const signature = givenSignature ?? existing?.signature ?? "";
     const isPlural = typeof body?.isPlural === "boolean" ? body.isPlural : existing?.isPlural ?? false;
     const id = repo.upsertKey(params.p!, params.key!, signature, isPlural);
     if (typeof body?.description === "string") repo.setKeyDescription(params.p!, params.key!, body.description);
