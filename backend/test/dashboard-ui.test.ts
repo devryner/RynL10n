@@ -1116,3 +1116,192 @@ test("마지막 admin 강등 409는 역할 셀렉트를 되돌리고 오류를 �
 
   assert.equal(rowSel.value, "admin", "409면 셀렉트를 원래 역할로 되돌린다");
 });
+
+// ── 백포트: 키 축 (POST /projects/{p}/translations/{key}/backport) ────────────
+// 릴리스 축(releases/{r}/keys)은 이미 UI에 있었고 키 축은 관리 API에만 있었다. 둘 다 같은 참조
+// 테이블을 건드리지만 출발점이 다르다 — 출시된 앱의 오타 한 건을 아직 살아 있는 릴리스들에
+// 태우는 일(시나리오 A)은 키에서 시작한다. 검증의 축은 **부분 실패(207)가 화면에 드러나는가**다.
+
+const TWO_RELEASES = {
+  releases: [
+    RELEASES.releases[0],
+    {
+      id: "R2", projectId: "shop", name: "2.x",
+      versionMatch: { strategy: "semver-range", value: ">=2.0.0 <3.0.0" },
+      state: "draft", base: null, overlay: null, rollout: 100, seq: 2,
+      createdAt: "2026-08-24T00:00:00.000Z",
+    },
+  ],
+};
+
+/** admin으로 프로젝트를 연 뒤(번역 탭이 기본) 키 행의 백포트 패널을 연다. */
+async function openBackportPanel(table = projectTable()) {
+  table["GET /projects/shop/releases"] = TWO_RELEASES;
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const calls = installFetch(table);
+  await loadApp();
+  btn(byId.app, "shop")!.fire("click");
+  await settle();
+  btn(byId.app, "백포트")!.fire("click");
+  await settle();
+  const box = tags(byId.app, "select").find((s) => s.children.some((o: any) => o.attrs.value === "R2"))!;
+  return { byId, calls, table, box };
+}
+
+test("백포트 패널은 요청 없이 릴리스 목록을 상태와 함께 보여준다", async () => {
+  const { byId, calls, box } = await openBackportPanel();
+
+  assert.match(byId.app!.textContent, /cart\.title 백포트/);
+  assert.deepEqual(box.children.map((o: any) => o.attrs.value), ["R1", "R2"]);
+  assert.match(box.textContent, /R1 · published/, "어느 릴리스가 살아 있는지 상태로 구분한다");
+  assert.match(box.textContent, /R2 · draft/);
+  assert.match(byId.app!.textContent, /publish 할 때/, "지금 배포되는 게 아님을 알린다");
+  assert.ok(!calls.some((c) => c.method === "POST"), "확인 전에는 아무것도 보내지 않는다");
+});
+
+test("확인하면 고른 릴리스들로 키 축 백포트를 호출한다", async () => {
+  const table = projectTable();
+  table["POST /projects/shop/translations/cart.title/backport"] = { applied: ["R1", "R2"], failed: [] };
+  const { byId, calls, box } = await openBackportPanel(table);
+
+  box.selectedOptions = [{ value: "R1" }, { value: "R2" }];
+  btn(byId.app, "확인")!.fire("click");
+  await settle();
+
+  const post = calls.find((c) => c.method === "POST" && c.path === "/projects/shop/translations/cart.title/backport")!;
+  assert.ok(post, "키 축 라우트로 나가야 한다 — 릴리스 축으로 여러 번 나누면 안 된다");
+  assert.deepEqual(post.body, { releaseIds: ["R1", "R2"] });
+  assert.equal(post.auth, "Bearer tok-admin");
+
+  const toasts = (globalThis as any).document.getElementById("toasts").textContent;
+  assert.match(toasts, /cart\.title 백포트 완료/);
+  assert.match(toasts, /릴리스 2개/);
+  assert.ok(calls.slice(calls.indexOf(post)).some((c) => c.path === "/projects/shop/keys"),
+    "참조 수(refCount)가 달라지므로 키를 다시 읽는다");
+});
+
+test("207 부분 성공은 실패한 릴리스를 이름까지 표면화한다", async () => {
+  const table = projectTable();
+  // 207 — 목록을 받은 뒤 R2가 사라진 상황(서버는 status 207 + applied/failed로 나눠 준다).
+  table["POST /projects/shop/translations/cart.title/backport"] = { applied: ["R1"], failed: ["R2"] };
+  const { byId, box } = await openBackportPanel(table);
+
+  box.selectedOptions = [{ value: "R1" }, { value: "R2" }];
+  btn(byId.app, "확인")!.fire("click");
+  await settle();
+
+  const toasts = (globalThis as any).document.getElementById("toasts").textContent;
+  assert.match(toasts, /일부만 반영됐습니다 \(1\/2\)/, "성공 개수와 요청 개수를 같이 보여준다");
+  assert.match(toasts, /실패: R2/, "어느 릴리스가 빠졌는지 알아야 다시 넣을 수 있다");
+  assert.doesNotMatch(toasts, /백포트 완료/, "부분 실패를 성공으로 읽히게 두면 안 된다");
+});
+
+test("대상을 고르지 않고 확인하면 요청을 보내지 않는다", async () => {
+  const { byId, calls } = await openBackportPanel();
+  btn(byId.app, "확인")!.fire("click");
+  await settle();
+  assert.ok(!calls.some((c) => c.method === "POST"));
+  assert.match((globalThis as any).document.getElementById("toasts").textContent, /하나 이상 고르세요/);
+});
+
+test("RBAC: manage_release가 없으면 백포트 진입점 자체가 없다 (7.3 UI 미러)", async () => {
+  for (const role of ["viewer", "translator"]) {
+    const { byId, store } = installDom();
+    store["rynl10n.token"] = `tok-${role}`;
+    installFetch(projectTable({ actor: role, role, projects: ["shop"], deliveryBaseUrl: "https://cdn.test" }));
+    await loadApp();
+    btn(byId.app, "shop")!.fire("click");
+    await settle();
+
+    assert.match(byId.app!.textContent, /cart\.title/, `${role}도 키 자체는 본다`);
+    assert.ok(!btn(byId.app, "백포트"), `${role}에게 백포트 버튼은 없어야 한다`);
+  }
+});
+
+// ── 릴리스 카탈로그·스냅샷 읽기 (GET releases/{r}/keys · /snapshot) ───────────
+// 배포 탭은 **게시된 산출물**을 보여준다. 여기서 보는 것은 DB에서 지금 다시 빌드한 카탈로그라,
+// publish 전 draft와 "다음 publish에 무엇이 바뀌는지"는 이 화면에서만 확인할 수 있다.
+
+const SNAPSHOT = {
+  schemaVersion: 1, release: "R1", defaultLocale: "en",
+  locales: { en: { "cart.title": "Cart" }, ko: { "cart.title": "장바구니" } },
+};
+
+function catalogTable(me: Me = ME_ADMIN) {
+  const table = projectTable(me);
+  table["GET /projects/shop/releases/R1/keys"] = { keys: ["cart.title", "cart.empty"] };
+  table["GET /projects/shop/releases/R1/snapshot"] = SNAPSHOT;
+  return table;
+}
+
+/** 릴리스 탭까지 이동해 카탈로그 패널을 연다. */
+async function openCatalog(table = catalogTable()) {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-admin";
+  const calls = installFetch(table);
+  await loadApp();
+  btn(byId.app, "shop")!.fire("click");
+  await settle();
+  btn(byId.app, "릴리스")!.fire("click");
+  await settle();
+  btn(byId.app, "카탈로그")!.fire("click");
+  await settle();
+  return { byId, calls };
+}
+
+test("카탈로그 패널은 키 목록과 스냅샷을 한 번에 읽어 보여준다", async () => {
+  const { byId, calls } = await openCatalog();
+
+  assert.ok(calls.some((c) => c.path === "/projects/shop/releases/R1/keys"));
+  assert.ok(calls.some((c) => c.path === "/projects/shop/releases/R1/snapshot"));
+
+  assert.match(byId.app!.textContent, /R1 카탈로그/);
+  assert.match(byId.app!.textContent, /cart\.empty/, "카탈로그의 키는 번역 그리드와 별개로 릴리스 소속을 보여준다");
+  assert.match(byId.app!.textContent, /키 2개 · 로케일 2개 · 기본 en/);
+  assert.match(byId.app!.textContent, /게시된 base aaaa1111bbbb2222/, "게시본과 지금 카탈로그를 나란히 볼 수 있어야 한다");
+
+  const pre = tags(byId.app, "pre").find((n) => n.className === "json")!;
+  assert.ok(pre, "스냅샷은 JSON 그대로 보여준다 — 빌드 플러그인이 받는 것과 같은 바이트다");
+  assert.match(pre.textContent, /"schemaVersion": 1/);
+  assert.match(pre.textContent, /장바구니/);
+});
+
+test("닫으면 릴리스 탭으로 돌아가고 다시 읽지 않는다", async () => {
+  const { byId, calls } = await openCatalog();
+  const before = calls.length;
+
+  btn(byId.app, "닫기")!.fire("click");
+  await settle();
+
+  assert.match(byId.app!.textContent, /새 릴리스/, "릴리스 탭 화면으로 돌아온다");
+  assert.equal(calls.length, before, "이미 가진 상태로 되돌아갈 뿐 서버를 다시 부르지 않는다");
+});
+
+test("빈 카탈로그는 publish 하면 무엇이 나가는지 알려준다", async () => {
+  const table = catalogTable();
+  table["GET /projects/shop/releases/R1/keys"] = { keys: [] };
+  table["GET /projects/shop/releases/R1/snapshot"] = { ...SNAPSHOT, locales: {} };
+  const { byId } = await openCatalog(table);
+
+  assert.match(byId.app!.textContent, /빈 카탈로그가 나갑니다/);
+});
+
+test("카탈로그 읽기는 viewer에게도 열려 있다 (read 권한 축)", async () => {
+  const table = catalogTable({ actor: "vw", role: "viewer", projects: ["shop"], deliveryBaseUrl: "https://cdn.test" });
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "tok-view";
+  installFetch(table);
+  await loadApp();
+  btn(byId.app, "shop")!.fire("click");
+  await settle();
+  btn(byId.app, "릴리스")!.fire("click");
+  await settle();
+
+  assert.ok(btn(byId.app, "카탈로그"), "쓰기 게이트 앞에 있어야 viewer도 닿는다");
+  assert.match(byId.app!.textContent, /읽기 전용/, "쓰기 작업이 없다는 표시는 그대로 남는다");
+
+  btn(byId.app, "카탈로그")!.fire("click");
+  await settle();
+  assert.match(byId.app!.textContent, /R1 카탈로그/);
+});

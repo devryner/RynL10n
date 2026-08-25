@@ -667,8 +667,48 @@ function keyRow(key, locales, editable) {
     ),
     descriptionCell(key, editable),
     ...locales.map((l) => translationCell(key, l, editable)),
-    el("td", { class: "small muted", text: `${key.refCount}개` }),
+    el("td", { class: "small" },
+      el("div", { class: "muted", text: `${key.refCount}개` }),
+      can("manage_release")
+        ? el("button", { class: "tiny", text: "백포트", onClick: () => backportKey(key) })
+        : null,
+    ),
   );
+}
+
+/**
+ * 백포트의 **키 축**(7.1) — 한 키를 여러 릴리스 카탈로그에 한 번에 넣는다.
+ * 릴리스 탭의 "키 추가"는 반대 축(한 릴리스 ← 여러 키)이고 둘 다 결국 같은 참조 테이블(5)을
+ * 건드린다. 자리를 나눈 이유는 출발점이 다르기 때문이다: 출시된 앱의 오타 한 건을 아직 살아 있는
+ * 릴리스들에 태우는 일(시나리오 A)은 키에서 시작하지, 릴리스를 하나씩 열어 찾아 넣지 않는다.
+ */
+function backportKey(key) {
+  if (!state.releases.length) { toast("error", "릴리스가 없습니다", "먼저 릴리스를 만든 뒤 백포트하세요."); return; }
+  const box = el("select", { multiple: true, size: String(Math.min(8, Math.max(3, state.releases.length))) },
+    ...state.releases.map((r) => el("option", { value: r.id, text: `${r.id} · ${r.state} · ${r.name}` })));
+
+  confirmPanel(
+    `${key.name} 백포트`,
+    [el("p", { class: "small muted", text: "선택한 릴리스들의 카탈로그에 이 키를 넣습니다. 실제 반영은 각 릴리스를 publish 할 때입니다." }),
+     el("label", { class: "field" }, "대상 릴리스 (다중 선택)", box)],
+    async () => {
+      const releaseIds = [...box.selectedOptions].map((o) => o.value);
+      if (!releaseIds.length) { toast("error", "대상 릴리스를 하나 이상 고르세요"); return; }
+      const res = await run(null, () => api(
+        "POST", `/projects/${enc(state.projectId)}/translations/${enc(key.name)}/backport`, { releaseIds }));
+      if (!res) return;
+      // 207 = 부분 성공. 여기서 실패분을 삼키면 화면은 "다 됐다"로 읽히는데 실제로는 일부 릴리스에
+      // 키가 없는 상태로 남는다 — 그 릴리스는 publish 해도 이 키가 빠진 카탈로그를 내보낸다.
+      const failed = res.failed ?? [];
+      if (failed.length) {
+        toast("error", `일부만 반영됐습니다 (${res.applied.length}/${releaseIds.length})`,
+          `실패: ${failed.join(", ")}\n목록이 오래됐을 수 있습니다. 새로고침 후 다시 시도하세요.`);
+      } else {
+        toast("ok", `${key.name} 백포트 완료`, `릴리스 ${res.applied.length}개에 반영 — 각 릴리스를 publish 해야 배포됩니다.`);
+      }
+      await refresh({ delivery: false });
+    },
+  )();
 }
 
 function tabTranslations() {
@@ -983,7 +1023,9 @@ function tabReleases() {
 }
 
 function releaseActions(r, manage) {
-  if (!manage) return el("span", { class: "muted small", text: "읽기 전용" });
+  // 카탈로그 읽기는 `read` 권한이면 된다 — 쓰기 게이트 앞에 둬야 viewer도 닿는다.
+  const inspect = el("button", { class: "tiny", text: "카탈로그", onClick: () => openReleaseCatalog(r) });
+  if (!manage) return el("div", { class: "row" }, inspect, el("span", { class: "muted small", text: "읽기 전용" }));
 
   const publish = async () => {
     const res = await run(null, () => api("POST", `/projects/${enc(state.projectId)}/releases/${enc(r.id)}/publish`));
@@ -1038,9 +1080,46 @@ function releaseActions(r, manage) {
   return el("div", { class: "row" },
     el("button", { class: "tiny primary", text: "publish", onClick: publish }),
     el("button", { class: "tiny", text: "키 추가", onClick: addKeys }),
+    inspect,
     r.base ? el("button", { class: "tiny", text: "롤백", onClick: rollback }) : null,
     el("button", { class: "tiny danger", text: r.state === "archived" ? "복구" : "보관", onClick: archive }),
   );
+}
+
+/**
+ * 릴리스 카탈로그·스냅샷 읽기(7.1). **배포 탭이 보여주는 것과 다른 것을 본다**: 저기는 이미 게시된
+ * 불변 산출물이고, 여기는 DB에서 지금 다시 빌드한 카탈로그다(11.1 결정성 — 같은 입력이면 같은 바이트).
+ * 그래서 publish 전 draft도, 게시 뒤 키가 더 붙은 릴리스도 이 화면에서만 확인할 수 있고,
+ * 둘을 나란히 보면 "다음 publish에 무엇이 바뀌는지"가 드러난다.
+ * 빌드 플러그인(6.3)이 fetch 하는 스냅샷과 같은 JSON이라, 앱에 구워질 내용을 미리 보는 자리이기도 하다.
+ */
+async function openReleaseCatalog(r) {
+  const p = enc(state.projectId);
+  const [catalog, snapshot] = await Promise.all([
+    run(null, () => api("GET", `/projects/${p}/releases/${enc(r.id)}/keys`)),
+    run(null, () => api("GET", `/projects/${p}/releases/${enc(r.id)}/snapshot`)),
+  ]);
+  if (!catalog || !snapshot) return; // 실패는 run()이 이미 토스트로 표면화했다
+
+  const keys = catalog.keys ?? [];
+  const locales = Object.keys(snapshot.locales ?? {});
+  const panel = el("div", { class: "panel", style: "border-color:var(--accent)" },
+    el("h2", {}, `${r.id} 카탈로그`,
+      el("span", { class: "hint", text: "게시된 산출물이 아니라 DB에서 지금 다시 빌드한 현재 상태입니다" })),
+    el("p", { class: "small muted", text:
+      `키 ${keys.length}개 · 로케일 ${locales.length}개 · 기본 ${snapshot.defaultLocale ?? "—"}` +
+      (r.base ? ` · 게시된 base ${r.base}` : " · 미게시") }),
+    keys.length
+      ? el("div", { class: "row catalog-keys" }, ...keys.map((n) => el("span", { class: "badge mono", text: n })))
+      : el("p", { class: "muted", text: "포함된 키가 없습니다 — 이대로 publish 하면 빈 카탈로그가 나갑니다." }),
+    el("h2", { style: "margin-top:16px" }, "스냅샷",
+      el("span", { class: "hint", text: "빌드 플러그인이 fetch 해 앱에 굽는 것과 같은 JSON (6.3)" })),
+    el("pre", { class: "json", text: JSON.stringify(snapshot, null, 2) }),
+    el("div", { class: "row end", style: "margin-top:10px" },
+      el("button", { text: "닫기", onClick: () => renderProject() })),
+  );
+  document.querySelector("main").replaceChildren(panel);
+  panel.scrollIntoView({ block: "center" });
 }
 
 /** 보존 창(8.3) 이력에서 이 릴리스가 가졌던 이전 overlay 해시들 — 현재 값은 제외. */
