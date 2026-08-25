@@ -105,9 +105,13 @@ publishing {
  * Maven Central 업로드 대상. URL·자격은 **환경에서만** 온다 — 저장소에 박아 두면 계정 종류
  * (레거시 OSSRH / Central Portal)가 바뀔 때 조용히 틀린 곳으로 올라간다. 값이 없으면 리포지토리를
  * 아예 등록하지 않으므로 로컬 개발에서는 `publishToMavenLocal`만 보인다.
+ *
+ * **빈 문자열도 "없음"이다.** GitHub Actions는 미설정 시크릿을 null이 아니라 빈 문자열로 주입한다
+ * (`env:`로 넘긴 `secrets.X`). null만 걸러내면 `uri("")`로 리포지토리가 등록돼, 자격 없는 실행이
+ * "리포지토리 미등록"이 아니라 업로드 실패로 나타난다.
  */
 val centralUrl: String? = System.getenv("MAVEN_CENTRAL_URL")
-if (centralUrl != null) {
+if (!centralUrl.isNullOrBlank()) {
     publishing {
         repositories {
             maven {
@@ -126,9 +130,12 @@ if (centralUrl != null) {
  * GPG 서명(6.5 레지스트리 요건). **키가 있을 때만** 활성화한다 — 서명을 무조건 켜면 키가 없는
  * 개발 환경에서 `publishToMavenLocal`과 `assembleRelease`까지 같이 죽는다.
  * 키는 파일이 아니라 **메모리로** 받는다(CI에 개인키 파일을 떨구지 않는다).
+ *
+ * **빈 문자열도 "없음"이다** — 미설정 시크릿은 빈 문자열로 들어오므로 null만 걸러내면 서명이 켜진 채
+ * `useInMemoryPgpKeys("")`가 `Could not read PGP secret key`로 죽는다. 위 문단이 막으려던 바로 그 사고다.
  */
 val signingKey: String? = System.getenv("SIGNING_KEY")
-if (signingKey != null) {
+if (!signingKey.isNullOrBlank()) {
     signing {
         useInMemoryPgpKeys(signingKey, System.getenv("SIGNING_PASSWORD"))
         sign(publishing.publications)
