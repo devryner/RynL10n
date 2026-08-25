@@ -9,9 +9,11 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
 ## 현재 상태 (한눈에)
 
 - **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 + 4개 플랫폼 앱 적용 경로.**
-  커밋 52개(`1c0e225`~`c16f386`). **전부 `origin/main` 머지 완료(PR #1~#12, rebase — 머지 커밋 없는
+  커밋 55개(`1c0e225`~`dad8cc2`). **전부 `origin/main` 머지 완료(PR #1~#12, rebase — 머지 커밋 없는
   선형 이력)**.
-- **테스트 395개 전부 통과** — TS 참조 72 · 백엔드 135 · Web 33 · iOS 49 · Android 53 · Flutter 53.
+- **테스트 405개 전부 통과** — TS 참조 72 · 백엔드 145 · Web 33 · iOS 49 · Android 53 · Flutter 53.
+  (2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후 **GitHub Actions CI에서 5개 컴포넌트 전부 재실행**
+  — run 32833302282. 같은 날 릴리스 dry-run 4채널 통과 — 아래 "SDK 배포 채널" 절.)
   (2026-08-21 로케일 축 분리 후 전 컴포넌트 재실행 + `gen:golden` diff 없음 + `examples/ios-consumer` 빌드 확인.)
   (2026-08-13 전 컴포넌트 재실행, 2026-08-19 사용자 관리 · 2026-08-20 번역 import·관측성 탭 추가 후
   TS 참조·백엔드 재실행 — 골든 벡터·산출물은 무변경이라 SDK 코어는 영향 없음.
@@ -153,6 +155,27 @@ lockstep 태그를 미러에도 민다(모노레포의 4개 SDK 대칭 레이아
   `SIGNING_KEY`(ASCII armored, 메모리로 전달)·`SIGNING_PASSWORD` · `MIRROR_DEPLOY_KEY`.
   pub.dev는 시크릿이 없다 — GitHub OIDC로 인증한다(pub.dev 패키지 설정에서 저장소 허용 필요).
 
+### 릴리스 dry-run 실전 검증 (2026-08-25) — **파이프라인은 태그를 받을 준비가 됐다**
+
+`gh workflow run Release --ref main -f dry_run=true`로 두 번 돌렸다. 게시는 일어나지 않는다
+(npm·pub은 `--dry-run`, Maven은 `publishToMavenLocal`, 미러는 subtree split 검사까지만).
+
+| 잡 | 1차 (32824378038) | 2차 (32825252411) |
+| --- | --- | --- |
+| 게이트 5종 + lockstep | ✅ `0.1.0` 일치 | ✅ |
+| npm `@rynl10n/web` | ✅ | ✅ (`dist/**` `.js`+`.d.ts` 63파일 55.9kB — 소스 `.ts` 미포함) |
+| pub.dev `rynl10n` | ✅ 경고 0건 35KB | ✅ |
+| SPM 미러 | ✅ 루트에 `Package.swift` | ✅ |
+| Maven Central | ❌ `Could not read PGP secret key` | ✅ |
+
+1차 실패는 **미설정 시크릿이 null이 아니라 빈 문자열로 주입**돼 빈 GPG 키로 서명이 켜진 것이다
+(`dc4416f`에서 `!= null` → `!isNullOrBlank()`). `build.gradle.kts`의 바로 위 주석이 막으려던 사고
+그대로였다 — 키 없는 환경의 `publishToMavenLocal`이 항상 죽는 상태였다.
+**dry-run을 건너뛰고 태그를 달았다면 4채널 중 3개만 성공해 lockstep이 깨졌을 것이다.**
+
+> npm 잡 로그는 두 번 다 GitHub 로그 스토리지가 503을 반환해 본문을 받지 못했다(잡 상태는 성공).
+> 위 tarball 내용은 같은 `npm publish --dry-run`을 로컬에서 돌려 확인한 값이다.
+
 ### 게시 준비 현황 (2026-08-21)
 
 | SDK | 매니페스트 | 게시 가능? |
@@ -212,7 +235,8 @@ Flutter `publish_to` 해제 + `example/`·CHANGELOG · Android POM·sources·jav
    (`SIGNING_KEY`·`SIGNING_PASSWORD`·`MAVEN_CENTRAL_URL`·`_USERNAME`·`_PASSWORD`).
 3. **Web** — `@rynl10n` npm org 확보 + `NPM_TOKEN`.
 4. **Flutter** — pub.dev 패키지 설정에서 이 저장소를 **OIDC 허용**(시크릿 없음).
-5. **공통** — `workflow_dispatch`로 `dry_run=true` 한 번 돌려 4채널을 확인한 뒤 태그 `v0.1.0`.
+5. **공통** — 태그 `v0.1.0`. (`dry_run=true` 확인은 **2026-08-25에 끝냈다** — 위 절.
+   시크릿이 채워지면 한 번 더 돌려 실제 자격으로 붙는지 보는 게 안전하다.)
    태그 하나가 4채널을 동시에 민다 — lockstep이 깨지면 골든 벡터 계약이 어느 조합에서 성립하는지
    말할 수 없게 된다.
 
@@ -412,6 +436,17 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
   import 검증의 타입 미확인·조용한 키 참조 손실·구 export 포인터 결측(`c816a17`) · `integer-range`가
   코어와 SDK 4종에 다 있는데 관리 API가 막고 있던 것 + 매칭 값 파싱 미검증(`6e957ca`) ·
   골든 벡터에 integer-range 라우팅 케이스가 없던 것(`72dbeaf`).
+- **UI 격차 마감** `b3cdb72` — 키 축 백포트(키 한 건을 여러 릴리스에, 207 부분 실패는 실패한 릴리스 id까지
+  표면화) + 릴리스 카탈로그·스냅샷 읽기(게시본이 아니라 DB에서 지금 다시 빌드한 상태 — 다음 publish에
+  무엇이 바뀌는지 보는 자리). 이로써 관리 API에 있는데 UI 진입점이 없는 것은 없다.
+- **빈 문자열 클래스 마감** `dc4416f`·`dad8cc2` — 릴리스 dry-run이 드러낸 결함에서 출발해 같은 클래스를
+  저장소 전체에서 훑었다. 공통 뿌리는 **"값이 없다"는 뜻의 빈 문자열을 값으로 받는 자리**다:
+  Android 서명·업로드 URL(`!= null`) · 백엔드 env 7종(`?? 기본값`) · `FsArtifactStore` 루트(빈 루트면
+  `deleteProject("src")`가 cwd의 `./src`를 재귀 삭제) · `keys.signature`(""는 "미확정" 센티널인데 값으로
+  받아 `{"signature":""}` 한 번에 포맷 가드가 풀렸다). 환경 판정은 `backend/src/config.ts`로 모았다.
+  훑는 과정에서 **SDK 로케일 주입 4종은 이미 이 클래스를 처리하고 있음**을 확인했다(Web `lang !== ""` ·
+  Android `isNotEmpty() && != "und"` · Flutter `isEmpty→null`) — 새로 맞출 필요 없다.
+  미해결로 남긴 것: `POST /projects {"id":" "}`가 201(truthy 검사라 공백은 안 걸린다).
 
 각 컴포넌트의 상세는 해당 디렉토리의 README(`sdks/README.md`, `sdks/*/README.md`, `backend/README.md`)와
 `OPERATIONS.md` 참조.
