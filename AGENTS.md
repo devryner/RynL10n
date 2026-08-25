@@ -5,7 +5,7 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 386개 전부 통과(TS 참조 72 · 백엔드 126 · Web 33 · iOS 49 · Android 53 · Flutter 53 —
+테스트 395개 전부 통과(TS 참조 72 · 백엔드 135 · Web 33 · iOS 49 · Android 53 · Flutter 53 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
 iOS는 실제 백엔드 대상 왕복 확인).
@@ -208,7 +208,10 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
   토큰 로그인(`GET /me`) · 역할별 쓰기 UI 잠금 · SSE 자동 갱신 · 배포 플레인은 링크로만 노출(플레인 분리 유지).
   끄려면 `createManagementServer({ serveDashboard: false })`. 탭 4종: 번역(인라인 편집·키 설명·검색 1축 +
   필터 3축 AND · **번역 JSON 가져오기** — 파일 선택 → 키/번역/로케일 수 미리보기 → 확인 후 반영,
-  고르기만 해서는 쓰지 않는다) · 릴리스(생성·상태 전이·publish·롤백·릴리스 축 백포트) ·
+  고르기만 해서는 쓰지 않는다 · **키 축 백포트** — 키 한 건을 여러 릴리스에 한 번에, 207 부분 실패는
+  실패한 릴리스 id까지 표면화) · 릴리스(생성·상태 전이·publish·롤백·릴리스 축 백포트 ·
+  **카탈로그/스냅샷 읽기** — 게시본이 아니라 DB에서 지금 다시 빌드한 상태라 다음 publish에 무엇이
+  바뀌는지 보는 자리, viewer도 열람 가능) ·
   배포(manifest·이력·health·export·rebuild) · **관측성**(`GET /projects/{p}/telemetry` 익명 집계 —
   4종 이벤트 요약 + 릴리스 × 앱 버전군 표. 거부율의 분모는 **적용 + 거부**라야 카나리 판정(8.4)의
   `releases/{r}/health`와 같은 것을 본다).
@@ -218,10 +221,9 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
   부트스트랩 env 토큰 → DB 사용자 토큰 순서로 해석하고, 마지막 활성 admin 강등·비활성·삭제는 409.
   사용자는 인스턴스 수준이라 export/import 비포함). `serve.ts`가 자산을 모듈 캐시에
   담으므로 `app.js`를 고쳤으면 **서버 재시작**해야 반영된다.
-  **관리 API에 있는데 UI 진입점이 없는 것 = 다음 확장 후보**:
-  백포트의 **키 축**(`translations/{key}/backport` — 릴리스 축인 `releases/{r}/keys`는 UI에 있다) ·
-  릴리스 카탈로그/스냅샷 읽기.
-  (`descriptions` 사이드카와 `/metrics`는 UI 대상이 아니다.) 상세는 `HANDOVER.md`의 대시보드 절.
+  **관리 API에 있는데 UI 진입점이 없는 것은 이제 없다**(2026-08-25, 키 축 백포트·카탈로그 읽기로 마감).
+  (`descriptions` 사이드카와 `/metrics`는 UI 대상이 아니다 — 격차가 아니라 성격이 다른 것.)
+  상세는 `HANDOVER.md`의 대시보드 절.
 - **사업 모델**: 오픈코어 아님. 오픈소스 코어 + **유료 매니지드 호스팅**(설치·운영 대행). 코어만으로 기능적으로 완전한 제품.
 - **셀프호스팅**: 단일 노드 **Docker Compose**(`docker compose up` 원커맨드) / 대규모는 Helm·K8s(Postgres + S3 호환 스토리지 + CDN + 별도 빌더 워커).
 - 관리 API 인증: 사람=OIDC(통합 지점만), 머신(CI 플러그인)=스코프 제한 Bearer 토큰. RBAC 4역할: Admin / Maintainer / Translator / Viewer.

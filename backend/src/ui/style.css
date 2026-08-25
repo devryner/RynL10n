@@ -136,6 +136,9 @@ pre.json {
   padding: 12px; overflow-x: auto; font-size: 12.5px; margin: 0; max-height: 420px;
 }
 
+/* 카탈로그 키 목록 — 키가 수백 개인 릴리스에서 스냅샷 JSON이 화면 밖으로 밀려나지 않게 가둔다. */
+.catalog-keys { max-height: 220px; overflow-y: auto; margin-bottom: 4px; }
+
 /* ── 관측성 ───────────────────────────────────────────────────────────────── */
 .telemetry-intro {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 20px;
