@@ -100,19 +100,28 @@ LICENSE · NOTICE      Apache-2.0
 > **런타임 의존성 0 원칙**: 참조·백엔드·iOS는 외부 런타임 의존성 없음(Node 내장 sqlite/crypto, CryptoKit).
 > Android=kotlinx(serialization·coroutines), Flutter=crypto·unorm_dart(NFC), 백엔드 devDep=typescript.
 
-## SDK 배포 채널 (기획서 6.5) — **npm·pub.dev 게시됨(2026-08-26), 나머지 2채널 대기**
+## SDK 배포 채널 (기획서 6.5) — **4채널 전부 게시 완료 `v0.1.0` (2026-08-26)**
 
 버전은 **4개 SDK lockstep**(현재 `0.1.0`). 채널·좌표는 확정돼 각 매니페스트에 박혀 있고
 게시 자동화도 `.github/workflows/`에 들어와 있다(`ci.yml`·`release.yml` — 아래 "릴리스 CI").
-**2026-08-26 npm `@rynl10n/web@0.1.0`과 pub.dev `rynl10n@0.1.0`이 실제로 게시됐다** —
-이 저장소 최초의 레지스트리 게시다. 릴리스 태그는 여전히 0개이고(태그 경로가 아니라 둘 다 로컬 수동
-게시였다 — 아래 "두 레지스트리의 부트스트랩"), 남은 2채널을 막는 것은 **저장소 밖 항목뿐이다** —
-Sonatype 계정·서명키·시크릿 등록. (iOS 미러 저장소는 2026-08-26에 없앴다 — 아래 절.)
+**2026-08-26 태그 `v0.1.0`으로 4채널 배포를 마쳤다.** lockstep `0.1.0`이 네 레지스트리에서
+실물로 성립한다 — "버전 번호가 곧 어느 조합이 정합인가의 답"이라는 계약이 이제 검증 가능하다.
+
+```
+npm      @rynl10n/web@0.1.0             latest 0.1.0
+pub.dev  rynl10n 0.1.0                  latest 0.1.0
+Maven    com.devryner.rynl10n:android   0.1.0 (aar·sources·javadoc·pom·module + .asc 5종)
+SwiftPM  v0.1.0 (19de314a)              원격 resolve 검증 완료
+```
+
+npm·pub.dev의 0.1.0은 태그 이전에 **로컬 수동으로** 먼저 올라갔다(아래 "두 레지스트리의
+부트스트랩"). 태그 릴리스에서는 멱등 가드가 그 둘을 건너뛰고 Maven을 게시했으며, SPM은 태그 자체가
+배포였다. 그 결과 한 태그로 네 채널이 정렬됐다.
 
 | SDK | 채널 | 좌표 | 매니페스트 | 게시 상태 | 지금 붙이는 법 |
 | --- | --- | --- | --- | --- | --- |
-| iOS | SwiftPM (git 태그) | **이 저장소** + 태그 `v*` | 루트 `Package.swift` — products 3종(library·`rynl10n-bake` CLI·build tool plugin), 소스는 `sdks/ios/`를 path로 | 태그 0개 — **태그가 곧 배포**라 게시 잡이 없다 | `.package(path: "../..")` (`examples/ios-consumer`가 이 경로) |
-| Android | Maven Central (AAR) | `com.devryner.rynl10n:android:0.1.0` | `sdks/android/library/build.gradle.kts` — `maven-publish` + release variant + sources/javadoc jar + POM(라이선스·SCM·developer) 완비 | **Central 미게시** — 저장소 측 준비 끝, 서명키·계정만 남음 | `./gradlew :library:publishToMavenLocal` + 앱에 `mavenLocal()` |
+| iOS | SwiftPM (git 태그) | **이 저장소** + 태그 `v*` | 루트 `Package.swift` — products 3종(library·`rynl10n-bake` CLI·build tool plugin), 소스는 `sdks/ios/`를 path로 | ✅ **`v0.1.0`** — 태그가 곧 배포 | `.package(url: "https://github.com/devryner/RynL10n", from: "0.1.0")` |
+| Android | Maven Central (AAR) | `com.devryner.rynl10n:android:0.1.0` | `sdks/android/library/build.gradle.kts` — `maven-publish` + release variant + sources/javadoc jar + POM(라이선스·SCM·developer) 완비 | ✅ **게시됨** `0.1.0` (산출물 5종 + `.asc` 서명) | `implementation("com.devryner.rynl10n:android:0.1.0")` |
 | Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.1.0`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | ✅ **게시됨** `0.1.0` (2026-08-26, 로컬 수동 — provenance 미첨부) | `npm i @rynl10n/web` |
 | Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.1.0`, `publish_to` 해제, `.pubignore` | ✅ **게시됨** `0.1.0` (2026-08-26, 로컬 수동) | `dart pub add rynl10n` |
 
@@ -382,16 +391,14 @@ Flutter `publish_to` 해제 + `example/`·CHANGELOG · Android POM·sources·jav
 1. ~~**iOS**~~ — **완료(2026-08-26)**. 루트 `Package.swift`로 전환해 미러 저장소가 불필요해졌다.
    태그 `v0.1.0`을 미는 순간 SPM 배포가 끝난다.
    Linux CI를 켜려면 CryptoKit → swift-crypto 대체가 선행(`Package.swift` 주석).
-2. **Android** — `com.devryner` 네임스페이스 **DNS TXT 소유 검증** + Sonatype 계정 + GPG 키
-   (`SIGNING_KEY`·`SIGNING_PASSWORD`·`MAVEN_CENTRAL_URL`·`_USERNAME`·`_PASSWORD`).
+2. ~~**Android**~~ — **완료(2026-08-26)**. `com.devryner` DNS TXT 검증(Verified) + Portal User Token
+   + GPG 키(rsa4096/9A96C62527D31E43, keyserver 등록). 시크릿 5종 등록 완료.
 3. ~~**Web**~~ — **완료(2026-08-26)**. npm org `rynl10n` 확보 → `0.1.0` 로컬 수동 게시 →
    Trusted Publisher 등록(`devryner`/`RynL10n`/`release.yml`). 시크릿은 쓰지 않는다.
 4. ~~**Flutter**~~ — **완료(2026-08-26)**. `0.1.0` 로컬 수동 게시 → pub.dev admin에서
    Automated publishing 등록(`devryner/RynL10n` · 태그 패턴 `v{{version}}`). 시크릿은 쓰지 않는다.
-5. **공통** — 태그 `v0.1.0`. (`dry_run=true` 확인은 **2026-08-25에 끝냈다** — 위 절.
-   시크릿이 채워지면 한 번 더 돌려 실제 자격으로 붙는지 보는 게 안전하다.)
-   태그 하나가 4채널을 동시에 민다 — lockstep이 깨지면 골든 벡터 계약이 어느 조합에서 성립하는지
-   말할 수 없게 된다.
+5. ~~**공통**~~ — **완료(2026-08-26)**. 시크릿을 채운 뒤 `dry_run=true`를 한 번 더 돌려 전 채널
+   통과를 확인하고(run 32931061149), 태그 `v0.1.0`으로 배포했다(run 32931697204).
 
 **릴리스 게이트는 `ci.yml` 그 자체다**(`release.yml`이 `workflow_call`로 호출): 5개 컴포넌트 테스트 +
 `npm run gen:golden` 재실행 후 diff 없음(골든 벡터가 커밋 상태와 일치). 게이트는 퍼블리시 **이전에**
@@ -549,11 +556,10 @@ t()의 조회 로케일 = 호출 인자 → 설정 locale → bundle.defaultLoca
   (Flutter Web 웹 테스트는 `dart test -p chrome`이 필요해 기본 스위트에 넣지 않았다.)
 - **실제 앱 통합**: Xcode 앱 타깃·AGP 앱 모듈에서의 위젯 렌더·리소스 병합(SDK 계층은 완료·검증). Compose
   `stringResource` 얇은 래퍼는 앱 모듈.
-- **SDK 패키지 게시**: **npm·pub.dev는 게시됐다**(`@rynl10n/web@0.1.0` · `rynl10n@0.1.0`, 2026-08-26). 나머지 2채널은
-  코드·매니페스트·**릴리스 CI**까지 준비됐으나 아직 올라가 있지 않다(태그 0개). 남은 것은 저장소
-  밖이다 — 레지스트리 계정·서명키·시크릿 등록, 그다음
-  `dry_run` 검증 → 태그 `v0.1.0`. **단 태그 하나로 4채널이 끝나지 않는다** — npm·pub.dev의 첫 버전이
-  수동이었던 이유와, Maven의 Portal 승격 갭은 아래 두 절.
+- ~~**SDK 패키지 게시**~~ — **완료(2026-08-26)**. 4채널 전부 `0.1.0` 게시됨(위 "SDK 배포 채널" 절).
+  다음 릴리스(`v0.2.0`)에서 처음 검증되는 것이 둘 남아 있다: **npm OIDC 인증**(0.1.0에서는 멱등 가드가
+  건너뛰어 인증 경로를 타지 않았다)과 **pub.dev 자동 게시**(같은 이유). 그때 npm 잡이 인증 실패할
+  가능성을 열어두고 봐야 한다.
   채널·좌표·남은 절차는 위 "SDK 배포 채널" 절.
 - **프로덕션 토폴로지(M3+)**: Postgres·MinIO/S3·CDN·별도 빌더 워커·OIDC·Helm/K8s. 플레인 분리·API
   계약·결정적 빌더는 그대로 유지.
