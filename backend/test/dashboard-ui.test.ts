@@ -50,9 +50,13 @@ function installDom() {
   g.Node = StubNode;
   g.document = {
     createElement: (t: string) => new StubNode(t),
+    // 사이드바 아이콘은 인라인 SVG다 — SVG는 네임스페이스가 달라 createElement로는 만들 수 없고,
+    // app.js가 createElementNS를 쓴다. 스텁에 없으면 셸을 그리는 순간 전부 터진다.
+    createElementNS: (_ns: string, t: string) => new StubNode(t),
     createTextNode: (s: string) => Object.assign(new StubNode("#text"), { own: String(s) }),
     getElementById: (id: string) => byId[id],
-    querySelector: (_sel: string) => byId.app!.children.find((c: any) => c.tag === "main"),
+    // main은 셸 안쪽(app > .app > .workspace > main)이라 직계 자식이 아니다 — 트리를 훑는다.
+    querySelector: (_sel: string) => walk(byId.app!).find((c: any) => c.tag === "main"),
     body: new StubNode("body"),
   };
   const store: Record<string, string> = {};
@@ -173,7 +177,10 @@ test("로그인: 토큰을 /me로 검증하고 통과하면 프로젝트 목록�
   assert.equal(calls[0]!.auth, "Bearer tok-admin", "Bearer 헤더로 토큰을 보내야 한다");
   assert.equal(store["rynl10n.token"], "tok-admin", "검증에 성공해야만 토큰을 저장한다");
   assert.match(byId.app!.textContent, /Shop/);
-  assert.match(byId.app!.textContent, /admin · admin/, "헤더에 액터·역할 표시");
+  // 상단바는 아바타(머리글자) + 이름 + 역할로 나뉘어 있다 — 한 줄 문자열이 아니라 블록으로 본다.
+  const who = walk(byId.app!).find((x: any) => x.className === "who");
+  assert.ok(who, "상단바에 액터 블록이 있다");
+  assert.match(who.textContent, /admin/, "헤더에 액터·역할 표시");
 });
 
 test("로그인 실패(401)면 토큰을 저장하지 않고 로그인 화면에 머문다", async () => {
@@ -648,7 +655,7 @@ test("프로젝트를 다시 열면 필터는 초기화된다", async () => {
   q.fire("input");
   assert.deepEqual(shownKeys(byId.app), ["checkout.pay"]);
 
-  tags(byId.app, "button").find((b) => b.textContent === "← 프로젝트 목록")!.fire("click");
+  btn(byId.app, "프로젝트")!.fire("click"); // 사이드바의 인스턴스 그룹 항목
   await settle();
   tags(byId.app, "button").find((b) => b.textContent === "shop")!.fire("click");
   await settle();
@@ -899,7 +906,7 @@ test("프로젝트를 열면 고르다 만 파일은 버려진다 (돌아왔을 
 
   btn(byId.app, "shop")!.fire("click"); // 목록에서 프로젝트 진입
   await settle();
-  btn(byId.app, "← 프로젝트 목록")!.fire("click");
+  btn(byId.app, "프로젝트")!.fire("click"); // 사이드바의 인스턴스 그룹 항목
   await settle();
 
   assert.equal(byId.app!.textContent.includes("가져오기 확인"), false, "미리보기가 되살아나면 안 된다");
