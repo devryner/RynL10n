@@ -6,14 +6,14 @@ let package = Package(
     name: "Consumer",
     platforms: [.macOS(.v13)],
     dependencies: [
-        .package(path: "../../sdks/ios"),
+        .package(path: "../.."),
     ],
     targets: [
         .executableTarget(
             name: "Consumer",
-            dependencies: [.product(name: "RynL10n", package: "ios")],
+            dependencies: [.product(name: "RynL10n", package: "RynL10n")],
             exclude: ["rynl10n"], // vendored 스냅샷은 플러그인이 직접 읽음(SPM 리소스 처리 제외)
-            plugins: [.plugin(name: "RynL10nBakePlugin", package: "ios")] // ← 이 한 줄이면 끝
+            plugins: [.plugin(name: "RynL10nBakePlugin", package: "RynL10n")] // ← 이 한 줄이면 끝
         ),
     ]
 )

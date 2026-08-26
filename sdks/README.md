@@ -12,14 +12,14 @@ iOS(Swift/SPM)·Android(Kotlin/JVM)·**Web(TS)**·**Flutter(Dart)** 플랫폼 SD
 
 | SDK | 채널 / 좌표 | 지금 붙이는 법 |
 | --- | --- | --- |
-| iOS | SwiftPM — **미러 저장소 `rynl10n-swift` 선행**(아래) | `.package(path: "…/sdks/ios")` — `examples/ios-consumer`가 이 방식 |
+| iOS | SwiftPM — **이 저장소 + 태그**(아래) | `.package(path: "…/RynL10n")` — `examples/ios-consumer`가 이 방식 |
 | Android | Maven Central `com.devryner.rynl10n:android` | `./gradlew :library:publishToMavenLocal` + `mavenLocal()` |
 | Web | npm `@rynl10n/web` (컴파일된 `.js`+`.d.ts`) | `"@rynl10n/web": "file:…/sdks/web"` |
 | Flutter | pub.dev `rynl10n` | `dependencies: rynl10n: { path: …/sdks/flutter }` |
 
-**iOS는 태그만으로 되지 않는다**: SPM은 저장소 루트의 `Package.swift`만 패키지로 인식하는데 이 모노레포는
-`sdks/ios/Package.swift`라, 지금 형태 그대로는 배포 경로가 존재하지 않는다. 기획서 6.5가 확정한 해법은
-`sdks/ios/`를 subtree push하는 **미러 저장소 `rynl10n-swift`**(모노레포의 4개 SDK 대칭을 지키기 위해).
+**iOS는 매니페스트가 루트에 있다**: SPM은 저장소 루트의 `Package.swift`만 패키지로 인식하기 때문이다.
+소스는 `sdks/ios/` 아래 그대로이고 타깃이 `path:`로 가리키므로, 4개 SDK 대칭 레이아웃은 유지된다.
+**태그가 곧 SPM 배포**라 iOS에는 게시 잡도 시크릿도 없다(2026-08-26에 미러 저장소 안을 폐기했다).
 
 게시까지 남은 절차·레지스트리 게이트·릴리스 CI는 `HANDOVER.md`의 "SDK 배포 채널" 절.
 
@@ -153,8 +153,8 @@ gradle rynl10nBake -Pfetch=<url> -Ptoken=<t> -Pcache=<p> -Pout=<out-dir>
 ```swift
 .executableTarget(
     name: "App",
-    dependencies: [.product(name: "RynL10n", package: "ios")],
-    plugins: [.plugin(name: "RynL10nBakePlugin", package: "ios")]   // ← 이 한 줄
+    dependencies: [.product(name: "RynL10n", package: "RynL10n")],
+    plugins: [.plugin(name: "RynL10nBakePlugin", package: "RynL10n")]   // ← 이 한 줄
 )
 ```
 검증: `examples/ios-consumer`를 `swift build`하면 `[rynl10n] bake 완료` 후 `Consumer_Consumer.bundle`에
