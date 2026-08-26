@@ -92,9 +92,12 @@ publishing {
                         name.set("ChoiChiwon")
                     }
                 }
+                // Central은 scm의 connection·developerConnection·url을 **셋 다** 요구한다.
+                // 하나라도 빠지면 업로드는 되지만 Portal 검증에서 거부된다.
                 scm {
                     url.set("https://github.com/devryner/RynL10n")
                     connection.set("scm:git:https://github.com/devryner/RynL10n.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/devryner/RynL10n.git")
                 }
             }
         }
