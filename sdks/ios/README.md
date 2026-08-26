@@ -56,32 +56,30 @@ curl http://localhost:8788/myapp/manifest.json    # SDK가 읽는 경로 그대�
 
 ## 2. 패키지 추가
 
-> **원격 참조 경로가 아직 존재하지 않는다**(6.5). SPM은 **저장소 루트의 `Package.swift`만** 패키지로
-> 인식하는데 이 저장소는 `sdks/ios/Package.swift`다 — 그래서 `.package(url:)`은 태그를 달아도 통하지
-> 않는다. 기획서가 확정한 해법은 `sdks/ios/`를 subtree push하는 **미러 저장소 `rynl10n-swift`**이며
-> 아직 만들어지지 않았다. 지금 붙이는 길은 **로컬 경로 참조** 하나다(검증된 경로 —
-> `examples/ios-consumer`가 이 방식).
+> **패키지 매니페스트는 저장소 루트의 `Package.swift`다**(6.5). SPM이 루트 매니페스트만 인식하기
+> 때문이고, 소스는 여전히 `sdks/ios/` 아래에 있다(타깃이 `path:`로 가리킨다). 그래서 패키지 이름은
+> 디렉토리가 아니라 **`RynL10n`**이다.
 
-로컬 체크아웃을 참조(권장):
+정규 경로 — 태그가 붙으면 원격 참조가 그대로 동작한다(**태그가 곧 SPM 배포**):
 
 ```swift
-dependencies: [.package(path: "../RynL10n/sdks/ios")],
+dependencies: [.package(url: "https://github.com/devryner/RynL10n", from: "0.1.0")],
 targets: [
-    .target(name: "App", dependencies: [.product(name: "RynL10n", package: "ios")])
+    .target(name: "App", dependencies: [.product(name: "RynL10n", package: "RynL10n")])
 ]
 ```
 
-Xcode에서는 **File → Add Package Dependencies… → Add Local…** 로 `sdks/ios` 디렉토리를 고른 뒤
-`RynL10n` 라이브러리를 앱 타깃에 추가한다.
-
-미러 저장소가 서고 `v0.1.0` 태그가 붙으면 아래가 정규 경로가 된다:
+로컬 체크아웃을 참조(태그 이전, 또는 개발 중):
 
 ```swift
-dependencies: [.package(url: "https://github.com/devryner/rynl10n-swift", from: "0.1.0")],
+dependencies: [.package(path: "../RynL10n")],
 targets: [
-    .target(name: "App", dependencies: [.product(name: "RynL10n", package: "rynl10n-swift")])
+    .target(name: "App", dependencies: [.product(name: "RynL10n", package: "RynL10n")])
 ]
 ```
+
+Xcode에서는 **File → Add Package Dependencies… → Add Local…** 로 **저장소 루트**를 고른 뒤
+`RynL10n` 라이브러리를 앱 타깃에 추가한다(`sdks/ios`가 아니다).
 
 > 태그는 **삭제·재작성하지 않는다**(6.5). SPM은 레지스트리 심사가 없고 git 태그가 곧 버전이라,
 > 앱의 `Package.resolved`가 커밋 해시를 고정하고 있어 조용히 깨진다.

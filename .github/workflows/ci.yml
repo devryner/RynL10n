@@ -76,8 +76,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: swift --version
+      # 패키지 매니페스트는 저장소 루트에 있다(SwiftPM 제약 — 루트 Package.swift 주석 참조).
+      # 소스는 여전히 sdks/ios/ 아래이고, 타깃이 path로 가리킨다.
       - run: swift test
-        working-directory: sdks/ios
       # 차별점 ①(빌드타임 자동 번들링)의 소비 경로. 플러그인이 빌드 그래프에 붙는지까지 확인한다.
       - name: SPM 플러그인 소비 예제 빌드
         run: swift build
