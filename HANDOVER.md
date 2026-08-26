@@ -100,29 +100,43 @@ LICENSE · NOTICE      Apache-2.0
 > **런타임 의존성 0 원칙**: 참조·백엔드·iOS는 외부 런타임 의존성 없음(Node 내장 sqlite/crypto, CryptoKit).
 > Android=kotlinx(serialization·coroutines), Flutter=crypto·unorm_dart(NFC), 백엔드 devDep=typescript.
 
-## SDK 배포 채널 (기획서 6.5) — **매니페스트·릴리스 CI는 준비, 게시는 아직**
+## SDK 배포 채널 (기획서 6.5) — **npm·pub.dev 게시됨(2026-08-26), 나머지 2채널 대기**
 
-버전은 **4개 SDK lockstep**(현재 목표 `0.1.0`). 채널·좌표는 확정돼 각 매니페스트에 박혀 있고
-게시 자동화도 `.github/workflows/`에 들어왔으나(`ci.yml`·`release.yml` — 아래 "릴리스 CI"),
-**어느 레지스트리에도 아직 올라가지 않았다.** 릴리스 태그가 0개이고, 남은 것은 **저장소 밖 항목뿐이다** —
-미러 저장소 `rynl10n-swift` 생성과 레지스트리 계정·서명키·시크릿 등록.
+버전은 **4개 SDK lockstep**(현재 `0.1.0`). 채널·좌표는 확정돼 각 매니페스트에 박혀 있고
+게시 자동화도 `.github/workflows/`에 들어와 있다(`ci.yml`·`release.yml` — 아래 "릴리스 CI").
+**2026-08-26 npm `@rynl10n/web@0.1.0`과 pub.dev `rynl10n@0.1.0`이 실제로 게시됐다** —
+이 저장소 최초의 레지스트리 게시다. 릴리스 태그는 여전히 0개이고(태그 경로가 아니라 둘 다 로컬 수동
+게시였다 — 아래 "두 레지스트리의 부트스트랩"), 남은 2채널을 막는 것은 **저장소 밖 항목뿐이다** —
+Sonatype 계정·서명키·시크릿 등록. (iOS 미러 저장소는 2026-08-26에 없앴다 — 아래 절.)
 
 | SDK | 채널 | 좌표 | 매니페스트 | 게시 상태 | 지금 붙이는 법 |
 | --- | --- | --- | --- | --- | --- |
-| iOS | SwiftPM (git 태그) | 미러 저장소 `rynl10n-swift` + 태그 | `sdks/ios/Package.swift` — products 3종(library·`rynl10n-bake` CLI·build tool plugin) | **미러 미생성**(태그 0개) — CI의 subtree push 잡은 준비됨 | `.package(path: "…/sdks/ios")` (`examples/ios-consumer`가 이 경로) |
+| iOS | SwiftPM (git 태그) | **이 저장소** + 태그 `v*` | 루트 `Package.swift` — products 3종(library·`rynl10n-bake` CLI·build tool plugin), 소스는 `sdks/ios/`를 path로 | 태그 0개 — **태그가 곧 배포**라 게시 잡이 없다 | `.package(path: "../..")` (`examples/ios-consumer`가 이 경로) |
 | Android | Maven Central (AAR) | `com.devryner.rynl10n:android:0.1.0` | `sdks/android/library/build.gradle.kts` — `maven-publish` + release variant + sources/javadoc jar + POM(라이선스·SCM·developer) 완비 | **Central 미게시** — 저장소 측 준비 끝, 서명키·계정만 남음 | `./gradlew :library:publishToMavenLocal` + 앱에 `mavenLocal()` |
-| Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.1.0`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | **npm 미게시** — 차단은 풀림 | `"@rynl10n/web": "file:…/sdks/web"` |
-| Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.1.0`, `publish_to` 해제, `.pubignore` | **pub.dev 미게시** — `--dry-run` 통과 | `dependencies: rynl10n: { path: …/sdks/flutter }` |
+| Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.1.0`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | ✅ **게시됨** `0.1.0` (2026-08-26, 로컬 수동 — provenance 미첨부) | `npm i @rynl10n/web` |
+| Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.1.0`, `publish_to` 해제, `.pubignore` | ✅ **게시됨** `0.1.0` (2026-08-26, 로컬 수동) | `dart pub add rynl10n` |
 
-### iOS는 태그를 단다고 되지 않는다 (6.5 선행 조건)
+### iOS는 매니페스트가 루트에 있어야 한다 (6.5) — **미러 저장소를 없앴다(2026-08-26)**
 
-**SPM은 저장소 루트의 `Package.swift`만 패키지로 인식한다.** 이 모노레포는 `sdks/ios/Package.swift`라
-외부 앱이 `.package(url:)`로 당길 수 없다 — **지금 형태 그대로는 iOS 배포 경로가 아예 존재하지 않는다.**
-기획서가 확정한 해법은 **미러 저장소 `rynl10n-swift`**: 릴리스 CI가 `sdks/ios/`를 subtree push하고
-lockstep 태그를 미러에도 민다(모노레포의 4개 SDK 대칭 레이아웃을 지키는 것이 채택 이유). SPM 빌드
-플러그인(6.3)도 같은 패키지에 실려 나가므로 미러는 SDK와 플러그인을 함께 담아야 한다.
-기각안: 모노레포 루트에 `Package.swift` 배치 — 루트가 iOS 전용으로 점유돼 다른 언어 소비자에게
-구조를 오해하게 만든다.
+**SwiftPM은 저장소 루트의 `Package.swift`만 패키지로 인식한다.** `.package(url:)`에 하위 경로를 줄 수
+없다 — swift-package-manager#5768("Allow Package.swift not at the root")은 2022년에 닫혔고 Swift 6.3에도
+`subdir` 문법이 없다(로컬 6.3.3에서 확인). 그러나 **제약은 매니페스트 위치에만 걸리고 소스 위치는
+자유롭다.** 그래서 루트에 `Package.swift`를 두고 타깃이 `path:`로 `sdks/ios/`를 가리킨다 —
+4개 언어 SDK가 `sdks/` 밑에 대칭으로 놓이는 레이아웃은 그대로다.
+
+**소비자**: `.package(url: "https://github.com/devryner/RynL10n", from: "0.1.0")`.
+**태그가 곧 배포**이므로 릴리스 워크플로에 iOS 게시 잡이 없다.
+
+기각안: `sdks/ios/`를 subtree push하는 **미러 저장소 `rynl10n-swift`**(기획서의 원래 확정안).
+채택 근거였던 "소비자가 모노레포 전체를 받는다"가 실측에서 무너졌다 — **클론 전송량 205 KiB**
+(객체 1084개; `sdks/ios`의 145M은 빌드 산출물이라 git에 없다). 반면 유지 비용은 실재했다:
+별도 저장소 · `MIRROR_DEPLOY_KEY` 시크릿 · 전용 CI 잡 · 태그가 두 곳에 생김 ·
+**미러에서는 `swift test`가 돌지 않음**(골든 픽스처가 모노레포에만 있다). 전환으로 이 다섯이 한꺼번에
+사라졌고, 검증 대신 "루트에 `Package.swift`가 있는지" 확인하던 dry-run 검사도 불필요해졌다.
+
+전환 후 실측: 루트에서 **`swift test` 49개 전부 통과**, `examples/ios-consumer` 빌드 정상.
+비용은 하나 — **루트에 `Package.swift`가 보인다.** 타 언어 소비자가 저장소 성격을 오해할 수 있어
+매니페스트 첫머리에 왜 여기 있는지를 적어 두었다.
 
 > **태그 삭제·재작성 금지**(6.5). SPM은 레지스트리 심사가 없고 git 태그가 곧 버전이라,
 > 소비자의 `Package.resolved`가 커밋 해시를 고정하고 있어 조용히 깨진다.
@@ -143,18 +157,17 @@ lockstep 태그를 미러에도 민다(모노레포의 4개 SDK 대칭 레이아
   버전이 없다 — SPM은 git 태그가 곧 버전이다.
 - **`workflow_dispatch`의 `dry_run`**(기본 true)으로 각 채널의 dry-run까지만 돌려볼 수 있다.
   계정·키가 준비되기 전에 워크플로 자체를 검증하는 용도다.
-- **iOS 미러**는 `git subtree split --prefix=sdks/ios`로 만든다. split 결과 루트에 `Package.swift`·
-  `Plugins`·`Sources`·`Tests`가 오는 것을 실제로 확인했고, dry-run에도 **루트에 `Package.swift`가
-  있는지 검사**를 남겼다 — 그게 미러의 존재 이유이므로 조용히 어긋나면 안 된다.
-  미러에서는 `swift test`가 돌지 않는다(골든 픽스처가 모노레포에만 있다). 배포용이고 SPM은 의존
-  패키지의 테스트를 빌드하지 않으므로 소비자 영향은 없다.
+- **iOS 게시 잡은 없다** — SwiftPM에는 레지스트리 업로드가 없고 태그가 곧 버전이라, 워크플로를 띄운
+  `v*` 태그 자체가 이미 SPM 배포다. 2026-08-26 이전에는 미러 저장소로 subtree push하는 잡이 있었다.
 - **Gradle 서명·업로드는 환경변수가 있을 때만 켜진다**(`library/build.gradle.kts`). 무조건 켜면
   키 없는 개발 환경에서 `publishToMavenLocal`·`assembleRelease`까지 같이 죽는다. Central URL도
   환경에서만 온다 — 계정 종류(레거시 OSSRH / Central Portal)에 따라 달라서 저장소에 박으면
   조용히 틀린 곳으로 올라간다.
-- **필요한 시크릿**: `NPM_TOKEN` · `MAVEN_CENTRAL_URL`·`_USERNAME`·`_PASSWORD` ·
-  `SIGNING_KEY`(ASCII armored, 메모리로 전달)·`SIGNING_PASSWORD` · `MIRROR_DEPLOY_KEY`.
-  pub.dev는 시크릿이 없다 — GitHub OIDC로 인증한다(pub.dev 패키지 설정에서 저장소 허용 필요).
+- **필요한 시크릿 5종**: `MAVEN_CENTRAL_URL`·`_USERNAME`·`_PASSWORD` ·
+  `SIGNING_KEY`(ASCII armored, 메모리로 전달)·`SIGNING_PASSWORD`. (iOS는 시크릿이 없다 — 태그가 곧 배포.)
+  **npm과 pub.dev는 시크릿이 없다** — 둘 다 GitHub OIDC로 인증한다(npm=Trusted Publisher,
+  pub.dev=Automated publishing). `NPM_TOKEN`은 2026-08-26에 제거했다 — 아래 "두 레지스트리의
+  부트스트랩" 참조.
 
 ### 릴리스 dry-run 실전 검증 (2026-08-25) — **파이프라인은 태그를 받을 준비가 됐다**
 
@@ -174,8 +187,144 @@ lockstep 태그를 미러에도 민다(모노레포의 4개 SDK 대칭 레이아
 그대로였다 — 키 없는 환경의 `publishToMavenLocal`이 항상 죽는 상태였다.
 **dry-run을 건너뛰고 태그를 달았다면 4채널 중 3개만 성공해 lockstep이 깨졌을 것이다.**
 
-> npm 잡 로그는 두 번 다 GitHub 로그 스토리지가 503을 반환해 본문을 받지 못했다(잡 상태는 성공).
-> 위 tarball 내용은 같은 `npm publish --dry-run`을 로컬에서 돌려 확인한 값이다.
+> npm 잡 로그를 받지 못해 "GitHub 로그 스토리지가 503"이라고 적었으나 **오진이었다(2026-08-26 정정)**.
+> 실제 원인은 **개발 네트워크의 웹 필터가 `*.blob.core.windows.net`을 차단**하는 것이다 — Actions
+> 로그 본문이 그 스토리지에 있어서 `gh run view --log`가 차단 페이지를 받는다. GitHub 쪽 장애가
+> 아니므로 재시도해도 낫지 않는다. 잡 상태(success/failure)는 API로 정상 조회되니, 로그 본문이
+> 필요하면 다른 네트워크나 브라우저를 쓴다.
+
+### 첫 게시 실전 (2026-08-26) — npm·pub.dev
+
+```
+@rynl10n/web@0.1.0 · Apache-2.0 · 63 files · unpacked 192.5 kB
+tarball: registry.npmjs.org/@rynl10n/web/-/web-0.1.0.tgz · attestations 없음
+```
+
+`sdks/web`에서 `npm publish --access public`. **CI가 아니라 로컬 수동 게시다** — 이유는 아래 절.
+`--access public`은 생략 불가다(스코프 패키지 기본값이 private이라 402로 막힌다).
+**게시 직후 `npm view`가 404를 낸다** — 레지스트리 문서 전파 지연이고, 그 시점에도
+`npm access list packages rynl10n`은 `@rynl10n/web: read-write`를 반환한다. 이 둘이 어긋나면
+"게시가 실패했다"가 아니라 "아직 전파 중"으로 읽어야 한다(수 분 뒤 200).
+
+provenance는 붙지 않았다 — GitHub Actions 안에서만 발급되므로 **로컬 게시본인 `0.1.0`은 영구히
+서명 없이 남는다.** 0.2.0부터 OIDC 게시라 자동으로 붙는다.
+
+```
+rynl10n 0.1.0 → pub.dev · 35 KB compressed · 경고 0건
+```
+
+`sdks/flutter`에서 `dart pub publish`. 확인 프롬프트(`y/N`) + Google OAuth를 거친다. 서버 응답이
+**"it may take up-to 10 minutes"**라고 알려주듯 여기도 전파 지연이 있다(실측 수 분).
+pub.dev는 npm보다 엄격하다 — **"Publishing is forever; packages cannot be unpublished."**
+게시 전 `--dry-run`으로 경고 0건을 확인하는 습관이 여기서는 선택이 아니다.
+
+### 두 레지스트리의 부트스트랩 — **첫 버전은 CI로 못 올린다**
+
+npm과 pub.dev는 **자동 게시 설정을 패키지가 이미 존재할 때만 받는다**
+(npm=Trusted Publisher, pub.dev=Automated publishing). 그런데 둘 다 같은 버전 재게시를 거부한다.
+따라서 두 채널의 **첫 버전은 반드시 손으로 올리고, 그다음 자동 게시를 등록**하는 순서다.
+릴리스 CI를 아무리 잘 만들어도 이 한 칸은 건너뛸 수 없다 — **`v0.1.0` 태그 하나로 4채널이
+끝난다는 그림은 성립하지 않는다.** 진짜 원커맨드 릴리스는 `v0.2.0`부터다.
+
+**npm은 OIDC로 전환했다(2026-08-26).** `release.yml`의 npm 잡에서 `NODE_AUTH_TOKEN`/`NPM_TOKEN`을
+제거하고 Trusted Publishing으로 붙인다:
+
+- 등록값: `devryner` / `RynL10n` / 워크플로 파일명 `release.yml` / environment 없음
+- `registry-url`은 **남긴다** — `.npmrc`의 레지스트리 지정은 OIDC 경로에서도 필요하다
+- `npm install -g npm@latest`를 넣었다. OIDC 교환은 **npm 11.5.1+ 전용**이라 Node 24 번들 버전에
+  맡기면 러너 이미지가 바뀔 때 조용히 미달하고, 미달하면 토큰 경로로 떨어지는데 그 토큰이 없어 죽는다
+- `--provenance`는 **빼야 한다** — OIDC 게시에 자동 첨부된다
+
+토큰을 없앤 건 편의가 아니라 시한 때문이다: **npm은 2027-01부터 2FA 우회 토큰의 직접 게시를 폐지**한다
+(2026-08 시점엔 계정·거버넌스 작업이 이미 막혔다). 토큰 방식으로 세팅했다면 반년 뒤 다시 뜯어야 했다.
+
+**pub.dev의 Automated publishing도 등록했다(2026-08-26)**: `devryner/RynL10n` · 태그 패턴
+`v{{version}}` · **push 이벤트만 활성**(`workflow_dispatch`는 끈 채로 둔다 — 실게시 경로가 태그
+push 하나뿐이어야 수동 트리거로 실수 게시가 나지 않는다. `dry_run` 실행은 `dart pub publish --dry-run`
+이라 인증을 타지 않으므로 영향 없다). pub 잡은 원래부터 OIDC라 `release.yml` 수정이 없었다.
+
+> **두 채널의 검증 수준이 다르다.** pub.dev는 설정이 서버에 저장된 것을 페이지 재로드로 확인했다.
+> npm의 Trusted Publisher는 그런 확인을 못 했다 — `npm publish --dry-run`은 인증을 타지 않아
+> 로그아웃 상태에서도 통과하므로 `dry_run`으로 검증할 수 없고, `npm trust` CLI도 11.8.0에 없다.
+> **npm은 첫 OIDC 게시가 곧 첫 검증**이므로, `v0.2.0` 태그를 밀 때 npm 잡의 인증 실패 가능성을
+> 열어두고 봐야 한다.
+
+> **pub.dev의 Manual publishing은 켜 둔 채로 남겼다.** 자동 게시를 켜면 끄는 것이 pub.dev 권고지만,
+> 파이프라인이 아직 한 번도 실게시를 해보지 않았다 — 첫 태그 릴리스가 성공하기 전에 수동 경로를
+> 끊으면 실패했을 때 대안이 없다. **`v0.2.0`이 자동 게시로 성사된 뒤에 끈다.**
+
+### 멱등 가드 — **첫 게시가 워크플로 밖에서 일어났기 때문에 필요하다** (2026-08-26)
+
+시크릿 5종을 모두 채우고 돌린 dry-run(run 32929226769)에서 **npm 잡만 실패**했다. 원인은 인증이 아니라
+버전 충돌이다:
+
+```
+npm error You cannot publish over the previously published versions: 0.1.0.
+```
+
+`npm publish --dry-run`은 레지스트리에 **사전 확인을 하므로** 이미 게시된 버전에서는 dry-run부터 죽는다.
+부트스트랩 때문에 0.1.0이 이 워크플로 밖에서 손으로 올라갔으니, 가드가 없으면 `v0.1.0` 태그는 npm 잡을
+영구히 빨갛게 만들고 **"4채널 중 일부만 성공한 실행"과 구분되지 않는다.**
+
+**pub.dev에는 같은 문제가 더 나쁜 형태로 잠복해 있었다.** `dart pub publish --dry-run`은 로컬 검증만
+하므로 dry-run은 초록으로 통과하고 **실제 태그 릴리스에서만 죽는다** — 되돌릴 수 없는 지점에서 처음
+드러나는 실패다.
+
+두 잡 모두 게시 전에 레지스트리를 조회해 이미 있으면 건너뛴다(`npm view` / pub.dev
+`/api/packages/rynl10n/versions/{v}` 200 여부). 실제 레지스트리에 대고 0.1.0(건너뜀)·0.2.0(진행)
+양방향을 확인했다. 덤으로 **워크플로 재실행 안전성**도 같이 얻는다.
+
+이 가드 덕분에 **`v0.1.0` 태그로 4채널을 정렬할 수 있다** — npm·pub은 건너뛰고 maven·SPM은 게시되어
+0.1.0이 네 채널 모두에 존재하게 된다. 가드가 없었다면 0.2.0까지 기다려야 lockstep이 성립했다.
+
+### Maven Central은 업로드가 끝이 아니다 — **승격 단계를 넣었다(2026-08-26)**
+
+`publishReleasePublicationToMavenCentralRepository`는 OSSRH Staging API에 **올리기만 한다.**
+승격 호출이 없으면 배포는 스테이징에 머물러 Portal에도, Maven Central에도 나타나지 않는다 —
+**태그를 밀어도 Maven만 조용히 빠지는** 형태의 실패다. dry-run은 `publishToMavenLocal`까지만
+가기 때문에 2026-08-25 4채널 검증이 이 갭을 통과시켰다. `release.yml`의 maven 잡에 승격 스텝을
+추가해 막았다:
+
+```
+POST https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/com.devryner
+     ?publishing_type=automatic
+Authorization: Bearer <base64(tokenUser:tokenPass)>
+```
+
+세 가지가 이 스텝의 함정이고 전부 주석으로 남겼다:
+
+- **Basic이 아니라 Bearer**다. 값은 `base64(user:pass)` — 형식만 Basic을 닮았다.
+- **base64 변환값은 Actions의 시크릿 마스킹을 타지 않는다.** 원본 시크릿은 마스킹되지만 파생값은
+  아니므로 절대 출력하지 않는다.
+- **GNU `base64`는 76자마다 줄을 바꾼다.** `-w0`가 없으면 헤더가 깨져 401이 난다.
+
+`publishing_type=automatic`을 택했다(기본값은 `user_managed`=Portal 수동 승인). 나머지 3채널은
+태그 하나로 즉시 영구 게시되는데 Maven만 사람 승인을 남기면, 그 한 번을 잊는 순간 **"버전 번호가 곧
+정합 조합"이라는 lockstep 계약이 조용히 거짓**이 된다. 검증 게이트는 이미 전부 앞에 있다.
+실패하면 산출물이 스테이징에 남으므로 `DELETE /manual/drop/repository/{key}`로 정리한 뒤 재시도한다.
+
+`MAVEN_CENTRAL_URL`에 넣을 값도 이 Staging API 엔드포인트다:
+`https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/`
+
+> 이 경로는 **계정이 생기기 전까지 실행 검증이 불가능하다.** YAML 파싱과 `bash -n`까지는 통과했다.
+
+**POM의 `developerConnection`이 빠져 있었다(2026-08-26 수정).** Central은 `scm`의
+`connection`·`developerConnection`·`url`을 **셋 다** 요구한다. 하나가 없으면 **업로드는 성공하고
+Portal 검증에서 거부**되는데, 실패 지점이 업로드에서 멀어 원인을 짚기 어렵다. 게다가 dry-run
+(`publishToMavenLocal`)은 POM 내용을 검사하지 않아 이 결함을 영영 통과시킨다.
+`./gradlew :library:generatePomFileForReleasePublication`으로 실제 POM을 뽑아 Central 필수 필드
+9종(groupId·artifactId·version·name·description·url·licenses·developers·scm)을 전부 대조했다 —
+**계정 없이 저장소 쪽을 검증할 수 있는 유일한 지점이므로 POM을 고쳤으면 이걸 다시 돌린다.**
+sources/javadoc jar는 `singleVariant("release")`의 `withSourcesJar()`·`withJavadocJar()`가 담당하고,
+체크섬(MD5·SHA1)과 `.asc` 서명은 Gradle이 업로드 시 생성한다.
+
+**GPG 공개키를 keyserver에 올리는 것을 잊으면** 서명은 붙는데 Portal 검증에서 거부된다
+(`gpg --keyserver keyserver.ubuntu.com --send-keys <KEYID>`). 이것도 실패가 멀리서 나타나는 자리다.
+
+네임스페이스 검증은 **`devryner.com` apex에 TXT 레코드**다 — `com.devryner` 네임스페이스의 검증
+대상은 정확히 그 도메인이고 `com.devryner.com` 같은 변형은 동작하지 않는다. 도메인은 Cloudflare NS로
+관리 중이라 대시보드에서 바로 추가할 수 있다. 막히면 **GitHub 가입 시 자동 검증되는
+`io.github.devryner`가 탈출구**이지만, 좌표가 바뀌므로 문서·매니페스트를 함께 고쳐야 한다.
 
 ### 게시 준비 현황 (2026-08-21)
 
@@ -183,7 +332,7 @@ lockstep 태그를 미러에도 민다(모노레포의 4개 SDK 대칭 레이아
 | --- | --- | --- |
 | Flutter | `0.1.0` · `publish_to` 해제 · LICENSE·CHANGELOG·`example/` 추가 · `.pubignore`로 `test/` 제외 | **✅ `dart pub publish --dry-run` 통과**(경고는 uncommitted git 상태 하나뿐, 35KB) |
 | Android | `0.1.0` · `maven-publish` · sources·javadoc jar · POM(name·description·url·license·scm·developer) | **✅ 저장소 측 준비 끝** — 남은 건 GPG 서명 + Sonatype 계정(외부) |
-| iOS | 태그가 곧 버전이라 매니페스트에 버전 없음 | 미러 저장소 `rynl10n-swift` 선행(위) |
+| iOS | 태그가 곧 버전이라 매니페스트에 버전 없음 | **✅ 루트 `Package.swift`로 즉시 가능**(2026-08-26) |
 | Web | `0.1.0` · `files`·`exports`·메타데이터 + `prepack`의 **`tsc` 게시 빌드**. `private` 제거 | **✅ 블로커 3건 해소**(아래) — `npm publish` 열림 |
 
 **Flutter `.pubignore`로 `test/`를 뺀 이유**: 테스트가 저장소 루트 `fixtures/golden/`을 읽는데 그 경로는
@@ -230,12 +379,15 @@ import했다(카나리 버킷 SHA-256). 브라우저에 없는 모듈이라 **ro
 Flutter `publish_to` 해제 + `example/`·CHANGELOG · Android POM·sources·javadoc · 릴리스 CI.
 남은 것은 **계정·소유 검증·키**뿐이다:
 
-1. **iOS** — 미러 저장소 `rynl10n-swift` **생성**(+ `MIRROR_DEPLOY_KEY` 등록). subtree push는 CI에 있다.
+1. ~~**iOS**~~ — **완료(2026-08-26)**. 루트 `Package.swift`로 전환해 미러 저장소가 불필요해졌다.
+   태그 `v0.1.0`을 미는 순간 SPM 배포가 끝난다.
    Linux CI를 켜려면 CryptoKit → swift-crypto 대체가 선행(`Package.swift` 주석).
 2. **Android** — `com.devryner` 네임스페이스 **DNS TXT 소유 검증** + Sonatype 계정 + GPG 키
    (`SIGNING_KEY`·`SIGNING_PASSWORD`·`MAVEN_CENTRAL_URL`·`_USERNAME`·`_PASSWORD`).
-3. **Web** — `@rynl10n` npm org 확보 + `NPM_TOKEN`.
-4. **Flutter** — pub.dev 패키지 설정에서 이 저장소를 **OIDC 허용**(시크릿 없음).
+3. ~~**Web**~~ — **완료(2026-08-26)**. npm org `rynl10n` 확보 → `0.1.0` 로컬 수동 게시 →
+   Trusted Publisher 등록(`devryner`/`RynL10n`/`release.yml`). 시크릿은 쓰지 않는다.
+4. ~~**Flutter**~~ — **완료(2026-08-26)**. `0.1.0` 로컬 수동 게시 → pub.dev admin에서
+   Automated publishing 등록(`devryner/RynL10n` · 태그 패턴 `v{{version}}`). 시크릿은 쓰지 않는다.
 5. **공통** — 태그 `v0.1.0`. (`dry_run=true` 확인은 **2026-08-25에 끝냈다** — 위 절.
    시크릿이 채워지면 한 번 더 돌려 실제 자격으로 붙는지 보는 게 안전하다.)
    태그 하나가 4채널을 동시에 민다 — lockstep이 깨지면 골든 벡터 계약이 어느 조합에서 성립하는지
@@ -397,9 +549,11 @@ t()의 조회 로케일 = 호출 인자 → 설정 locale → bundle.defaultLoca
   (Flutter Web 웹 테스트는 `dart test -p chrome`이 필요해 기본 스위트에 넣지 않았다.)
 - **실제 앱 통합**: Xcode 앱 타깃·AGP 앱 모듈에서의 위젯 렌더·리소스 병합(SDK 계층은 완료·검증). Compose
   `stringResource` 얇은 래퍼는 앱 모듈.
-- **SDK 패키지 게시**: 4개 SDK 모두 코드·매니페스트·**릴리스 CI**까지 준비됐으나 어느 레지스트리에도
-  올라가 있지 않다(태그 0개). 남은 것은 저장소 밖이다 — 미러 저장소 `rynl10n-swift` 생성,
-  레지스트리 계정·서명키·시크릿 등록, 그다음 `dry_run` 검증 → 태그 `v0.1.0`.
+- **SDK 패키지 게시**: **npm·pub.dev는 게시됐다**(`@rynl10n/web@0.1.0` · `rynl10n@0.1.0`, 2026-08-26). 나머지 2채널은
+  코드·매니페스트·**릴리스 CI**까지 준비됐으나 아직 올라가 있지 않다(태그 0개). 남은 것은 저장소
+  밖이다 — 레지스트리 계정·서명키·시크릿 등록, 그다음
+  `dry_run` 검증 → 태그 `v0.1.0`. **단 태그 하나로 4채널이 끝나지 않는다** — npm·pub.dev의 첫 버전이
+  수동이었던 이유와, Maven의 Portal 승격 갭은 아래 두 절.
   채널·좌표·남은 절차는 위 "SDK 배포 채널" 절.
 - **프로덕션 토폴로지(M3+)**: Postgres·MinIO/S3·CDN·별도 빌더 워커·OIDC·Helm/K8s. 플레인 분리·API
   계약·결정적 빌더는 그대로 유지.
