@@ -185,25 +185,142 @@ function renderLogin(error) {
   input.focus();
 }
 
+// ── 아이콘 ───────────────────────────────────────────────────────────────────
+
+/**
+ * 인라인 SVG — `el()`은 `createElement`라 SVG를 만들 수 없다(네임스페이스가 다르면 브라우저가
+ * HTMLUnknownElement로 취급해 아무것도 그리지 않는다). 외부 아이콘 폰트·스프라이트를 쓰지 않는
+ * 이유는 style.css와 같다: 에어갭 배포(9.4)에서 번들만으로 동작해야 한다.
+ */
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function icon(name, size = 17) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  for (const [k, v] of Object.entries({
+    viewBox: "0 0 24 24", width: size, height: size, fill: "none", stroke: "currentColor",
+    "stroke-width": "1.7", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true",
+  })) svg.setAttribute(k, String(v));
+  for (const shape of ICONS[name] ?? []) {
+    const [tag, attrs] = typeof shape === "string" ? ["path", { d: shape }] : shape;
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+    svg.append(node);
+  }
+  return svg;
+}
+
+const ICONS = {
+  globe: [["circle", { cx: 12, cy: 12, r: 9 }], "M3 12h18",
+          "M12 3c2.5 2.6 3.8 5.7 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.7-3.8-9S9.5 5.6 12 3z"],
+  folder: ["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
+  translate: ["M4 6h9", "M8 4v2c0 4-1.8 6.8-4 8", "M6 11c1.4 2.2 3.4 3.6 6 4.4",
+              "M13 20l4.2-10 4.2 10", "M14.6 16.8h5.2"],
+  tag: ["M20.6 12.6L12.7 20.5a2 2 0 0 1-2.8 0l-6.4-6.4a2 2 0 0 1-.6-1.6l.5-6.3a2 2 0 0 1 1.8-1.8l6.3-.5a2 2 0 0 1 1.6.6l6.4 6.4a2 2 0 0 1 0 2.8z",
+        ["circle", { cx: 8.5, cy: 8.5, r: 1.4 }]],
+  deploy: ["M6.5 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.5 8.6 4.2 4.2 0 0 1 18 17", "M12 12v8", "M9 15l3-3 3 3"],
+  chart: ["M4 20V10", "M10 20V4", "M16 20v-7", "M22 20H2"],
+  swap: ["M8 9l4-4 4 4", "M16 15l-4 4-4-4"],
+  logout: ["M14 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h8", "M17 15l3-3-3-3", "M20 12H10"],
+};
+
+/** 아바타·프로젝트 마크에 넣을 머리글자. 구분자로 끊어 두 글자, 못 끊으면 앞 두 글자. */
+function initials(name) {
+  const s = String(name ?? "").trim();
+  if (!s) return "?";
+  const parts = s.split(/[\s._@-]+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return s.slice(0, 2).toUpperCase();
+}
+
 // ── 공통 셸 ──────────────────────────────────────────────────────────────────
 
+/**
+ * 좌측 고정 내비 + 상단 바.
+ *
+ * 프로젝트 상세의 탭(번역·릴리스·배포·관측성)은 화면 안이 아니라 **사이드바**에 있다.
+ * 탭 줄을 없앤 이유는 화면 계층이 두 개(인스턴스 / 프로젝트)라는 사실이 상단 탭으로는 드러나지
+ * 않기 때문이다 — 프로젝트 목록은 탭과 나란한 것이 아니라 한 단계 위다.
+ *
+ * 사이드바는 `state`를 그리기만 한다(라우팅은 여전히 상태뿐이다). 그래서 호출부는 본문만 넘긴다.
+ */
 function shell(...content) {
-  const crumb = state.project
-    ? el("button", { class: "link", text: "← 프로젝트 목록", onClick: () => openProjects() })
-    : null;
-  mount(
-    el("header", { class: "top" },
-      el("h1", { text: "RynL10n" }),
-      crumb,
-      state.project ? el("span", { class: "muted small", text: `${state.project.name} (${state.project.id})` }) : null,
-      el("span", { class: "spacer" }),
-      state.projectId
-        ? el("span", { class: `badge ${state.live ? "live" : "off"}`, text: state.live ? "실시간 연결됨" : "실시간 끊김" })
-        : null,
-      el("span", { class: "who", text: `${state.me.actor} · ${state.me.role}` }),
-      el("button", { class: "tiny", text: "로그아웃", onClick: logout }),
+  mount(el("div", { class: "app" }, sidebar(), el("div", { class: "workspace" }, topbar(),
+    el("main", {}, ...content.flat().filter(Boolean)))));
+}
+
+function sidebar() {
+  const inProject = Boolean(state.project);
+
+  const navItem = (name, label, current, onClick) =>
+    el("button", { class: "nav-item", "aria-current": String(current), onClick },
+      icon(name), el("span", { class: "grow", text: label }));
+
+  const groups = [
+    el("div", { class: "nav-group" },
+      el("div", { class: "nav-label", text: "인스턴스" }),
+      navItem("folder", "프로젝트", !inProject, () => openProjects()),
     ),
-    el("main", {}, ...content.flat().filter(Boolean)),
+  ];
+
+  if (inProject) {
+    // 스위처는 카드가 껍데기고 실제 컨트롤은 겹쳐 둔 select다 — 키보드 조작을 그대로 얻는다.
+    const select = el("select", {
+      "aria-label": "프로젝트 전환",
+      onChange: (e) => { if (e.target.value !== state.projectId) openProject(e.target.value); },
+    }, ...state.projects.map((p) =>
+      el("option", { value: p.id, selected: p.id === state.projectId, text: p.name })));
+
+    groups.push(el("div", { class: "nav-group" },
+      el("div", { class: "nav-label", text: "프로젝트" }),
+      el("div", { class: "switcher" },
+        el("span", { class: "switcher-mark", text: initials(state.project.name) }),
+        el("span", { class: "switcher-name" },
+          el("b", { text: state.project.name }), el("span", { text: state.project.id })),
+        icon("swap", 14), select),
+      ...TABS.map(([id, label, ic]) =>
+        navItem(ic, label, state.tab === id, () => { state.tab = id; renderProject(); })),
+    ));
+  }
+
+  return el("aside", { class: "sidebar" },
+    el("div", { class: "brand" },
+      el("span", { class: "brand-mark" }, icon("globe", 19)),
+      el("span", { class: "brand-name" },
+        el("b", { text: "RynL10n" }),
+        el("span", { text: location.host }))),
+    el("nav", { class: "nav" }, ...groups),
+    // 실시간 신호(SSE)는 관리 플레인 연결이다. 끊겨도 배포는 CDN에서 계속 서빙된다(4.1).
+    inProject
+      ? el("div", { class: "sidebar-status" },
+          el("div", { class: "head" },
+            el("span", { class: `dot ${state.live ? "" : "off"}` }),
+            el("span", { text: state.live ? "실시간 연결됨" : "실시간 끊김" })),
+          state.me.deliveryBaseUrl
+            ? el("div", { class: "detail", text: state.me.deliveryBaseUrl })
+            : null)
+      : null,
+  );
+}
+
+function topbar() {
+  const tab = TABS.find(([id]) => id === state.tab);
+  const title = state.project ? (tab ? tab[1] : state.project.name) : "프로젝트";
+
+  return el("header", { class: "topbar" },
+    el("div", { class: "titles" },
+      el("h1", { text: title }),
+      state.project
+        ? el("div", { class: "crumbs" },
+            el("button", { class: "link", text: "프로젝트", onClick: () => openProjects() }),
+            el("span", { text: "/" }),
+            el("b", { text: state.project.name }))
+        : el("div", { class: "crumbs", text: "토큰 스코프에 포함된 프로젝트" })),
+    el("span", { class: "spacer" }),
+    el("div", { class: "who" },
+      el("span", { class: "avatar", text: initials(state.me.actor) }),
+      el("span", { class: "who-name" },
+        el("b", { text: state.me.actor }), el("span", { text: state.me.role })),
+      el("button", { class: "tiny", title: "로그아웃", onClick: logout }, icon("logout", 15))),
   );
 }
 
@@ -605,25 +722,19 @@ async function refresh({ delivery = true } = {}) {
 }
 
 const TABS = [
-  ["translations", "번역"],
-  ["releases", "릴리스"],
-  ["delivery", "배포"],
-  ["telemetry", "관측성"],
+  ["translations", "번역", "translate"],
+  ["releases", "릴리스", "tag"],
+  ["delivery", "배포", "deploy"],
+  ["telemetry", "관측성", "chart"],
 ];
 
 function renderProject() {
-  const tabs = el("nav", { class: "tabs" }, ...TABS.map(([id, label]) =>
-    el("button", {
-      text: label,
-      "aria-current": String(state.tab === id),
-      onClick: () => { state.tab = id; renderProject(); },
-    }),
-  ));
+  // 탭 줄은 없다 — 사이드바가 그린다(shell 주석 참조).
   const body = state.tab === "translations" ? tabTranslations()
     : state.tab === "releases" ? tabReleases()
     : state.tab === "delivery" ? tabDelivery()
     : tabTelemetry();
-  shell(tabs, body);
+  shell(body);
 }
 
 // ── 탭: 번역 ────────────────────────────────────────────────────────────────
