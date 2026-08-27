@@ -5,10 +5,13 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 395개 전부 통과(TS 참조 72 · 백엔드 135 · Web 33 · iOS 49 · Android 53 · Flutter 53 —
+테스트 449개 전부 통과(TS 참조 72 · 백엔드 189 · Web 33 · iOS 49 · Android 53 · Flutter 53 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
-iOS는 실제 백엔드 대상 왕복 확인).
+iOS는 실제 백엔드 대상 왕복 확인. 2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후
+GitHub Actions에서 5개 컴포넌트 전부 재실행.
+2026-08-27 **MCP 도구 표면** 추가로 백엔드 145 → 189 — `src/`·`fixtures/`·`sdks/`가 무변경이라
+골든 벡터 계약이 걸린 자리를 안 건드렸고, 재실행은 TS 참조·백엔드·Web으로 한정했다).
 남은 것은 실제 앱/외부 환경 의존 항목뿐(아래 "열려 있는 항목" 참조). 전체 지도는 `HANDOVER.md`.
 
 - **코어 스택**: TypeScript/Node ≥ 23.6 (네이티브 타입 스트리핑, 빌드 스텝 없음). 참조 구현·백엔드 모두
@@ -20,9 +23,17 @@ iOS는 실제 백엔드 대상 왕복 확인).
   - `swift test` (`sdks/ios`, Swift 6) · `gradle test` (`sdks/android`, Gradle 9/JDK 21) ·
     `node --test "test/*.test.ts"` (`sdks/web`) · `dart pub get && dart test` (`sdks/flutter`, Dart 3.5+)
   - `docker compose up` — 단일 노드 셀프호스트 (관리 API :8787 + 배포 플레인 :8788)
+  - `npm run smoke:consumer` — **소비자 스모크**(`tools/consumer-smoke/`). 네 채널의 **게시본**을
+    저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 449개는 전부 소스를
+    보므로 게시본에만 있는 실패(패키징 누락·`exports` 경로·POM 스코프·태그가 가리키는 커밋)를 볼
+    자리가 여기뿐이다. CI 아님 — **태그를 민 직후 로컬 1회**. 케이스는 `run.ts`의 `CHECKS` 한 곳에
+    있고 네 언어가 같은 `checks.json`을 읽는다(골든 벡터와 같은 원리). 전제는 하나 — 소비자 쪽에
+    `mavenLocal()`·`file:`·`path:`를 두지 않는 것.
 - **레이아웃**: `src/`(M0 TS 참조 구현 — serialize·core·builder·client, 결정적 코어의 단일 원천) ·
-  `backend/`(M2 관리 백엔드, `../src/builder` 재사용; `src/ui/`=대시보드) · `sdks/`(ios·android·web·flutter) ·
-  `tools/gen-golden.ts` + `fixtures/golden/`(크로스언어 계약) · `examples/ios-consumer/`(SPM 플러그인 소비 예제) ·
+  `backend/`(M2 관리 백엔드, `../src/builder` 재사용; `src/ui/`=대시보드 · `src/config.ts`=환경 판정 ·
+  `src/mcp/`=MCP 도구 표면) ·
+  `sdks/`(ios·android·web·flutter) ·
+  `tools/gen-golden.ts` + `fixtures/golden/`(크로스언어 계약) · `tools/consumer-smoke/`(게시본 소비 검증) · `examples/ios-consumer/`(SPM 플러그인 소비 예제) ·
   `OPERATIONS.md`(운영 가이드). 상세는 `HANDOVER.md`와 각 디렉토리 README.
 - **골든 벡터 = 크로스언어 계약**: TS 참조 구현이 정규화·해시·resolve·매칭·카나리의 기대 출력을 언어 무관
   JSON으로 방출하고, 4개 언어 SDK가 이를 로드해 바이트·해시·동작 정합을 기계 검증한다.
@@ -197,6 +208,37 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
 `Access-Control-Allow-Headers`에도 들어간다. 오리진은 `RYNL10N_DELIVERY_ALLOW_ORIGIN`(기본 `*` —
 공개 읽기 전용 정적 파일이라 자격 증명을 쓰지 않는다).
 
+### MCP 도구 표면 (`POST /mcp`, `backend/src/mcp/`)
+
+관리 플레인에 JSON-RPC 2.0(Streamable HTTP)로 붙은 **에이전트용 표면**. 읽기 전용 도구 2종.
+끄려면 `createManagementServer({ serveMcp: false })`. 상세는 `backend/README.md`.
+
+**인증은 새 축을 만들지 않는다** — 기존 Bearer + RBAC 4역할 + 프로젝트 스코프 그대로다. 도구마다
+라우트와 같은 capability를 달고, `tools/list`는 **호출자가 쓸 수 없는 도구를 아예 뺀다**(모델에게
+보이지 않는 편이 호출 후 거부당하는 것보다 낫다). 도구 실행 실패는 JSON-RPC 에러가 아니라
+`isError` **결과**로 나간다 — 프로토콜 에러로 올리면 대화가 끊긴다.
+
+**전송 계층은 직접 구현했다.** `@modelcontextprotocol/sdk`는 이 저장소 최초의 런타임 의존성이
+되므로 쓰지 않는다. 대가로 표면이 최소다: stateless · 서버→클라이언트 스트림 없음(`GET /mcp`=405) ·
+알림은 본문 없는 202. 셋 다 스펙이 허용한다.
+
+- **`validate_translation`** — 번역 값을 **저장하지 않고** 검사. **판정은 단일 원천이다**: `ok`를
+  실제 쓰기 경로가 쓰는 `requireTranslationImport`가 정한다(그래서 그 함수를 `api/server.ts` 밖으로
+  뺐다 — `api/translation-import.ts`, 에러 타입은 `api/errors.ts`). 여기서 규칙을 다시 구현하면
+  "미리보기는 통과, 실제 쓰기는 422"라는 최악의 조합이 생긴다. 로케일별로 문제를 쪼개는 것도 규칙
+  복제가 아니라 **같은 검증기를 슬라이스마다 다시 부르는 것**이고, 그 불변식을 테스트가 케이스마다
+  대조한다. 엔트리가 **배열**인 이유 = "같은 키의 번역끼리 서명이 다르다"(422)는 단건으로 못 잡는다.
+  **쓰기 도구를 붙일 때 입력 스키마를 그대로 공유할 것** — 갈리면 그 사이에서 변형이 일어난다.
+- **`resolve_preview`** — "이 앱 버전에서 이 키가 무엇으로 보이고 **왜** 그런가."
+  `preview.ts`에는 resolve 규칙이 한 줄도 없다: `RynL10nClient`를 그대로 인스턴스화해 `refresh()`를
+  돌린다(시뮬레이터를 따로 짜면 실물과 갈라지는 순간 도구가 거짓말한다). `diagnosis` 14종은
+  `refresh()`·`resolveValue()`의 **조기 반환 지점과 1:1** — 분기가 늘면 진단도 늘어야 한다.
+  매칭 축 3종 중 최소 하나 필수(없으면 늘 bundle-only라 400), `bundleBase` 생략 시 "방금 빌드한 앱"을
+  가정하되 `bundle.assumed`로 **밝힌다**(안 밝히면 "정상"이라 답하는데 앱은 스테일 번들로 깨져 있다).
+
+배포 플레인과 비가역 admin 조작(프로젝트 삭제·import·사용자 관리)은 **일부러 열지 않았다**.
+관리 플레인이 배포 산출물을 *읽는* 것은 분리를 깨지 않는다(`GET /projects/{p}/manifest`와 같은 성격).
+
 ## 확정된 스택 / 결정
 
 - **플랫폼**: iOS(Swift 6/SPM) + Android(Kotlin/Gradle) + Web(TS, React 어댑터) + Flutter(순수 Dart) — 4종 모두 구현 완료.
@@ -206,7 +248,14 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
 - **대시보드**: `backend/src/ui/`(index.html·app.js·style.css) — 관리 플레인이 `/`·`/ui/*`로 서빙.
   프레임워크·번들러 없는 바닐라 ES 모듈(빌드 스텝 0, 의존성 0 원칙 유지). 자산 경로는 `serve.ts`의 고정 허용 목록.
   토큰 로그인(`GET /me`) · 역할별 쓰기 UI 잠금 · SSE 자동 갱신 · 배포 플레인은 링크로만 노출(플레인 분리 유지).
-  끄려면 `createManagementServer({ serveDashboard: false })`. 탭 4종: 번역(인라인 편집·키 설명·검색 1축 +
+  끄려면 `createManagementServer({ serveDashboard: false })`.
+  **셸은 좌측 고정 내비 + 상단 바**(2026-08-26, `RynL10n-Dashboard`에서 백포트). 탭 줄은 없다 —
+  프로젝트 상세의 탭 4종이 사이드바에 있고, 화면 계층이 둘(인스턴스 / 프로젝트)이라는 사실이 상단
+  탭으로는 드러나지 않기 때문이다. `shell()` 하나가 전체 셸을 만들고 호출부는 둘뿐.
+  팔레트는 **역할 짝**(채움색 + 그 위 글자색을 늘 함께)이라 다크에서 컴포넌트 규칙을 덮어쓰지 않는다.
+  아이콘은 인라인 SVG — `el()`이 `createElement`라 SVG를 못 만들어 `icon()`이 `createElementNS`를 쓰고,
+  **테스트 DOM 스텁에도 그게 있어야 한다**(없으면 셸을 그리는 순간 전부 터진다). 상세는 `HANDOVER.md`.
+  탭 4종: 번역(인라인 편집·키 설명·검색 1축 +
   필터 3축 AND · **번역 JSON 가져오기** — 파일 선택 → 키/번역/로케일 수 미리보기 → 확인 후 반영,
   고르기만 해서는 쓰지 않는다 · **키 축 백포트** — 키 한 건을 여러 릴리스에 한 번에, 207 부분 실패는
   실패한 릴리스 id까지 표면화) · 릴리스(생성·상태 전이·publish·롤백·릴리스 축 백포트 ·
@@ -227,6 +276,12 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
 - **사업 모델**: 오픈코어 아님. 오픈소스 코어 + **유료 매니지드 호스팅**(설치·운영 대행). 코어만으로 기능적으로 완전한 제품.
 - **셀프호스팅**: 단일 노드 **Docker Compose**(`docker compose up` 원커맨드) / 대규모는 Helm·K8s(Postgres + S3 호환 스토리지 + CDN + 별도 빌더 워커).
 - 관리 API 인증: 사람=OIDC(통합 지점만), 머신(CI 플러그인)=스코프 제한 Bearer 토큰. RBAC 4역할: Admin / Maintainer / Translator / Viewer.
+- **빈 문자열은 "값 없음"이다**(2026-08-25 확정). 설정·센티널 자리에서 `?? 기본값`·`!= null`·`typeof === "string"`은
+  빈 값을 값으로 받아들인다. 값 없는 변수를 빈 문자열로 주입하는 경로가 흔하기 때문에(오케스트레이터의 미해석
+  Secret, CI가 `env:`로 넘긴 미설정 시크릿, `.env`의 `X=`) 이건 이론이 아니라 실제로 세 번 물린 자리다 —
+  Android 릴리스 서명(빈 GPG 키로 서명이 켜져 게시가 죽음) · 백엔드 env 7종(포트 0·익명 임시 DB·빈 CORS 오리진) ·
+  `keys.signature`(""는 "미확정" 센티널인데 값으로 받아 포맷 가드가 풀림). 환경 판정은 `backend/src/config.ts`
+  **한 곳**에 모아 두었고(통과한 값은 "있으면 유효하다"), 새 설정을 읽을 때도 거기에 붙인다.
 
 ## 로드맵 상태 (기획서 10.2 — 전 마일스톤 완료)
 
@@ -241,5 +296,30 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
 - **카나리 실제 활성화(rollout<100)**: 8.4 프라이버시 법무 승인 대기. 코드 완비, **안전 기본값 rollout 100 고정**
   (rollout을 쓰는 API 라우트는 없다 — 값을 담을 수 있는 유일한 경로가 import의 백업 복원이고, 거기서 0~100 정수로 검증한다). 버킷 판정은 기기 로컬 익명 `installId`(UUID v4, 서버 미전송) 기반 `hash(installId + releaseId) mod 100 < rollout%`.
 - **실제 앱 통합**: Xcode 앱 타깃·AGP 앱 모듈에서의 위젯 렌더·리소스 병합(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는 앱 모듈.
-- **SDK 패키지 게시(6.5)**: 채널·좌표(Android=`com.devryner.rynl10n:android` · Web=`@rynl10n/web` · Flutter=`rynl10n` · iOS=SwiftPM, 버전 lockstep `0.1.0`)도 매니페스트도 확정이고 **릴리스 CI**도 들어왔으나(`.github/workflows/` — `ci.yml`이 곧 릴리스 게이트, `release.yml`이 태그 `v*`에서 4채널 동시 퍼블리시 + lockstep 검사) **npm·pub.dev가 게시됐다**(`@rynl10n/web@0.1.0` · `rynl10n@0.1.0`, 2026-08-26 — 둘 다 로컬 수동). 태그는 여전히 0개. **npm·pub.dev는 첫 버전을 CI로 못 올린다**(자동 게시 등록이 패키지 존재를 전제하는데 같은 버전 재게시는 거부된다) — 그래서 두 잡에 **멱등 가드**를 넣어 이미 게시된 버전은 건너뛴다. **iOS는 루트 `Package.swift`로 전환했다**(2026-08-26) — SPM이 루트 매니페스트만 인식하므로 매니페스트만 올리고 소스는 `sdks/ios/`를 `path:`로 가리킨다. 미러 저장소 `rynl10n-swift` 안은 폐기(클론 전송량 205 KiB 실측). **태그가 곧 SPM 배포**다. **Maven은 업로드 후 Portal 승격이 필요**해 승격 스텝(`publishing_type=automatic`)을 넣었다. Web 게시본은 소스가 아니라 `prepack`의 **`tsc` 게시 빌드 산출물**(`.js`+`.d.ts`)로 나간다 — 소스 배포는 코어 상대경로 import·`node_modules` 타입 스트리핑 거부·`node:crypto` 때문에 성립하지 않는다. 지금 붙이는 길은 경로/`mavenLocal` 참조이고, 남은 절차는 `HANDOVER.md`의 "SDK 배포 채널" 절.
+- **SDK 패키지 게시(6.5)**: 채널·좌표(Android=`com.devryner.rynl10n:android` · Web=`@rynl10n/web` · Flutter=`rynl10n` · iOS=SwiftPM, 버전 lockstep `0.1.0`)도 매니페스트도 확정이고 **릴리스 CI**도 들어왔으나(`.github/workflows/` — `ci.yml`이 곧 릴리스 게이트, `release.yml`이 태그 `v*`에서 4채널 동시 퍼블리시 + lockstep 검사) **4채널 전부 게시 완료**(`v0.1.0`, 2026-08-26 — npm `@rynl10n/web` · pub.dev `rynl10n` · Maven `com.devryner.rynl10n:android` · SwiftPM 태그). lockstep `0.1.0`이 네 레지스트리에서 실물로 성립한다.
+  **npm·pub.dev는 첫 버전을 CI로 못 올린다** — 자동 게시(Trusted Publisher / Automated publishing) 등록이
+  패키지 존재를 전제하는데 같은 버전 재게시는 거부되기 때문. 그래서 `v0.1.0` 태그 하나로 4채널이 끝나지 않는다.
+  npm 잡은 **OIDC로 전환**했다(`NPM_TOKEN` 제거 — 2027-01부터 2FA 우회 토큰의 직접 게시가 폐지된다).
+  **Maven은 업로드 후 Portal 승격이 필요하다** — `release.yml`에 그 단계가 없어 태그를 밀어도 Central에
+  안 나타나는 상태였고, 2026-08-26에 승격 스텝(`publishing_type=automatic`)을 넣어 막았다. **iOS는 루트 `Package.swift`로 전환했다**(2026-08-26) — SPM이 루트 매니페스트만 인식하므로 매니페스트만
+  올리고 소스는 `sdks/ios/`를 `path:`로 가리킨다. 미러 저장소 안은 폐기(클론 전송량 205 KiB 실측 —
+  채택 근거가 무너졌다). **태그가 곧 SPM 배포**라 게시 잡도 시크릿도 없다.
+  npm·pub 잡에는 **멱등 가드**를 넣었다 — 첫 버전이 워크플로 밖에서 올라갔으므로, 이미 게시된 버전이면
+  건너뛴다. 덕분에 `v0.1.0` 태그로 4채널을 정렬할 수 있다. Web 게시본은 소스가 아니라 `prepack`의 **`tsc` 게시 빌드 산출물**(`.js`+`.d.ts`)로 나간다 — 소스 배포는 코어 상대경로 import·`node_modules` 타입 스트리핑 거부·`node:crypto` 때문에 성립하지 않는다. 붙이는 길은 이제 **실 좌표**다(`@rynl10n/web` · `rynl10n` · `com.devryner.rynl10n:android` · SPM 태그). 상세는 `HANDOVER.md`의 "SDK 배포 채널" 절.
+  **2026-08-25 `workflow_dispatch`로 `dry_run=true`를 실제로 돌려 4채널 전부 통과**(run 32825252411):
+  게이트 5종 + lockstep `0.1.0` · npm dry-run · pub.dev 경고 0건(35KB) · Maven `publishToMavenLocal` ·
+  subtree split 루트에 `Package.swift` 확인. 첫 실행은 Maven 잡이 죽었고(빈 시크릿이 서명을 켰다 — `dc4416f`),
+  **파이프라인은 태그를 받을 준비가 됐다 — 단 위 Maven 승격 갭은 예외다.** 그 밖에 남은 건 계정·소유 검증·키뿐이다.
+  **2026-08-27 받는 쪽까지 확인했다** — 네 채널 게시본을 저장소 밖 빈 프로젝트에서 실 좌표로 설치해
+  `t()`까지 6/6 통과(`npm run smoke:consumer`로 재현). 그 결과로 SDK README 4종의 "아직 게시되지
+  않았다 / 경로 의존으로 참조한다" 안내를 실 좌표로 교체했고, 루트 README에 4채널 좌표를 넣었다.
+  `v0.2.0`에서 처음 실행되는 것은 여전히 둘이다: npm OIDC 인증 · pub.dev 자동 게시(0.1.0에서는
+  멱등 가드가 건너뛰었다).
+- **`signature()`가 비ASCII 인자 이름을 인자로 보지 않는다**(2026-08-27 발견, 미수정).
+  `src/core/placeholder.ts`의 스캔이 `[A-Za-z0-9_]+`인데 ICU `argName`은 비ASCII를 허용한다 —
+  `{이름}`은 리터럴로 취급돼 서명이 ""가 된다. 대부분은 **안전한 방향**(기대 서명과 달라져 가드가
+  걸림)이고, 새는 자리는 하나: **원래 플레이스홀더가 없던 키**(서명 "")에 `{이름}`을 넣으면 서명이
+  여전히 ""라 가드를 통과해 런타임에 리터럴이 그대로 보인다. 고치려면 TS·Swift·Kotlin·Dart **4개 +
+  `gen:golden` + 전 SDK 재실행이 한 묶음**이라 미뤘다. 현재 동작은
+  `backend/test/mcp-validate.test.ts`가 고정한다.
 - **프로덕션 토폴로지(M3+)**: Postgres·MinIO/S3·CDN·별도 빌더 워커·OIDC·Helm/K8s. 플레인 분리·API 계약·결정적 빌더는 그대로 유지.
