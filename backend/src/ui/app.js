@@ -493,8 +493,21 @@ function userRow(u) {
     else roleSel.value = u.role;
   });
 
+  // 토큰은 발급 시점에만 좁힐 수 있다(7.3) — 평문이 에이전트 설정 파일 같은 곳에 놓이므로
+  // 기본을 "전체"로 두지 않고 무엇에 쓸 토큰인지 고르게 한다. 상한은 사용자 역할보다 위로 못 간다.
+  const surfaceSel = el("select", { class: "tiny" },
+    el("option", { value: "all", text: "전체 API" }),
+    el("option", { value: "mcp", text: "MCP 전용" }),
+  );
+  const ceilingSel = el("select", { class: "tiny" },
+    el("option", { value: "", text: "역할 그대로" }),
+    ...["maintainer", "translator", "viewer"].map((r) => el("option", { value: r, text: `${r}로 제한` })),
+  );
+
   const issue = async () => {
-    const out = await run(null, () => api("POST", `/users/${enc(u.id)}/tokens`, { label: "" }));
+    const out = await run(null, () => api("POST", `/users/${enc(u.id)}/tokens`, {
+      label: "", surface: surfaceSel.value, maxRole: ceilingSel.value || null,
+    }));
     if (!out) return;
     state.issuedToken = { userId: u.id, token: out.token };
     await reloadUsers();
@@ -547,9 +560,14 @@ function userRow(u) {
     el("td", { class: "small" },
       ...u.tokens.map((t) => el("div", { class: "row" },
         el("span", { class: "mono muted", text: t.label || t.id.slice(0, 8) }),
+        t.surface === "mcp" ? el("span", { class: "badge", text: "MCP 전용" }) : null,
+        t.maxRole ? el("span", { class: "badge", text: `≤ ${t.maxRole}` }) : null,
         el("button", { class: "tiny danger", text: "폐기", onClick: revoke(t) }),
       )),
-      el("button", { class: "tiny", text: "토큰 발급", onClick: issue }),
+      el("div", { class: "row" },
+        surfaceSel, ceilingSel,
+        el("button", { class: "tiny", text: "토큰 발급", onClick: issue }),
+      ),
     ),
     el("td", {}, el("div", { class: "row" },
       el("button", { class: "tiny", text: u.disabled ? "활성화" : "비활성", onClick: toggle }),

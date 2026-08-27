@@ -25,6 +25,17 @@ export interface ReleaseRow {
 export type Catalog = Record<string, Record<string, TranslationValue>>;
 
 /** 대시보드 편집 그리드용 — 키 1개 + 로케일별 번역 전체(7.1). refCount는 키 삭제 가드(5.2) 표시. */
+/** 발급된 토큰의 메타(평문·해시는 절대 포함하지 않는다). */
+export interface TokenRow {
+  readonly id: string;
+  readonly label: string;
+  /** 'all' | 'mcp' — 이 토큰이 닿는 표면. */
+  readonly surface: string;
+  /** 역할 상한(null=사용자 역할 그대로). */
+  readonly maxRole: string | null;
+  readonly createdAt: string;
+}
+
 export interface KeyDetail {
   readonly name: string;
   readonly signature: string;
@@ -418,16 +429,15 @@ export class Repo {
     return r ? mapUser(r) : undefined;
   }
   /** 전체 사용자 + 토큰 요약(id·label·발급 시각 — **해시는 내보내지 않는다**). */
-  listUsers(): Array<UserRow & { tokens: Array<{ id: string; label: string; createdAt: string }> }> {
+  listUsers(): Array<UserRow & { tokens: TokenRow[] }> {
     const users = (this.db.prepare("SELECT id,name,role,projects,disabled,created_at FROM users ORDER BY id").all() as any[])
       .map(mapUser);
-    const tokenRows = this.db.prepare("SELECT id,user_id,label,created_at FROM user_tokens ORDER BY created_at,id").all() as
-      { id: string; user_id: string; label: string; created_at: string }[];
-    const byUser = new Map<string, Array<{ id: string; label: string; createdAt: string }>>();
+    const tokenRows = this.db.prepare("SELECT id,user_id,label,surface,max_role,created_at FROM user_tokens ORDER BY created_at,id").all() as any[];
+    const byUser = new Map<string, TokenRow[]>();
     for (const t of tokenRows) {
       let bucket = byUser.get(t.user_id);
       if (!bucket) { bucket = []; byUser.set(t.user_id, bucket); }
-      bucket.push({ id: t.id, label: t.label, createdAt: t.created_at });
+      bucket.push({ id: t.id, label: t.label, surface: t.surface ?? "all", maxRole: t.max_role ?? null, createdAt: t.created_at });
     }
     return users.map((u) => ({ ...u, tokens: byUser.get(u.id) ?? [] }));
   }
@@ -449,21 +459,26 @@ export class Repo {
   countActiveAdmins(): number {
     return (this.db.prepare("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND disabled=0").get() as { n: number }).n;
   }
-  addUserToken(userId: string, tokenId: string, hash: string, label: string): void {
-    this.db.prepare("INSERT INTO user_tokens(id,user_id,token_hash,label,created_at) VALUES(?,?,?,?,?)")
-      .run(tokenId, userId, hash, label, nowIso());
+  /** 토큰 발급. `surface`·`maxRole`은 최소 권한 좁히기(7.3) — 기본값이 곧 기존 동작이다. */
+  addUserToken(userId: string, tokenId: string, hash: string, label: string, surface = "all", maxRole: string | null = null): void {
+    this.db.prepare("INSERT INTO user_tokens(id,user_id,token_hash,label,surface,max_role,created_at) VALUES(?,?,?,?,?,?,?)")
+      .run(tokenId, userId, hash, label, surface, maxRole, nowIso());
   }
   /** 토큰 폐기. 지운 행이 있으면 true — 없는 토큰은 404로 표면화할 수 있게 한다. */
   deleteUserToken(userId: string, tokenId: string): boolean {
     const r = this.db.prepare("DELETE FROM user_tokens WHERE id=? AND user_id=?").run(tokenId, userId);
     return Number(r.changes) > 0;
   }
-  /** 토큰 해시 → 사용자(인증 경로, rbac.UserPrincipalSource). disabled 판정은 호출자(401) 몫. */
-  findUserByTokenHash(hash: string): UserRow | undefined {
+  /**
+   * 토큰 해시 → 사용자(인증 경로, rbac.UserPrincipalSource). disabled 판정은 호출자(401) 몫.
+   * **토큰 자체의 제한(surface·max_role)을 함께 싣는다** — 같은 사용자라도 토큰마다 다르므로
+   * 사용자 행만으로는 principal을 만들 수 없다.
+   */
+  findUserByTokenHash(hash: string): (UserRow & { tokenSurface: string; tokenMaxRole: string | null }) | undefined {
     const r = this.db.prepare(
-      "SELECT u.id,u.name,u.role,u.projects,u.disabled,u.created_at FROM user_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=?",
+      "SELECT u.id,u.name,u.role,u.projects,u.disabled,u.created_at,t.surface,t.max_role FROM user_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=?",
     ).get(hash) as any;
-    return r ? mapUser(r) : undefined;
+    return r ? { ...mapUser(r), tokenSurface: r.surface ?? "all", tokenMaxRole: r.max_role ?? null } : undefined;
   }
 }
 

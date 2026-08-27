@@ -8,9 +8,18 @@ import { DatabaseSync } from "node:sqlite";
 export function openDatabase(path = ":memory:"): DatabaseSync {
   const db = new DatabaseSync(path);
   db.exec("PRAGMA foreign_keys = ON;");
+  applySchema(db);
+  return db;
+}
+
+/**
+ * 이미 열려 있는 연결에 스키마 + 마이그레이션을 적용한다 — **업그레이드 경로 그 자체**다.
+ * 기존 배포가 새 버전을 기동할 때 일어나는 일이 정확히 이것이라, 테스트가 구 스키마 DB를
+ * 만들어 이 함수를 걸어 볼 수 있어야 한다(그러지 않으면 마이그레이션은 신규 DB에서만 검증된다).
+ */
+export function applySchema(db: DatabaseSync): void {
   db.exec(SCHEMA);
   migrate(db);
-  return db;
 }
 
 /**
@@ -21,6 +30,13 @@ export function openDatabase(path = ":memory:"): DatabaseSync {
 const MIGRATIONS: readonly string[] = [
   // 번역자 참고용 설명(5.1) — 저작 메타데이터라 런타임 산출물에는 싣지 않는다.
   "ALTER TABLE keys ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+  // 토큰 최소 권한(7.3). 토큰 평문은 에이전트 설정 파일 같은 곳에 그대로 놓이므로,
+  // 새어도 피해가 사용자 권한 전체로 번지지 않게 발급 시점에 좁힐 수 있어야 한다.
+  //  - surface: 이 토큰이 닿는 표면. 'all'(기본, 지금까지의 동작) | 'mcp'(POST /mcp만)
+  //  - max_role: 역할 상한. NULL이면 사용자 역할 그대로.
+  // 기본값이 곧 기존 동작이라 이미 발급된 토큰은 그대로 살아 있다.
+  "ALTER TABLE user_tokens ADD COLUMN surface TEXT NOT NULL DEFAULT 'all'",
+  "ALTER TABLE user_tokens ADD COLUMN max_role TEXT",
 ];
 
 function migrate(db: DatabaseSync): void {
@@ -149,11 +165,15 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- 사용자 토큰: 사용자당 N개(대시보드용·CI용 분리 발급/폐기). 평문은 저장하지 않는다 —
 -- sha256 hex 해시만 남고 평문은 발급 응답에 1회 노출된다.
+-- surface='mcp'는 이 토큰이 POST /mcp 외의 관리 API에 닿지 못하게 한다(최소 권한, 7.3).
+-- max_role은 역할 상한(NULL=사용자 역할 그대로) — 둘 다 발급 시점에만 정해지고 이후 불변이다.
 CREATE TABLE IF NOT EXISTS user_tokens (
   id             TEXT PRIMARY KEY,
   user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_hash     TEXT NOT NULL UNIQUE,
   label          TEXT NOT NULL DEFAULT '',
+  surface        TEXT NOT NULL DEFAULT 'all',
+  max_role       TEXT,
   created_at     TEXT NOT NULL
 );
 `;

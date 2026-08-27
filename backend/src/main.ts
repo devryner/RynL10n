@@ -20,6 +20,7 @@ const {
   adminToken: ADMIN_TOKEN,
   deliveryAllowOrigin: DELIVERY_ALLOW_ORIGIN,
   deliveryBaseUrl: DELIVERY_BASE_URL,
+  mcpAllowedOrigins: MCP_ALLOWED_ORIGINS,
 } = loadConfig();
 
 const repo = new Repo(openDatabase(DB_PATH));
@@ -31,10 +32,12 @@ bootstrap.issue(ADMIN_TOKEN, { actor: "bootstrap-admin", role: "admin", projects
 const tokens = new DbTokenRegistry(repo, bootstrap);
 
 // 관리 플레인 (쓰기, 인증 필요) + 대시보드(어드민 앱, 9.2 코어 ③).
-createManagementServer({ repo, store, tokens, deliveryBaseUrl: DELIVERY_BASE_URL }).listen(MGMT_PORT, () => {
-  console.log(`[rynl10n] 대시보드   → http://localhost:${MGMT_PORT}/          (토큰: ${ADMIN_TOKEN})`);
-  console.log(`[rynl10n] 관리 API   → http://localhost:${MGMT_PORT}  (Bearer ${ADMIN_TOKEN})`);
-});
+createManagementServer({ repo, store, tokens, deliveryBaseUrl: DELIVERY_BASE_URL, mcpAllowedOrigins: MCP_ALLOWED_ORIGINS })
+  .listen(MGMT_PORT, () => {
+    console.log(`[rynl10n] 대시보드   → http://localhost:${MGMT_PORT}/          (토큰: ${ADMIN_TOKEN})`);
+    console.log(`[rynl10n] 관리 API   → http://localhost:${MGMT_PORT}  (Bearer ${ADMIN_TOKEN})`);
+    console.log(`[rynl10n] MCP        → http://localhost:${MGMT_PORT}/mcp  (JSON-RPC, Bearer)`);
+  });
 
 // 배포 플레인 (읽기 전용 정적 파일 — CDN/오브젝트 스토리지 stand-in).
 // ETag·CORS를 포함해 실제 CDN이 주는 동작을 그대로 준다(delivery-server.ts 참조).

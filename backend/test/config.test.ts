@@ -68,6 +68,7 @@ test("loadConfig: 값이 있으면 그 값을 쓴다", () => {
     RYNL10N_ADMIN_TOKEN: "real-token",
     RYNL10N_DELIVERY_ALLOW_ORIGIN: "https://app.example.com",
     RYNL10N_DELIVERY_URL: "https://cdn.example.com",
+    RYNL10N_MCP_ALLOWED_ORIGINS: "https://a.example.com, https://b.example.com",
   });
   assert.deepEqual(cfg, {
     managementPort: 1234,
@@ -77,7 +78,22 @@ test("loadConfig: 값이 있으면 그 값을 쓴다", () => {
     adminToken: "real-token",
     deliveryAllowOrigin: "https://app.example.com",
     deliveryBaseUrl: "https://cdn.example.com",
+    mcpAllowedOrigins: ["https://a.example.com", "https://b.example.com"],
   });
+});
+
+/**
+ * MCP Origin 허용 목록의 안전 기본값은 **빈 목록**이다 — "아무 Origin도 허용하지 않음".
+ * `*`처럼 넓은 기본값을 두면 가드가 있으나 마나가 되고, 빈 문자열이 새어 들어와도 마찬가지다.
+ * MCP 클라이언트는 Origin을 보내지 않으므로 이 기본값은 정상 사용을 막지 않는다.
+ */
+test("loadConfig: MCP Origin 허용 목록의 기본은 빈 목록이고, 빈 값·공백은 값이 아니다", () => {
+  assert.deepEqual(loadConfig({}).mcpAllowedOrigins, []);
+  assert.deepEqual(loadConfig({ RYNL10N_MCP_ALLOWED_ORIGINS: "" }).mcpAllowedOrigins, []);
+  assert.deepEqual(loadConfig({ RYNL10N_MCP_ALLOWED_ORIGINS: "  " }).mcpAllowedOrigins, []);
+  // 구분자만 남은 값도 목록을 만들지 않는다.
+  assert.deepEqual(loadConfig({ RYNL10N_MCP_ALLOWED_ORIGINS: " , ," }).mcpAllowedOrigins, []);
+  assert.deepEqual(loadConfig({ RYNL10N_MCP_ALLOWED_ORIGINS: "http://localhost:3000" }).mcpAllowedOrigins, ["http://localhost:3000"]);
 });
 
 test("loadConfig: deliveryBaseUrl 기본값은 실제로 쓰는 배포 포트를 따라간다", () => {
