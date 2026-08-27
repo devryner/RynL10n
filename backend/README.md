@@ -216,6 +216,18 @@ rebinding에서는 Host도 공격자 도메인이라 Origin과 일치한다. 가
   `delta_base_mismatch` · `format_guard_fallback` · `tombstoned` · `locale_fallback` · `key_unresolved`.
   **분기가 늘면 진단 코드도 늘어야 한다** — 그래서 테스트가 코드마다 하나씩 있다.
 
+### 대시보드 안내 화면
+
+사이드바 **인스턴스 › MCP**(`serveMcp`가 켜져 있을 때만 보인다). **조작하는 자리가 아니라
+알려주는 자리**다 — 배포 플레인을 링크로만 노출하는 것과 같은 성격이다. 엔드포인트 URL,
+붙이는 설정 스니펫(복사), 도구 목록, Origin 정책 넷을 보여준다.
+
+도구 목록은 `GET /mcp/tools`에서 받아 온다. **관리 API 라우트지 JSON-RPC 전송이 아니다** —
+대시보드는 브라우저라서 `POST /mcp`를 부르면 자기 Origin이 붙고 가드에 걸린다. 그렇다고 UI에
+하드코딩하면 서버와 조용히 어긋나므로, 같은 `MCP_TOOLS` 배열을 관리 API 쪽으로 한 번 더 낸다.
+권한 필터도 `tools/list`와 같아서 **화면에 보이는 것이 곧 그 토큰으로 쓸 수 있는 것**이다.
+표면의 존재 여부와 Origin 정책은 `GET /me`의 `mcp` 필드로 온다.
+
 ### 열지 않은 것
 
 배포 플레인은 도구 대상이 아니다(정적 읽기 경로 — 도구가 붙으면 플레인 분리가 흐려진다).
@@ -240,6 +252,8 @@ rebinding에서는 Host도 공격자 도메인이라 Origin과 일치한다. 가
   권한 밖 도구 은닉 · 도구 실패가 `isError` 결과로 나감(대화 유지) · `GET /mcp` 405.
 - `storage.test.ts` — `readDelta`·`deliveryReader`(SDK와 같은 경로 규약) + **릴리스 id·상대 경로의
   순회 가드**(프로젝트 id에만 있던 가드를 같은 부류의 나머지 세그먼트로 확장).
+- `dashboard-ui.test.ts`의 MCP 절 — 목록이 서버에서 오는가 · **대시보드가 `POST /mcp`를 부르지 않는가** ·
+  꺼진 배포에서 메뉴가 사라지는가.
 - `token-scope.test.ts` — 토큰 최소 권한(표면 제한·역할 상한이 실제로 막는가 · 잘못된 값은 400 ·
   목록에 제한 노출) + **구 스키마 업그레이드 회귀**(이미 발급된 토큰이 계속 산다) + MCP Origin 가드.
 - `users.test.ts` — 사용자 관리 API + DB 토큰 인증(발급 토큰의 역할·스코프 적용 · 평문/해시 비노출 ·

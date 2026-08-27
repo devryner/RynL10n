@@ -20,7 +20,7 @@ import { ingest, releaseHealth } from "../observability/telemetry.ts";
 import { rebuildAllArtifacts } from "../admin/rebuild.ts";
 import type { ProjectExport } from "../db/repo.ts";
 import { uiAsset } from "../ui/serve.ts";
-import { handleMcpMessage } from "../mcp/server.ts";
+import { handleMcpMessage, listMcpTools } from "../mcp/server.ts";
 
 import { HttpError, SignatureMismatchError, BadRequestError, ConflictError } from "./errors.ts";
 import { requireTranslationImport } from "./translation-import.ts";
@@ -35,6 +35,8 @@ interface Ctx {
   readonly notifier: Notifier;
   /** 대시보드가 산출물 링크를 만들 때 쓰는 배포 플레인 base URL(읽기 경로, 4.1). */
   readonly deliveryBaseUrl: string;
+  /** MCP 표면의 노출 여부와 Origin 정책 — 대시보드 안내 화면이 읽는다. */
+  readonly mcp: { readonly enabled: boolean; readonly allowedOrigins: readonly string[] };
 }
 type Handler = (ctx: Ctx) => { status: number; body?: unknown };
 
@@ -185,7 +187,7 @@ function requireProjectExport(body: any): ProjectExport {
 
 const routes: Route[] = [
   // 세션 확인 — 대시보드 로그인 검증 + 배포 플레인 주소 전달. 모든 역할(read).
-  route("GET", "/me", "read", ({ principal, deliveryBaseUrl }) => {
+  route("GET", "/me", "read", ({ principal, deliveryBaseUrl, mcp }) => {
     return {
       status: 200,
       body: {
@@ -193,8 +195,23 @@ const routes: Route[] = [
         role: principal!.role,
         projects: principal!.projects === "*" ? "*" : [...principal!.projects],
         deliveryBaseUrl,
+        // MCP 표면의 존재·정책. 대시보드가 "켜져 있는지"부터 모르면 아무도 세팅하지 않는다.
+        // 허용 Origin은 비밀이 아니라 정책이라 read로 열어 둔다(배포 플레인 주소와 같은 성격).
+        mcp: { enabled: mcp.enabled, allowedOrigins: [...mcp.allowedOrigins] },
       },
     };
+  }),
+
+  /**
+   * MCP 도구 목록 — **관리 API 라우트지 JSON-RPC 전송이 아니다.** 대시보드가 쓰는 자리다.
+   *
+   * 대시보드가 `POST /mcp`를 직접 부르지 못하기 때문에 필요하다: 브라우저 요청에는 Origin이
+   * 붙고, MCP Origin 가드의 안전 기본값은 "Origin 붙은 요청 전부 거부"다. 목록을 UI에 하드코딩하면
+   * 서버와 어긋나므로, 같은 `MCP_TOOLS` 배열을 관리 API 쪽으로도 한 번 더 내보낸다.
+   * 권한 필터도 `tools/list`와 같아서 보이는 것이 곧 쓸 수 있는 것이다.
+   */
+  route("GET", "/mcp/tools", "read", ({ principal }) => {
+    return { status: 200, body: { tools: listMcpTools(principal!) } };
   }),
 
   // 프로젝트 생성 — Admin
@@ -704,7 +721,10 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
       }
 
       const body = req.method === "GET" ? {} : await readBody(req);
-      const result = match.handler({ params, body, principal, repo: deps.repo, store: deps.store, metrics, notifier, deliveryBaseUrl });
+      const result = match.handler({
+        params, body, principal, repo: deps.repo, store: deps.store, metrics, notifier, deliveryBaseUrl,
+        mcp: { enabled: serveMcp, allowedOrigins: mcpAllowedOrigins },
+      });
       send(result.status, result.body ?? null);
     } catch (e) {
       const err = e as { status?: number; message?: string; name?: string };
