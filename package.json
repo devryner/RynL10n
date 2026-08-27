@@ -14,7 +14,8 @@
     "gen:golden": "node tools/gen-golden.ts",
     "test:backend": "node --test \"backend/test/*.test.ts\"",
     "typecheck:backend": "tsc --noEmit -p backend/tsconfig.json",
-    "backend": "node backend/src/main.ts"
+    "backend": "node backend/src/main.ts",
+    "smoke:consumer": "node tools/consumer-smoke/run.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

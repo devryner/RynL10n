@@ -1,0 +1,8 @@
+name: rynl10n_consumer_smoke
+description: pub.dev 게시본(rynl10n)을 실 좌표로 받아 t()까지 굴리는 소비자 스모크
+version: 0.0.1
+publish_to: none
+environment:
+  sdk: ^3.5.0
+dependencies:
+  rynl10n: __VERSION__

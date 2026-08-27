@@ -1,0 +1,12 @@
+{
+  "name": "rynl10n-consumer-smoke-web",
+  "private": true,
+  "type": "module",
+  "description": "npm 게시본(@rynl10n/web)을 실 좌표로 설치해 t()까지 굴리는 소비자 스모크",
+  "dependencies": {
+    "@rynl10n/web": "__VERSION__"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

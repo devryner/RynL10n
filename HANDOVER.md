@@ -96,6 +96,7 @@ LICENSE · NOTICE      Apache-2.0
 | Web SDK | `sdks/web` | `node --test "test/*.test.ts"` | Node ≥ 23.6 |
 | Flutter SDK | `sdks/flutter` | `dart pub get && dart test` | Dart 3.5+ |
 | 셀프호스트 | 루트 | `docker compose up` | Docker |
+| 소비자 스모크 | 루트 | `npm run smoke:consumer` (게시 직후 1회) | Node·Dart·Swift·JDK+Android SDK |
 
 > **런타임 의존성 0 원칙**: 참조·백엔드·iOS는 외부 런타임 의존성 없음(Node 내장 sqlite/crypto, CryptoKit).
 > Android=kotlinx(serialization·coroutines), Flutter=crypto·unorm_dart(NFC), 백엔드 devDep=typescript.
@@ -143,6 +144,18 @@ npm·pub.dev의 0.1.0은 태그 이전에 **로컬 수동으로** 먼저 올라�
 
 **소비자 저장소 선언에 `mavenLocal()`·`file:`·`path:`를 두지 않는 것이 이 검증의 전부다.** 하나라도
 남으면 로컬 산출물을 집어 레지스트리를 건드리지 않고 통과한다 — 검증한 것이 게시본이 아니게 된다.
+
+**`npm run smoke:consumer`로 재현한다**(`tools/consumer-smoke/`). 네 프로젝트를 임시 디렉토리에
+만들어 위 표의 설치를 그대로 수행하고, **네 언어가 같은 `checks.json`을 읽어** 같은 6가지를 돌린다 —
+케이스를 언어마다 적으면 조용히 갈라지므로 원천을 `run.ts`의 `CHECKS` 하나로 두었다(골든 벡터와 같은
+원리). 번들 스냅샷도 `fixtures/golden/convert.json`의 것을 그대로 쓴다. 도구가 없는 채널은 SKIP이고
+**SKIP은 통과가 아니다**(요약에 개수가 찍힌다). 종료 코드는 실행된 채널 중 하나라도 실패하면 1.
+
+**CI에는 넣지 않았다** — 네 툴체인과 네 레지스트리 왕복이 필요해 PR마다 돌릴 물건이 아니고, 애초에
+검증 대상이 "이미 올라간 것"이라 PR 시점에는 볼 것이 없다. `release.yml`의 dry-run과는 보는 방향이
+반대다: dry-run(`npm pack`·`pub publish --dry-run`·`publishToMavenLocal`)은 **만드는 쪽**만 보고,
+이 스모크는 **받는 쪽**을 본다. **태그를 민 직후 로컬에서 한 번** 돌린다. 배경·옵션은
+`tools/consumer-smoke/README.md`.
 
 Maven 산출물은 Central에서 직접 확인했다: `.aar`(240 KB) · `.pom` · `-sources.jar` · `-javadoc.jar`
 (549 KB) · `.module` · `.asc` 서명. repo1 동기화도 끝나 있다.
