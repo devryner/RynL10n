@@ -9,9 +9,9 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
 ## 현재 상태 (한눈에)
 
 - **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 + 4개 플랫폼 앱 적용 경로.**
-  커밋 67개(`1c0e225`~`557db4f` — 이 줄을 갱신하는 문서 커밋 자신은 세지 않으므로 항상 한 칸 뒤처진다.
+  커밋 73개(`1c0e225`~`f055c13` — 이 줄을 갱신하는 문서 커밋 자신은 세지 않으므로 항상 한 칸 뒤처진다.
   정확한 값은 `git rev-list --count HEAD`). **전부 `origin/main` 반영 완료 · 머지 커밋 없는 선형 이력**
-  (기능 작업은 PR #1~#15 rebase 머지, 문서·도구 커밋은 `main` 직접 푸시 — 어느 쪽이든 CI가 게이트다).
+  (기능 작업은 PR #1~#17 rebase 머지, 문서·도구 커밋은 `main` 직접 푸시 — 어느 쪽이든 CI가 게이트다).
 - **테스트 466개 전부 통과** — TS 참조 72 · 백엔드 206 · Web 33 · iOS 49 · Android 53 · Flutter 53.
   (2026-08-27 **MCP 도구 표면** + 토큰 최소 권한·Origin 가드로 백엔드 145 → 206. `src/`·`fixtures/`·`sdks/`는 무변경이라
   골든 벡터 계약이 걸린 자리를 건드리지 않았고, 재실행은 TS 참조·백엔드·Web으로 한정했다.
@@ -665,6 +665,65 @@ Origin 정책을 보여주는 **안내 화면**이지 조작 화면이 아니다
 > 그쪽은 번역을 **채우는** 축(읽기 + `add_translation` + 협업 워크플로 조회)이고, 여기 둘은
 > **검증·진단** 축이라 겹치지 않는다.
 
+## 다음 작업 후보 (2026-08-27 세션 정리 — 셋 다 착수 전)
+
+MCP 표면을 붙이면서 판단까지 끝냈지만 **의도적으로 미룬** 것들이다. 결론과 그 근거를 적어 둔다 —
+다시 처음부터 따지지 않기 위해서다.
+
+### ① `signature()` 비ASCII 인자 이름 — "열려 있는 항목"에 상세
+
+한 줄 요약: 고치려면 TS·Swift·Kotlin·Dart **4개 + `gen:golden` + 전 SDK 재실행이 한 묶음**이라
+미뤘다. 현재 동작은 `backend/test/mcp-validate.test.ts`가 고정한다.
+
+### ② OAuth 2.1 Resource Server — **MCP만을 위해서는 넣지 말 것**
+
+MCP 스펙의 원격 서버 표준 인증은 OAuth 2.1이고 지금은 정적 Bearer다. `headers`를 직접 넣을 수 있는
+클라이언트(Claude Code 등)는 문제없지만 OAuth 디스커버리를 기대하는 클라이언트는 못 붙는다.
+
+**넣는다면 우리가 구현할 건 넷뿐이다** — 인가 서버는 만들지 않는다(기존 IdP가 한다):
+① `GET /.well-known/oauth-protected-resource`(RFC 9728) ② 401에 `WWW-Authenticate: Bearer
+resource_metadata=...` ③ JWT 검증(JWKS 서명 · `iss` · **`aud`가 우리 리소스 URI** · `exp` · 스코프)
+④ `sub` → `users.oidc_subject` → 기존 `Principal`.
+
+**붙는 자리는 `PrincipalResolver` 한 곳이다**(`resolve(token) → Principal`). 그 지점을 지나면
+라우트·MCP 도구·RBAC가 한 줄도 안 바뀐다. `DbTokenRegistry`가 부트스트랩→DB 순으로 폴백하는
+구조라 `OidcResolver`를 체인에 얹으면 정적 토큰과 공존한다. `users.oidc_subject` 컬럼은 이미 있다.
+
+**의존성 0으로 가능하다 — 확인했다.** `node:crypto`가 JWKS의 JWK를 그대로 공개키로 임포트하고
+(`createPublicKey({key: jwk, format:"jwk"})`) `crypto.verify`로 RS256/ES256을 검증한다. 다만 손으로
+짠 JWT 검증은 지뢰밭이라 넷은 타협 없이: **알고리즘을 토큰 헤더가 아니라 서버 설정에서 고정**
+(alg confusion) · `alg: none` 거부 · `kid`로 키를 고르되 JWKS는 캐시하고 실패 시에만 갱신(미갱신은
+키 회전에 죽고 매번 갱신은 DoS 지렛대) · **`aud` 정확 일치**(부분·느슨 매칭 금지).
+
+**그런데 지금 넣으면 두 번째 인증 축이 생긴다** — 이 표면을 만들 때 새 축을 안 만든 게 설계의
+핵심이었는데 그걸 스스로 깨는 셈이다. 로드맵의 "사람=OIDC"가 코어에 들어올 때 **같은 작업으로
+묶는 게 맞다**. 그때는 축이 하나로 유지된다.
+
+### ③ 앱 개발자 로컬 stdio MCP 서버 — 별개 서버다
+
+**이 저장소가 아니라 소비자 앱 저장소에서 돈다.** 에이전트가 서브프로세스로 띄우고(`npx`),
+인증이 없다(그 사용자로 그 디렉토리에서 돈다). stdio인 이유는 **파일** 때문이다 — 관리 플레인
+서버는 앱 저장소를 볼 수 없다.
+
+도구: `extract_keys`(소스의 하드코딩 문자열) · `promote_literal`(리터럴 → 키 + **호출부 코드를 읽어
+`description` 생성**) · `bake_preview`(빌드에 구워질 네이티브 산출물 diff) · `lockfile_status`.
+
+**경계를 이렇게 긋는다 — stdio = 이 저장소의 파일 / HTTP = 카탈로그.** stdio가 관리 API에 쓰기를
+하면 HTTP 서버 일을 대신하게 되고 인증 축이 또 하나 생긴다. 에이전트가 둘 다 붙여 두면 워크플로가
+이어진다(stdio가 "키가 되어야 할 것"을 찾고, HTTP가 `validate_translation` 뒤 카탈로그에 넣는다).
+
+**착수 순서**: `bake_preview` + `lockfile_status`만 먼저 내는 길이 있다 — `src/builder`를 부르는 얇은
+껍데기라 작고, "빌드에 뭐가 구워지나"는 지금 아무 데서도 못 보는 것이라 그것만으로 값이 있다.
+`extract_keys`는 Swift·Kotlin·TS·Dart의 **언어별 리터럴 파서**가 필요해(주석·보간·멀티라인 때문에
+정규식으로는 반쯤만 된다) 이 도구에서 제일 큰 덩어리다. 감당할 각오가 섰을 때.
+
+**Node 하나로 4개 플랫폼이 덮인다** — `src/builder/convert.ts`가 `.xcstrings`·`strings.xml`·JSON·`.arb`를
+모두 굽고 골든 벡터 `convert.json`이 3개 언어 정합을 보증한다. 플랫폼별 서버를 만들 필요가 없다.
+
+**정하고 시작할 것**: 새 **게시 채널**이 하나 생긴다. 백엔드는 어디에도 게시되지 않지만(`private: true`)
+이건 npm에 올라가야 `npx`로 쓰인다. SDK 4채널 lockstep과 같은 줄에 둘 것인가 — 개발 도구지 SDK가
+아니므로 **별도 버전선이 맞다고 보지만** 정하고 시작해야 한다.
+
 ## 로케일 축 분리 (2026-08-21 수정) — 다시 붙이지 말 것
 
 `t()`의 기본 조회 로케일이 `locale ?? context.releaseLabel ?? bundle.defaultLocale`이었다.
@@ -781,6 +840,18 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
   가능하게 만들었다(`557db4f` — `tools/consumer-smoke/`). 저장소 테스트가 전부 **소스**를 보므로
   게시본에만 있는 실패(패키징 누락·`exports` 경로·POM 스코프·태그가 가리키는 커밋)를 볼 자리가
   없었다는 것이 출발점이다.
+
+- **MCP 도구 표면** `8f7c074`~`ee6d8a5`(2026-08-27, PR #16) — 관리 플레인에 에이전트용 표면을 붙였다.
+  읽기 전용 도구 2종(`validate_translation`·`resolve_preview`)이고 **둘 다 로직을 새로 쓰지 않는다** —
+  검증은 실제 쓰기 경로가 쓰는 검증기를, 해석은 `RynL10nClient`를 그대로 돌린다(새로 쓰면 실물과
+  갈라지는 순간 도구가 거짓말을 시작한다). 전송 계층은 의존성 0을 지키려 직접 구현했다.
+  함께 들어온 보안 수정 셋: 릴리스 id 경로 순회 가드 · 토큰 최소 권한(`surface`/`maxRole`) ·
+  MCP Origin 가드. 마이그레이션이 그때까지 **신규 DB에서만** 검증되고 있었다는 것도 이때 드러나
+  `applySchema`를 분리하고 업그레이드 회귀를 넣었다. 상세는 위 "MCP 도구 표면" 절.
+- **MCP 대시보드 진입점** `f055c13`(2026-08-27, PR #17) — 켜져 있다는 걸 알 방법이 README뿐이었다.
+  도구 목록을 관리 API(`GET /mcp/tools`)로 낸 이유가 설계 지점이다: **대시보드도 브라우저라
+  `POST /mcp`를 부르면 자기 Origin이 붙어 방금 넣은 가드에 걸린다.** UI에 하드코딩하면 서버와
+  어긋나므로 같은 `MCP_TOOLS`를 관리 API로 한 번 더 낸다.
 
 각 컴포넌트의 상세는 해당 디렉토리의 README(`sdks/README.md`, `sdks/*/README.md`, `backend/README.md`)와
 `OPERATIONS.md` 참조.
