@@ -125,6 +125,32 @@ npm·pub.dev의 0.1.0은 태그 이전에 **로컬 수동으로** 먼저 올라�
 | Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.1.0`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | ✅ **게시됨** `0.1.0` (2026-08-26, 로컬 수동 — provenance 미첨부) | `npm i @rynl10n/web` |
 | Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.1.0`, `publish_to` 해제, `.pubignore` | ✅ **게시됨** `0.1.0` (2026-08-26, 로컬 수동) | `dart pub add rynl10n` |
 
+### 소비자 스모크 — **네 채널 실 좌표로 설치해 `t()`까지 굴렸다 (2026-08-27)**
+
+게시가 끝났다는 것과 **소비자가 실제로 받아 쓸 수 있다**는 것은 다른 명제다. 그 사이에는 게시본에만
+있는 실패가 산다 — 패키징에서 빠진 파일, `.d.ts` 경로가 어긋난 `exports`, POM이 못 끌고 오는 전이
+의존성, 태그가 가리키는 커밋이 매니페스트 없는 자리인 경우. 저장소 안에서 도는 405개 테스트는 전부
+**소스**를 보므로 이 층을 통과시킨다. 그래서 저장소 밖 빈 프로젝트 4개에서 **실 좌표로만** 설치해
+같은 6가지(기본 로케일 조회 · 호출 인자 로케일 우선 · 플레이스홀더 치환 · 복수형 one/other ·
+로케일 fallback 체인)를 굴렸다. 전부 통과다.
+
+| 채널 | 설치 방법 | 결과 |
+| --- | --- | --- |
+| npm | 빈 패키지에 `npm i @rynl10n/web@0.1.0` | 6/6 통과 + `tsc --strict --moduleResolution nodenext`로 `.d.ts` 해석 확인 |
+| pub.dev | 빈 패키지에 `rynl10n: ^0.1.0` → `dart pub get` | 6/6 통과 (전이 의존 14개 해석) |
+| Maven Central | AGP 소비자 모듈에 `implementation("com.devryner.rynl10n:android:0.1.0")` | 6/6 통과 (유닛 테스트) |
+| SwiftPM | 빈 패키지에 `.package(url:…/RynL10n, from: "0.1.0")` → `swift run` | 6/6 통과 (`Package.resolved`가 `0.1.0` 고정) |
+
+**소비자 저장소 선언에 `mavenLocal()`·`file:`·`path:`를 두지 않는 것이 이 검증의 전부다.** 하나라도
+남으면 로컬 산출물을 집어 레지스트리를 건드리지 않고 통과한다 — 검증한 것이 게시본이 아니게 된다.
+
+Maven 산출물은 Central에서 직접 확인했다: `.aar`(240 KB) · `.pom` · `-sources.jar` · `-javadoc.jar`
+(549 KB) · `.module` · `.asc` 서명. repo1 동기화도 끝나 있다.
+
+> **태그 `v0.1.0`은 annotated 태그다.** `git rev-parse v0.1.0`은 태그 객체(`19de314a`)를,
+> SPM의 `Package.resolved`는 그것이 가리키는 커밋(`2cf8e16c`)을 적는다. 둘이 달라 보이는 것이
+> 정상이고, 대조하려면 `git rev-parse v0.1.0^{commit}`을 쓴다.
+
 ### iOS는 매니페스트가 루트에 있어야 한다 (6.5) — **미러 저장소를 없앴다(2026-08-26)**
 
 **SwiftPM은 저장소 루트의 `Package.swift`만 패키지로 인식한다.** `.package(url:)`에 하위 경로를 줄 수
@@ -596,6 +622,8 @@ t()의 조회 로케일 = 호출 인자 → 설정 locale → bundle.defaultLoca
 - **실제 앱 통합**: Xcode 앱 타깃·AGP 앱 모듈에서의 위젯 렌더·리소스 병합(SDK 계층은 완료·검증). Compose
   `stringResource` 얇은 래퍼는 앱 모듈.
 - ~~**SDK 패키지 게시**~~ — **완료(2026-08-26)**. 4채널 전부 `0.1.0` 게시됨(위 "SDK 배포 채널" 절).
+  **소비자 스모크도 끝났다(2026-08-27)** — 저장소 밖 빈 프로젝트에서 실 좌표로만 설치해 `t()`까지
+  굴렸다(같은 절의 "소비자 스모크").
   다음 릴리스(`v0.2.0`)에서 처음 검증되는 것이 둘 남아 있다: **npm OIDC 인증**(0.1.0에서는 멱등 가드가
   건너뛰어 인증 경로를 타지 않았다)과 **pub.dev 자동 게시**(같은 이유). 그때 npm 잡이 인증 실패할
   가능성을 열어두고 봐야 한다.

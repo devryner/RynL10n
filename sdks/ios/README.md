@@ -60,7 +60,8 @@ curl http://localhost:8788/myapp/manifest.json    # SDK가 읽는 경로 그대�
 > 때문이고, 소스는 여전히 `sdks/ios/` 아래에 있다(타깃이 `path:`로 가리킨다). 그래서 패키지 이름은
 > 디렉토리가 아니라 **`RynL10n`**이다.
 
-정규 경로 — 태그가 붙으면 원격 참조가 그대로 동작한다(**태그가 곧 SPM 배포**):
+정규 경로 — **태그 `v0.1.0`이 올라가 있어 원격 참조가 그대로 동작한다**(2026-08-26 ·
+4개 SDK lockstep 6.5 · **태그가 곧 SPM 배포**라 레지스트리 게시 절차가 없다):
 
 ```swift
 dependencies: [.package(url: "https://github.com/devryner/RynL10n", from: "0.1.0")],
@@ -69,7 +70,7 @@ targets: [
 ]
 ```
 
-로컬 체크아웃을 참조(태그 이전, 또는 개발 중):
+로컬 체크아웃을 참조(코어를 함께 고치는 중일 때):
 
 ```swift
 dependencies: [.package(path: "../RynL10n")],
@@ -389,14 +390,10 @@ RYNL10N_ENDPOINT=http://localhost:8788 RYNL10N_PROJECT=myapp \
   오버레이 적용). `swift test` **49개 통과**(2026-08-21 재실행) — Golden 8 · RemoteDelivery 12
   (캐싱·ETag·오프라인 폴백) · PushTelemetry 10(폴링·SSE·집계 전송) · Locale 5(로케일 축) ·
   Scenario 4 · M4 4 · Convert 3 · Bake 2 · Observable 1.
-- **미검증**: **패키지 게시.** 미러 저장소·태그가 아직 없어 원격 참조 경로 자체가 없다(2절 참조).
-  로컬 경로 참조로는 전 구간 검증됨. 릴리스 CI(`.github/workflows/release.yml`)가
-  `git subtree split --prefix=sdks/ios`로 미러를 만들도록 작성돼 있고, split 결과 루트에
-  `Package.swift`가 오는 것까지는 확인했다.
-
-> **미러 저장소에서는 `swift test`가 돌지 않는다.** 골든 테스트가 저장소 루트의 `fixtures/golden`을
-> 위로 올라가며 찾는데 미러에는 그 디렉토리가 없다. 미러는 **배포용**이고 SPM은 의존 패키지의 테스트를
-> 빌드하지 않으므로 소비자에게는 영향이 없다 — 테스트는 모노레포에서 돈다.
+- **검증됨**: **패키지 게시.** 태그 `v0.1.0`으로 원격 참조가 성립한다(2026-08-26). 2026-08-27에
+  저장소 밖 빈 SwiftPM 패키지에서 `.package(url:…, from: "0.1.0")`으로 해석·빌드하고 `t()`
+  왕복까지 확인했다(`Package.resolved`가 태그 `0.1.0`을 고정). 미러 저장소는 폐기됐다 — SPM이
+  루트 매니페스트만 인식하므로 **루트 `Package.swift`**가 소스를 `path:`로 가리킨다(2절).
 - **미검증**: **Xcode 앱 타깃(`.xcodeproj`)에서의 실제 빌드.** 플러그인에 `XcodeBuildToolPlugin`
   구현을 추가했고(Xcode 타깃은 이 프로토콜이 없으면 플러그인이 붙지 않는다) 3-b의 절차는 그에 맞춰
   썼지만, 이 저장소에 Xcode 프로젝트가 없어 실제 앱 빌드로는 확인하지 못했다. 위젯 렌더·리소스 병합도

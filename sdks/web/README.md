@@ -9,9 +9,8 @@ Web(JS/TS) SDK. **프레임워크 무관 코어 + fetch/ETag 폴링 + 영속 캐
 npm install @rynl10n/web
 ```
 
-> **아직 레지스트리에 올라가 있지 않다**(npm org `@rynl10n` 확보가 선행 · 게시는 4개 SDK lockstep
-> `0.1.0`). 지금 붙이려면 저장소를 클론해 `"@rynl10n/web": "file:…/sdks/web"`으로 가리킨다 —
-> `prepack`이 게시 빌드를 돌리므로 `npm pack`한 tarball을 설치해도 동일하다.
+> **npm에 게시돼 있다 — `0.1.0`**(2026-08-26 · 4개 SDK lockstep 6.5). `dist-tags.latest = 0.1.0`.
+> 2026-08-27에 빈 프로젝트에서 레지스트리 설치 → `t()` 왕복 + `.d.ts` 타입 해석까지 확인했다.
 
 받는 것은 **컴파일된 `.js` + `.d.ts`**다. 저장소 개발은 여전히 빌드 스텝이 0이지만(Node 네이티브
 타입 스트리핑으로 `.ts`를 그대로 실행) **게시본은 트랜스파일해야 한다** — Node는 `node_modules`
@@ -24,6 +23,13 @@ SSR·스크립트·테스트에서는 하드 에러가 난다. 빌드는 `prepac
 
 ```jsonc
 // 앱 package.json
+"dependencies": { "@rynl10n/web": "^0.1.0" }
+```
+
+코어를 함께 고치는 중이라면 경로 의존도 그대로 동작한다 — `prepack`이 게시 빌드를 돌리므로
+`npm pack` tarball 설치와 결과가 같다:
+
+```jsonc
 "dependencies": { "@rynl10n/web": "file:../RynL10n/sdks/web" }
 ```
 
