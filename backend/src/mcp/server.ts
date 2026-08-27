@@ -139,6 +139,16 @@ interface JsonRpcResponse {
 const ok = (id: unknown, result: unknown): JsonRpcResponse => ({ jsonrpc: "2.0", id, result });
 const fail = (id: unknown, code: number, message: string): JsonRpcResponse => ({ jsonrpc: "2.0", id, error: { code, message } });
 
+/**
+ * 도구 목록을 대시보드가 읽을 수 있는 형태로. `tools/list`와 **같은 필터**를 쓰므로
+ * 화면에 보이는 것이 곧 그 토큰으로 쓸 수 있는 것이다(하드코딩하면 서버와 어긋난다).
+ */
+export function listMcpTools(principal: Principal): Array<{ name: string; title: string; description: string; capability: Capability }> {
+  return visibleTools(principal).map((t) => ({
+    name: t.name, title: t.title, description: t.description, capability: t.capability,
+  }));
+}
+
 /** 호출자가 실제로 쓸 수 있는 도구만. 권한 없는 도구는 목록에서 사라진다. */
 function visibleTools(principal: Principal): readonly McpTool[] {
   return MCP_TOOLS.filter((t) => {

@@ -129,6 +129,30 @@ test("알 수 없는 메서드는 -32601", async () => {
   assert.equal(r.body.error.code, -32601);
 });
 
+/**
+ * 대시보드는 `POST /mcp`를 부를 수 없다 — 브라우저 요청에는 Origin이 붙고 가드의 기본값이
+ * 전부 거부이기 때문이다. 그래서 도구 목록을 관리 API로도 낸다. **같은 `MCP_TOOLS`에서 나와야**
+ * 화면이 서버와 어긋나지 않는다.
+ */
+test("GET /mcp/tools: 관리 API로도 같은 목록이 나온다(대시보드용)", async () => {
+  const viaMcp = await rpc("tools/list", {}, { token: TOK.view });
+  const viaRest = await fetch(base + "/mcp/tools", { headers: { authorization: `Bearer ${TOK.view}` } });
+  const rest: any = await viaRest.json();
+  assert.equal(viaRest.status, 200);
+  assert.deepEqual(
+    rest.tools.map((t: any) => t.name).sort(),
+    viaMcp.body.result.tools.map((t: any) => t.name).sort(),
+  );
+  assert.equal(rest.tools[0].capability, "read"); // 필요 권한도 함께 — UI가 배지로 그린다
+});
+
+test("GET /me: MCP 표면의 존재와 Origin 정책을 알려준다", async () => {
+  const res = await fetch(base + "/me", { headers: { authorization: `Bearer ${TOK.view}` } });
+  const me: any = await res.json();
+  assert.equal(me.mcp.enabled, true);
+  assert.deepEqual(me.mcp.allowedOrigins, []); // 안전 기본값 — 화면이 이 사실을 설명한다
+});
+
 test("GET /mcp는 405 — 서버→클라이언트 스트림을 제공하지 않는다", async () => {
   const res = await fetch(base + "/mcp", { headers: { authorization: `Bearer ${TOK.view}` } });
   assert.equal(res.status, 405);

@@ -118,6 +118,8 @@ const state = {
   pendingTranslationImport: null, // {fileName, data} — 현재 프로젝트에 키·번역을 병합하기 전 미리보기
   users: [],             // 사용자 관리(7.3) — admin일 때만 채운다
   issuedToken: null,     // {userId, token} — 방금 발급한 토큰 평문. **이 화면이 유일한 노출**이다
+  instanceView: "projects", // 프로젝트에 들어가 있지 않을 때 어느 인스턴스 화면인가: projects | mcp
+  mcpTools: [],          // [{name,title,description,capability}] — 서버가 준 것(하드코딩 금지)
 };
 
 const ROLE_CAPS = {
@@ -221,6 +223,7 @@ const ICONS = {
   chart: ["M4 20V10", "M10 20V4", "M16 20v-7", "M22 20H2"],
   swap: ["M8 9l4-4 4 4", "M16 15l-4 4-4-4"],
   logout: ["M14 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h8", "M17 15l3-3-3-3", "M20 12H10"],
+  plug: ["M9 3v6", "M15 3v6", "M6 9h12v3a6 6 0 0 1-12 0z", "M12 18v3"],
 };
 
 /** 아바타·프로젝트 마크에 넣을 머리글자. 구분자로 끊어 두 글자, 못 끊으면 앞 두 글자. */
@@ -258,7 +261,11 @@ function sidebar() {
   const groups = [
     el("div", { class: "nav-group" },
       el("div", { class: "nav-label", text: "인스턴스" }),
-      navItem("folder", "프로젝트", !inProject, () => openProjects()),
+      navItem("folder", "프로젝트", !inProject && state.instanceView === "projects", () => openProjects()),
+      // MCP는 켜져 있을 때만 보인다 — serveMcp:false로 끈 배포에서 죽은 메뉴를 그리지 않는다.
+      state.me?.mcp?.enabled
+        ? navItem("plug", "MCP", !inProject && state.instanceView === "mcp", () => openMcp())
+        : null,
     ),
   ];
 
@@ -328,6 +335,7 @@ function topbar() {
 
 async function openProjects() {
   closeStream();
+  state.instanceView = "projects";
   state.projectId = null; state.project = null;
   state.pendingTranslationImport = null;
   const data = await api("GET", "/projects");
@@ -689,6 +697,85 @@ function renderProjects() {
       : null,
     admin ? usersPanel() : null,
     admin ? importPanel() : null,
+  );
+}
+
+
+// ── MCP 도구 표면 안내 ───────────────────────────────────────────────────────
+//
+// 이 화면은 **조작하는 자리가 아니라 알려주는 자리**다. 배포 플레인을 링크로만 노출하는 것과
+// 같은 성격이다 — 대시보드가 그 표면을 대신 부르지 않는다. 실제로 대시보드는 `POST /mcp`를
+// 부를 수도 없다: 브라우저 요청에는 Origin이 붙고 MCP Origin 가드의 기본값은 전부 거부다.
+// 그래서 도구 목록은 관리 API(`GET /mcp/tools`)에서 받아 온다. 하드코딩하면 서버와 어긋난다.
+
+async function openMcp() {
+  closeStream();
+  state.instanceView = "mcp";
+  state.projectId = null; state.project = null;
+  state.mcpTools = (await api("GET", "/mcp/tools")).tools;
+  renderMcp();
+}
+
+function renderMcp() {
+  const endpoint = `${location.origin}/mcp`;
+  const snippet = JSON.stringify({
+    mcpServers: { rynl10n: { type: "http", url: endpoint, headers: { Authorization: "Bearer <발급한 토큰>" } } },
+  }, null, 2);
+  const origins = state.me?.mcp?.allowedOrigins ?? [];
+
+  const copy = (text) => () => globalThis.navigator?.clipboard?.writeText(text);
+
+  shell(
+    el("div", { class: "panel" },
+      el("h2", {}, "MCP 도구 표면",
+        el("span", { class: "hint", text: "에이전트가 이 인스턴스에 붙는 자리 — 읽기 전용 도구" })),
+      el("div", { class: "row" },
+        el("label", { class: "field grow" }, "엔드포인트",
+          el("input", { value: endpoint, readonly: true, class: "grow mono" })),
+        el("button", { class: "tiny", text: "복사", onClick: copy(endpoint) }),
+      ),
+      el("p", { class: "muted small" },
+        "인증은 관리 API와 같은 축입니다 — 같은 Bearer 토큰, 같은 역할·프로젝트 스코프. ",
+        el("b", {}, "토큰은 'MCP 전용'으로 발급하세요"),
+        " (프로젝트 목록 → 사용자 관리). 그 평문은 에이전트 설정 파일에 놓이므로, 새더라도 이 표면 밖으로는 못 갑니다."),
+    ),
+
+    el("div", { class: "panel" },
+      el("h2", {}, "붙이는 설정", el("span", { class: "hint", text: "클라이언트 설정 파일에 그대로" })),
+      el("pre", { class: "json", text: snippet }),
+      el("div", { class: "row" },
+        el("button", { class: "tiny", text: "복사", onClick: copy(snippet) })),
+    ),
+
+    el("div", { class: "panel" },
+      el("h2", {}, "사용 가능한 도구",
+        el("span", { class: "hint", text: "지금 이 토큰의 권한으로 보이는 것 — 서버가 준 목록입니다" })),
+      state.mcpTools.length
+        ? el("div", { class: "tablewrap" }, el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", { text: "이름" }), el("th", { text: "설명" }), el("th", { text: "필요 권한" }))),
+            el("tbody", {}, ...state.mcpTools.map((t) => el("tr", {},
+              el("td", { class: "mono" }, t.name, el("div", { class: "small muted", text: t.title })),
+              el("td", { class: "small", text: t.description }),
+              el("td", {}, el("span", { class: "badge", text: t.capability })),
+            ))),
+          ))
+        : el("p", { class: "muted", text: "이 토큰의 권한으로 쓸 수 있는 도구가 없습니다." }),
+    ),
+
+    el("div", { class: "panel" },
+      el("h2", {}, "Origin 정책", el("span", { class: "hint", text: "브라우저에서 오는 요청만 대상입니다" })),
+      origins.length
+        ? el("div", { class: "row" }, ...origins.map((o) => el("span", { class: "badge", text: o })))
+        : el("p", { class: "muted small" },
+            "허용 목록이 비어 있습니다 — Origin이 붙은 요청은 전부 거부합니다. ",
+            el("b", {}, "이것이 안전 기본값입니다"),
+            ": MCP 클라이언트는 브라우저가 아니라 Origin을 보내지 않으므로 정상 사용을 막지 않고, 로컬에 띄운 서버를 웹 페이지가 부르는 경로만 끊습니다."),
+      el("p", { class: "muted small" },
+        "바꾸려면 서버 환경변수 ", el("code", { text: "RYNL10N_MCP_ALLOWED_ORIGINS" }), " (쉼표 구분). ",
+        "이 화면이 도구 목록을 관리 API에서 받아 오는 것도 같은 이유입니다 — 대시보드도 브라우저라서 ",
+        el("code", { text: "POST /mcp" }), " 를 직접 부르지 못합니다."),
+    ),
   );
 }
 

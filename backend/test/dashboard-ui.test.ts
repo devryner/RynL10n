@@ -65,7 +65,8 @@ function installDom() {
     setItem: (k: string, v: string) => { store[k] = v; },
     removeItem: (k: string) => { delete store[k]; },
   };
-  g.location = { protocol: "http:", hostname: "localhost" };
+  // app.js가 읽는 것들: 브랜드의 host, MCP 안내의 origin, 배포 플레인 기본 주소의 protocol·hostname.
+  g.location = { protocol: "http:", hostname: "localhost", host: "l10n.test", origin: "https://l10n.test" };
   g.EventSource = class { addEventListener() { } close() { } };
   return { byId, store };
 }
@@ -112,7 +113,16 @@ async function loadApp() {
 
 // ── 고정 응답(관리 API 실제 스키마와 동일) ────────────────────────────────────
 
-const ME_ADMIN = { actor: "admin", role: "admin", projects: "*", deliveryBaseUrl: "https://cdn.test" };
+const ME_ADMIN = {
+  actor: "admin", role: "admin", projects: "*", deliveryBaseUrl: "https://cdn.test",
+  mcp: { enabled: true, allowedOrigins: [] },
+};
+const MCP_TOOLS = {
+  tools: [
+    { name: "validate_translation", title: "번역 값 검증(쓰기 없음)", description: "…", capability: "read" },
+    { name: "resolve_preview", title: "해석 경로 미리보기", description: "…", capability: "read" },
+  ],
+};
 const PROJECTS = { projects: [{ id: "shop", name: "Shop", defaultLocale: "en" }] };
 const PROJECT = { id: "shop", name: "Shop", defaultLocale: "en", locales: ["en", "ko"] };
 const KEYS = {
@@ -134,7 +144,10 @@ const RELEASES = {
   }],
 };
 
-interface Me { actor: string; role: string; projects: string | string[]; deliveryBaseUrl: string }
+interface Me {
+  actor: string; role: string; projects: string | string[]; deliveryBaseUrl: string;
+  mcp?: { enabled: boolean; allowedOrigins: string[] };
+}
 
 function projectTable(me: Me = ME_ADMIN) {
   return {
@@ -147,6 +160,7 @@ function projectTable(me: Me = ME_ADMIN) {
     "GET /projects/shop/manifest": { schemaVersion: 1, project: "shop", releases: [] },
     "GET /projects/shop/manifests": { history: [] },
     "GET /users": { users: [] }, // 목록 화면은 admin이면 사용자도 함께 읽는다(7.3)
+    "GET /mcp/tools": MCP_TOOLS,
   } as Record<string, any>;
 }
 
@@ -1312,3 +1326,50 @@ test("카탈로그 읽기는 viewer에게도 열려 있다 (read 권한 축)", a
   await settle();
   assert.match(byId.app!.textContent, /R1 카탈로그/);
 });
+
+/**
+ * MCP 안내 화면은 **조작하는 자리가 아니라 알려주는 자리**다. 검증 축은 셋:
+ *  ① 도구 목록이 서버가 준 것인가(하드코딩하면 서버와 조용히 어긋난다)
+ *  ② 대시보드가 `POST /mcp`를 부르지 않는가 — 브라우저라서 Origin 가드에 걸린다
+ *  ③ MCP가 꺼진 배포에서는 메뉴가 아예 없는가(죽은 메뉴를 그리지 않는다)
+ */
+test("MCP 화면: 도구 목록은 서버가 준 것이고, 엔드포인트·설정 스니펫을 보여준다", async () => {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "t";
+  const calls = installFetch(projectTable());
+  await loadApp();
+
+  tags(byId.app, "button").find((b) => b.textContent === "MCP")!.fire("click");
+  await settle();
+
+  const text = byId.app!.textContent;
+  assert.match(text, /https:\/\/l10n\.test\/mcp/, "엔드포인트가 보여야 한다");
+  assert.match(text, /validate_translation/);
+  assert.match(text, /resolve_preview/);
+  assert.match(text, /"type": "http"/, "붙이는 설정 스니펫이 있어야 한다");
+  assert.ok(calls.some((c) => c.method === "GET" && c.path === "/mcp/tools"), "목록은 서버에서 받아온다");
+  assert.ok(!calls.some((c) => c.path === "/mcp"), "대시보드는 MCP 전송 엔드포인트를 직접 부르지 않는다");
+});
+
+test("MCP 화면: 허용 Origin이 비어 있으면 그것이 안전 기본값임을 설명한다", async () => {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "t";
+  installFetch(projectTable());
+  await loadApp();
+  tags(byId.app, "button").find((b) => b.textContent === "MCP")!.fire("click");
+  await settle();
+
+  assert.match(byId.app!.textContent, /안전 기본값/);
+  assert.match(byId.app!.textContent, /RYNL10N_MCP_ALLOWED_ORIGINS/, "바꾸는 방법을 알려줘야 한다");
+});
+
+test("MCP가 꺼진 배포에서는 메뉴가 없다", async () => {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "t";
+  const me = { ...ME_ADMIN, mcp: { enabled: false, allowedOrigins: [] } };
+  installFetch({ ...projectTable(me), "GET /me": me });
+  await loadApp();
+
+  assert.ok(!tags(byId.app, "button").some((b) => b.textContent === "MCP"), "죽은 메뉴를 그리면 안 된다");
+});
+
