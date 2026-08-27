@@ -18,17 +18,12 @@ import { Metrics, METRIC } from "../observability/metrics.ts";
 import { Notifier } from "../observability/notifier.ts";
 import { ingest, releaseHealth } from "../observability/telemetry.ts";
 import { rebuildAllArtifacts } from "../admin/rebuild.ts";
-import type { ProjectExport, TranslationImport } from "../db/repo.ts";
+import type { ProjectExport } from "../db/repo.ts";
 import { uiAsset } from "../ui/serve.ts";
+import { handleMcpMessage } from "../mcp/server.ts";
 
-class HttpError extends Error {
-  readonly status: number;
-  constructor(status: number, message: string) { super(message); this.status = status; }
-}
-class SignatureMismatchError extends HttpError { constructor(m: string) { super(422, m); } }
-class BadRequestError extends HttpError { constructor(m: string) { super(400, m); } }
-/** 현재 상태와 충돌해 요청을 수행할 수 없음(409). 범위 충돌은 별도 RangeConflictError. */
-class ConflictError extends HttpError { constructor(m: string) { super(409, m); } }
+import { HttpError, SignatureMismatchError, BadRequestError, ConflictError } from "./errors.ts";
+import { requireTranslationImport } from "./translation-import.ts";
 
 interface Ctx {
   readonly params: Record<string, string>;
@@ -98,8 +93,6 @@ function requireVersionMatch(vm: any): VersionMatch {
 }
 /** 릴리스 상태 4종(4.3 라이프사이클) — import 본문 검증용 런타임 목록. */
 const RELEASE_STATES: readonly string[] = ["draft", "published", "superseded", "archived"];
-const TRANSLATION_STATES: readonly string[] = ["draft", "reviewed"];
-const PLURAL_CATEGORIES = new Set(["zero", "one", "two", "few", "many", "other"]);
 
 /** 사용자 role 검증(7.3) — rbac.ROLES가 단일 원천. */
 function requireRole(v: unknown): Role {
@@ -183,97 +176,6 @@ function requireProjectExport(body: any): ProjectExport {
   return body as ProjectExport;
 }
 
-/**
- * 기존 프로젝트용 키·번역 import를 검증하고 DB에 바로 넣을 수 있는 형태로 정규화한다.
- * 형식은 전체 export의 `keys[].translations[]` 부분집합이라 export에서 키 배열만 떼어 재사용할 수 있다.
- */
-function requireTranslationImport(body: any, repo: Repo, projectId: string): {
-  data: TranslationImport;
-  createdKeys: number;
-  updatedKeys: number;
-  translations: number;
-} {
-  const bad = (m: string): never => { throw new BadRequestError(`번역 import 형식이 아닙니다: ${m}`); };
-  if (!Array.isArray(body?.keys) || body.keys.length === 0) bad("keys는 비지 않은 배열이어야 합니다");
-
-  const supportedLocales = new Set(repo.listLocales(projectId));
-  const existing = new Map(repo.listKeyDetails(projectId).map((k) => [k.name, k]));
-  const names = new Set<string>();
-  const keys: TranslationImport["keys"][number][] = [];
-  let createdKeys = 0;
-  let updatedKeys = 0;
-  let translationCount = 0;
-
-  const value = (v: unknown, where: string): TranslationValue => {
-    if (typeof v === "string") return v;
-    if (!v || typeof v !== "object" || Array.isArray(v)) bad(`${where}.value는 문자열 또는 CLDR 복수형 맵이어야 합니다`);
-    const entries = Object.entries(v as Record<string, unknown>);
-    if (!entries.length || entries.some(([category, text]) => !PLURAL_CATEGORIES.has(category) || typeof text !== "string")) {
-      bad(`${where}.value의 복수형 맵은 CLDR 카테고리와 문자열 값만 포함해야 합니다`);
-    }
-    if (!("other" in (v as object))) bad(`${where}.value의 복수형 맵에는 other가 필요합니다`);
-    return v as TranslationValue;
-  };
-
-  for (const [keyIndex, rawKey] of body.keys.entries()) {
-    const name = typeof rawKey?.name === "string" ? rawKey.name.trim() : "";
-    if (!name) bad(`keys[${keyIndex}].name이 필요합니다`);
-    if (names.has(name)) bad(`키 "${name}"가 중복되었습니다`);
-    names.add(name);
-    if (rawKey.description !== undefined && typeof rawKey.description !== "string") bad(`키 "${name}"의 description은 문자열이어야 합니다`);
-    if (!Array.isArray(rawKey.translations) || rawKey.translations.length === 0) bad(`키 "${name}"의 translations는 비지 않은 배열이어야 합니다`);
-
-    const locales = new Set<string>();
-    const translations: TranslationImport["keys"][number]["translations"][number][] = [];
-    let importedSignature: string | undefined;
-    let importedPlural: boolean | undefined;
-    for (const [translationIndex, rawTranslation] of rawKey.translations.entries()) {
-      const where = `키 "${name}" translations[${translationIndex}]`;
-      const locale = typeof rawTranslation?.locale === "string" ? rawTranslation.locale.trim() : "";
-      if (!locale) bad(`${where}.locale이 필요합니다`);
-      if (!supportedLocales.has(locale)) bad(`${where}.locale "${locale}"는 프로젝트 지원 로케일이 아닙니다`);
-      if (locales.has(locale)) bad(`키 "${name}"의 로케일 "${locale}"가 중복되었습니다`);
-      locales.add(locale);
-      const translationValue = value(rawTranslation?.value, where);
-      const state = rawTranslation?.state ?? "draft";
-      if (!TRANSLATION_STATES.includes(state)) bad(`${where}.state는 ${TRANSLATION_STATES.join(" 또는 ")}여야 합니다`);
-
-      const sig = signature(translationValue);
-      const plural = isPluralMap(translationValue);
-      if (importedSignature === undefined) { importedSignature = sig; importedPlural = plural; }
-      else if (importedSignature !== sig || importedPlural !== plural) {
-        throw new SignatureMismatchError(`키 "${name}"의 번역끼리 플레이스홀더 서명 또는 복수형 형태가 다릅니다`);
-      }
-      translations.push({ locale, value: translationValue, state });
-      translationCount += 1;
-    }
-
-    const current = existing.get(name);
-    let resolvedSignature = importedSignature!;
-    let resolvedPlural = importedPlural!;
-    if (current) {
-      updatedKeys += 1;
-      const currentValues = Object.values(current.translations);
-      const establishedSignature = current.signature || (currentValues.length ? signature(currentValues[0]!.value) : undefined);
-      if (current.isPlural !== resolvedPlural || (establishedSignature !== undefined && establishedSignature !== resolvedSignature)) {
-        throw new SignatureMismatchError(`키 "${name}"의 기존 플레이스홀더 서명 또는 복수형 형태와 import 값이 다릅니다`);
-      }
-      resolvedSignature = establishedSignature ?? resolvedSignature;
-      resolvedPlural = current.isPlural;
-    } else {
-      createdKeys += 1;
-    }
-    keys.push({
-      name,
-      signature: resolvedSignature,
-      isPlural: resolvedPlural,
-      ...(rawKey.description !== undefined ? { description: rawKey.description } : {}),
-      translations,
-    });
-  }
-
-  return { data: { keys }, createdKeys, updatedKeys, translations: translationCount };
-}
 
 const routes: Route[] = [
   // 세션 확인 — 대시보드 로그인 검증 + 배포 플레인 주소 전달. 모든 역할(read).
@@ -671,6 +573,8 @@ export interface ServerDeps {
   readonly deliveryBaseUrl?: string;
   /** 대시보드(정적 자산) 서빙 여부. 기본 true — 테스트·헤드리스 배포에서 끌 수 있다. */
   readonly serveDashboard?: boolean;
+  /** MCP 도구 표면(`POST /mcp`) 노출 여부. 기본 true — 인증은 관리 API와 같은 Bearer + RBAC. */
+  readonly serveMcp?: boolean;
 }
 
 /** 구조화 JSON 로그(9.3) 기본 구현. */
@@ -694,6 +598,7 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
   const log = deps.log ?? defaultLog;
   const deliveryBaseUrl = deps.deliveryBaseUrl ?? "";
   const serveDashboard = deps.serveDashboard ?? true;
+  const serveMcp = deps.serveMcp ?? true;
   return async (req: IncomingMessage, res: ServerResponse) => {
     const started = performance.now();
     const send = (status: number, body: unknown, contentType = "application/json") => {
@@ -731,6 +636,31 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
       });
       req.on("close", () => unsub());
       return;
+    }
+
+    // MCP 도구 표면(JSON-RPC 2.0 / Streamable HTTP). 라우트 테이블 밖에 두는 이유는
+    // 알림에 **본문 없는 202**로 답해야 하고 배치 요청은 배열로 돌려줘야 하기 때문이다 —
+    // 둘 다 `{status, body}` 규약으로는 표현되지 않는다.
+    if (serveMcp && path === "/mcp") {
+      if (req.method !== "POST") {
+        // 서버→클라이언트 스트림(GET)과 세션 종료(DELETE)는 제공하지 않는다 — stateless 표면.
+        res.writeHead(405, { "content-type": "application/json", allow: "POST" });
+        return res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "POST만 지원합니다(stateless 전송)" } }));
+      }
+      try {
+        const principal = authenticate(deps.tokens, req.headers.authorization);
+        const body = await readBody(req);
+        const batch = Array.isArray(body);
+        const out = (batch ? body : [body])
+          .map((m) => handleMcpMessage({ repo: deps.repo, store: deps.store }, principal, m))
+          .filter((r) => r !== null);
+        if (out.length === 0) { res.writeHead(202).end(); return; } // 알림만 온 경우
+        return send(200, batch ? out : out[0]);
+      } catch (e) {
+        const err = e as { status?: number; message?: string };
+        const status = typeof err.status === "number" ? err.status : 500;
+        return send(status, { error: { code: status === 401 ? "unauthorized" : "internal", message: err.message ?? "error" } });
+      }
     }
 
     try {
