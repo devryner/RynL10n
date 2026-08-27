@@ -8,12 +8,25 @@ import { dirname, join } from "node:path";
 import { canonicalStringify } from "../../../src/serialize/jcs.ts";
 import type { Snapshot, Delta, Manifest } from "../../../src/core/types.ts";
 
+/** SDK 런타임(배포 플레인 소비자)이 읽는 정적 파일 인터페이스 — 경로 기반. */
+export interface DeliveryReader {
+  getSnapshot(path: string): Snapshot | undefined;
+  getDelta(path: string): Delta | undefined;
+}
+
 export interface ArtifactStore {
   writeSnapshot(project: string, releaseId: string, snap: Snapshot): string;
   writeDelta(project: string, releaseId: string, delta: Delta): string;
   writeManifest(project: string, manifest: Manifest): void;
   readSnapshot(project: string, releaseId: string, base: string): Snapshot | undefined;
+  readDelta(project: string, releaseId: string, from: string, to: string): Delta | undefined;
   readManifest(project: string): Manifest | undefined;
+  /**
+   * SDK 런타임이 보는 것과 같은 경로 기반 읽기 뷰(진단·시뮬레이션용).
+   * manifest의 `snapshot`·`delta`는 상대 경로 문자열이라 (releaseId, hash)로 되짚지 않고
+   * 그 경로를 그대로 읽어야 한다 — SDK가 하는 일과 같아야 시뮬레이션이 실물과 갈라지지 않는다.
+   */
+  deliveryReader(project: string): DeliveryReader;
   /**
    * 프로젝트의 산출물 전체 제거. DB에서 프로젝트를 지울 때 함께 호출한다 —
    * 배포 플레인은 정적 파일만 보고 서빙하므로, 여기 남으면 지워진 프로젝트의 manifest를
@@ -36,10 +49,24 @@ function assertSafeSegment(value: string, label: string): void {
   }
 }
 
+/**
+ * manifest가 준 상대 경로(`releases/{r}/snapshot-{hash}.json`)를 그대로 join하기 전 검사.
+ * 경로는 서버가 쓴 것이지만 배포 플레인의 파일은 손으로도 고칠 수 있고, 읽기 뷰는
+ * 그 문자열을 신뢰해 루트에 붙인다 — 세그먼트마다 위 가드를 다시 건다.
+ */
+function assertSafeRelPath(rel: string): void {
+  if (rel === "" || rel.startsWith("/")) throw new Error(`상대 경로가 아닙니다: ${JSON.stringify(rel)}`);
+  for (const seg of rel.split("/")) assertSafeSegment(seg, "산출물 경로 세그먼트");
+}
+
+// 릴리스 id는 생성 시 본문으로 지정할 수 있어(`POST /projects/{p}/releases`의 `id`)
+// 프로젝트 id와 똑같이 경로 세그먼트로 내려온다 — 같은 가드를 건다.
 function snapshotPath(releaseId: string, base: string): string {
+  assertSafeSegment(releaseId, "릴리스 id");
   return `releases/${releaseId}/snapshot-${base}.json`;
 }
 function deltaPath(releaseId: string, from: string, to: string): string {
+  assertSafeSegment(releaseId, "릴리스 id");
   return `releases/${releaseId}/delta-${from}-${to}.json`;
 }
 
@@ -83,22 +110,31 @@ export class FsArtifactStore implements ArtifactStore {
     if (!existsSync(p)) return undefined;
     return JSON.parse(readFileSync(p, "utf8")) as Snapshot;
   }
+  readDelta(project: string, releaseId: string, from: string, to: string): Delta | undefined {
+    return this.readPath(project, deltaPath(releaseId, from, to)) as Delta | undefined;
+  }
   readManifest(project: string): Manifest | undefined {
     const p = this.abs(project, "manifest.json");
     if (!existsSync(p)) return undefined;
     return JSON.parse(readFileSync(p, "utf8")) as Manifest;
+  }
+  deliveryReader(project: string): DeliveryReader {
+    return {
+      getSnapshot: (path) => this.readPath(project, path) as Snapshot | undefined,
+      getDelta: (path) => this.readPath(project, path) as Delta | undefined,
+    };
+  }
+  private readPath(project: string, rel: string): unknown {
+    assertSafeRelPath(rel);
+    const p = this.abs(project, rel);
+    if (!existsSync(p)) return undefined;
+    return JSON.parse(readFileSync(p, "utf8")) as unknown;
   }
   deleteProject(project: string): void {
     assertSafeSegment(project, "프로젝트 id");
     // 산출물이 없는 프로젝트(publish 전)도 정상 경로다 — force로 조용히 넘어간다.
     rmSync(join(this.root, project), { recursive: true, force: true });
   }
-}
-
-/** SDK 런타임(배포 플레인 소비자)이 읽는 정적 파일 인터페이스 — 경로 기반. */
-export interface DeliveryReader {
-  getSnapshot(path: string): Snapshot | undefined;
-  getDelta(path: string): Delta | undefined;
 }
 
 /** 인메모리 구현(테스트·SDK 소비 검증). */
@@ -123,6 +159,9 @@ export class MemoryArtifactStore implements ArtifactStore {
   }
   readSnapshot(project: string, releaseId: string, base: string): Snapshot | undefined {
     return this.snapshots.get(this.key(project, snapshotPath(releaseId, base)));
+  }
+  readDelta(project: string, releaseId: string, from: string, to: string): Delta | undefined {
+    return this.deltas.get(this.key(project, deltaPath(releaseId, from, to)));
   }
   readManifest(project: string): Manifest | undefined {
     return this.manifests.get(project);
