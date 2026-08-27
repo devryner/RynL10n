@@ -46,6 +46,13 @@ export interface ServerConfig {
   readonly adminToken: string;
   readonly deliveryAllowOrigin: string;
   readonly deliveryBaseUrl: string;
+  /**
+   * `POST /mcp`가 받아들일 브라우저 Origin 목록. **기본은 빈 목록 = Origin이 붙은 요청 전부 거부.**
+   * MCP 클라이언트는 브라우저가 아니라 Origin을 보내지 않으므로 이 기본값은 아무것도 깨뜨리지 않고,
+   * 브라우저에서 오는 요청만 막는다(DNS rebinding — 로컬에 띄운 서버를 악성 페이지가 부르는 경로).
+   * 여러 개는 쉼표로 구분한다.
+   */
+  readonly mcpAllowedOrigins: readonly string[];
 }
 
 /** 기본값은 단일 노드 셀프호스트(`docker compose up`) 기준. 프로덕션은 전부 환경에서 온다. */
@@ -62,5 +69,8 @@ export function loadConfig(env: Env = process.env): ServerConfig {
     deliveryAllowOrigin: envValue(env, "RYNL10N_DELIVERY_ALLOW_ORIGIN") ?? "*",
     // 배포 플레인 base URL — 대시보드가 산출물 링크를 만들 때 쓴다(프로덕션은 CDN 도메인).
     deliveryBaseUrl: envValue(env, "RYNL10N_DELIVERY_URL") ?? `http://localhost:${deliveryPort}`,
+    // 빈 값·미설정은 둘 다 "허용 목록 없음"이다 — 여기서도 빈 문자열은 값이 아니다.
+    mcpAllowedOrigins: (envValue(env, "RYNL10N_MCP_ALLOWED_ORIGINS") ?? "")
+      .split(",").map((o) => o.trim()).filter((o) => o !== ""),
   };
 }

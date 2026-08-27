@@ -20,11 +20,30 @@ const ROLE_CAPS: Record<Role, ReadonlySet<Capability>> = {
   admin: new Set(["read", "edit_translation", "manage_release", "admin"]),
 };
 
+/** 토큰이 닿을 수 있는 표면 — 'all'(기본) 또는 MCP 도구 표면만. */
+export type Surface = "all" | "mcp";
+export const SURFACES: readonly Surface[] = ["all", "mcp"];
+
 export interface Principal {
   readonly actor: string;
   readonly role: Role;
   /** 접근 가능한 프로젝트 id 집합, 또는 '*'(전체). */
   readonly projects: ReadonlySet<string> | "*";
+  /**
+   * 이 principal이 닿을 수 있는 표면(7.3). 생략하면 'all' — 부트스트랩 env 토큰과 기존
+   * 호출부가 그대로 동작한다. 'mcp'면 `POST /mcp` 외의 관리 API가 403이다.
+   */
+  readonly surface?: Surface;
+}
+
+/**
+ * 두 역할 중 **덜 강한 쪽**을 고른다. 토큰의 역할 상한을 적용할 때 쓴다 —
+ * 상한이 사용자 역할보다 높아도 권한이 올라가면 안 되므로 늘 낮은 쪽으로 접힌다.
+ * `ROLES`는 강한 순서대로라 인덱스가 클수록 약하다.
+ */
+export function narrowRole(role: Role, ceiling: Role | null | undefined): Role {
+  if (!ceiling) return role;
+  return ROLES.indexOf(ceiling) > ROLES.indexOf(role) ? ceiling : role;
 }
 
 export class AuthError extends Error {
@@ -56,6 +75,10 @@ export interface UserPrincipalSource {
     readonly role: string;
     readonly projects: "*" | readonly string[];
     readonly disabled: boolean;
+    /** 토큰 자체의 표면 제한('all' 기본). 같은 사용자라도 토큰마다 다르다. */
+    readonly tokenSurface?: string;
+    /** 토큰 자체의 역할 상한(null=제한 없음). */
+    readonly tokenMaxRole?: string | null;
   } | undefined;
 }
 
@@ -79,7 +102,20 @@ export class DbTokenRegistry implements PrincipalResolver {
     const u = this.users.findUserByTokenHash(tokenHash(token));
     if (!u || u.disabled) return undefined;
     if (!(ROLES as readonly string[]).includes(u.role)) return undefined; // 손상된 role 값은 통과시키지 않는다
-    return { actor: u.id, role: u.role as Role, projects: u.projects === "*" ? "*" : new Set(u.projects) };
+    // 토큰의 제한을 principal로 환원한다 — 이 지점을 지나면 나머지 코드는 토큰을 다시 보지 않는다.
+    // 손상된 값은 **넓은 쪽이 아니라 좁은 쪽으로** 접는다: 알 수 없는 surface는 'mcp'(가장 좁음),
+    // 알 수 없는 상한은 'viewer'. 반대로 접으면 DB가 오염됐을 때 권한이 열린다.
+    const rawSurface = u.tokenSurface ?? "all";
+    const surface: Surface = rawSurface === "all" ? "all" : "mcp";
+    const rawCeiling = u.tokenMaxRole ?? null;
+    const ceiling: Role | null = rawCeiling === null ? null
+      : (ROLES as readonly string[]).includes(rawCeiling) ? rawCeiling as Role : "viewer";
+    return {
+      actor: u.id,
+      role: narrowRole(u.role as Role, ceiling),
+      projects: u.projects === "*" ? "*" : new Set(u.projects),
+      surface,
+    };
   }
 }
 

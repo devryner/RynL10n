@@ -9,7 +9,7 @@ import type { Repo } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
 import { publishRelease, rollbackRelease, RangeConflictError, NotFoundError } from "../pipeline/publish.ts";
 import { buildSnapshot } from "../../../src/builder/builder.ts";
-import { authenticate, authorize, AuthError, tokenHash, ROLES, type Capability, type PrincipalResolver, type Principal, type Role } from "../auth/rbac.ts";
+import { authenticate, authorize, AuthError, tokenHash, ROLES, SURFACES, type Capability, type PrincipalResolver, type Principal, type Role, type Surface } from "../auth/rbac.ts";
 import { signature } from "../../../src/core/placeholder.ts";
 import { parseRange } from "../../../src/core/semver.ts";
 import { parseIntRange } from "../../../src/core/intrange.ts";
@@ -98,6 +98,12 @@ const RELEASE_STATES: readonly string[] = ["draft", "published", "superseded", "
 function requireRole(v: unknown): Role {
   if (!(ROLES as readonly unknown[]).includes(v)) throw new BadRequestError(`role은 ${ROLES.join(" · ")} 중 하나`);
   return v as Role;
+}
+
+/** 토큰 표면 검증(7.3) — 'all' | 'mcp'. */
+function requireSurface(v: unknown): Surface {
+  if (!(SURFACES as readonly unknown[]).includes(v)) throw new BadRequestError(`surface는 ${SURFACES.join(" · ")} 중 하나`);
+  return v as Surface;
 }
 
 /**
@@ -538,11 +544,14 @@ const routes: Route[] = [
   route("POST", "/users/:id/tokens", "admin", ({ params, body, repo, principal }) => {
     if (!repo.getUser(params.id!)) throw new NotFoundError(`user ${params.id}`);
     const label = typeof body?.label === "string" ? body.label.trim() : "";
+    // 최소 권한(7.3). 값이 있으면 유효해야 한다 — 오타가 조용히 'all'로 넓어지면 안 된다.
+    const surface = body?.surface === undefined ? "all" : requireSurface(body.surface);
+    const maxRole = body?.maxRole == null || body.maxRole === "" ? null : requireRole(body.maxRole);
     const tokenId = randomUUID();
     const token = `rl10n_${randomBytes(24).toString("base64url")}`;
-    repo.addUserToken(params.id!, tokenId, tokenHash(token), label);
-    repo.audit(INSTANCE_SCOPE, principal!.actor, "user.token.issue", { user: params.id, tokenId, label });
-    return { status: 201, body: { id: tokenId, token, label } };
+    repo.addUserToken(params.id!, tokenId, tokenHash(token), label, surface, maxRole);
+    repo.audit(INSTANCE_SCOPE, principal!.actor, "user.token.issue", { user: params.id, tokenId, label, surface, maxRole });
+    return { status: 201, body: { id: tokenId, token, label, surface, maxRole } };
   }),
 
   // 토큰 폐기 — DB 조회 기반 인증이라 폐기 즉시 401(세션 캐시 없음).
@@ -575,6 +584,8 @@ export interface ServerDeps {
   readonly serveDashboard?: boolean;
   /** MCP 도구 표면(`POST /mcp`) 노출 여부. 기본 true — 인증은 관리 API와 같은 Bearer + RBAC. */
   readonly serveMcp?: boolean;
+  /** `POST /mcp`가 받아들일 브라우저 Origin 목록. 기본 빈 목록 = Origin이 붙은 요청 전부 거부. */
+  readonly mcpAllowedOrigins?: readonly string[];
 }
 
 /** 구조화 JSON 로그(9.3) 기본 구현. */
@@ -599,6 +610,7 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
   const deliveryBaseUrl = deps.deliveryBaseUrl ?? "";
   const serveDashboard = deps.serveDashboard ?? true;
   const serveMcp = deps.serveMcp ?? true;
+  const mcpAllowedOrigins = deps.mcpAllowedOrigins ?? [];
   return async (req: IncomingMessage, res: ServerResponse) => {
     const started = performance.now();
     const send = (status: number, body: unknown, contentType = "application/json") => {
@@ -648,6 +660,14 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
         return res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "POST만 지원합니다(stateless 전송)" } }));
       }
       try {
+        // Origin 가드. MCP 클라이언트는 브라우저가 아니라 Origin을 보내지 않는다 — 그래서
+        // Origin이 **붙어 있다는 것 자체가** 브라우저에서 왔다는 뜻이고, 허용 목록에 없으면 끊는다.
+        // (DNS rebinding에서는 Host도 공격자 도메인이라 Host 비교로는 못 걸러낸다. 명시 목록이라야 한다.)
+        // 지금도 Bearer가 필수라 실제 악용 경로는 막혀 있지만, 방어선이 하나뿐인 상태를 없앤다.
+        const origin = req.headers.origin;
+        if (typeof origin === "string" && origin !== "" && !mcpAllowedOrigins.includes(origin)) {
+          throw new AuthError(403, `허용되지 않은 Origin: ${origin}`);
+        }
         const principal = authenticate(deps.tokens, req.headers.authorization);
         const body = await readBody(req);
         const batch = Array.isArray(body);
@@ -659,7 +679,8 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
       } catch (e) {
         const err = e as { status?: number; message?: string };
         const status = typeof err.status === "number" ? err.status : 500;
-        return send(status, { error: { code: status === 401 ? "unauthorized" : "internal", message: err.message ?? "error" } });
+        const code = status === 401 ? "unauthorized" : status === 403 ? "forbidden" : "internal";
+        return send(status, { error: { code, message: err.message ?? "error" } });
       }
     }
 
@@ -674,6 +695,11 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
       let principal: Principal | null = null;
       if (match.cap !== "public") {
         principal = authenticate(deps.tokens, req.headers.authorization);
+        // 표면 제한(7.3): MCP 전용 토큰은 여기까지 오면 안 된다. 토큰 평문이 에이전트 설정
+        // 파일에 놓이는 값이라, 새어도 관리 API 전체가 딸려가지 않게 경로 자체를 끊는다.
+        if (principal.surface === "mcp") {
+          throw new AuthError(403, "MCP 전용 토큰은 POST /mcp 외의 관리 API에 접근할 수 없습니다");
+        }
         authorize(principal, match.cap, match.projectParam ? params[match.projectParam] : undefined);
       }
 
