@@ -12,7 +12,10 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
   커밋 67개(`1c0e225`~`557db4f` — 이 줄을 갱신하는 문서 커밋 자신은 세지 않으므로 항상 한 칸 뒤처진다.
   정확한 값은 `git rev-list --count HEAD`). **전부 `origin/main` 반영 완료 · 머지 커밋 없는 선형 이력**
   (기능 작업은 PR #1~#15 rebase 머지, 문서·도구 커밋은 `main` 직접 푸시 — 어느 쪽이든 CI가 게이트다).
-- **테스트 405개 전부 통과** — TS 참조 72 · 백엔드 145 · Web 33 · iOS 49 · Android 53 · Flutter 53.
+- **테스트 449개 전부 통과** — TS 참조 72 · 백엔드 189 · Web 33 · iOS 49 · Android 53 · Flutter 53.
+  (2026-08-27 **MCP 도구 표면** 추가로 백엔드 145 → 189. `src/`·`fixtures/`·`sdks/`는 무변경이라
+  골든 벡터 계약이 걸린 자리를 건드리지 않았고, 재실행은 TS 참조·백엔드·Web으로 한정했다.
+  아래 "MCP 도구 표면" 절.)
   (**소비자 스모크는 이 405개 밖이다** — 저장소 소스가 아니라 레지스트리 게시본을 보므로 CI가 아니라
   게시 직후 수동 1회다. "SDK 배포 채널 › 소비자 스모크" 절.)
   (2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후 **GitHub Actions CI에서 5개 컴포넌트 전부 재실행**
@@ -53,6 +56,9 @@ backend/              M2 관리 백엔드(TypeScript, node:sqlite). ../src/build
   src/api/            REST 관리 API(7.1) + SSE 실시간 푸시 + 키 설명 사이드카(descriptions).
                       `createManagementHandler` export로 소비자 서버에 마운트 가능(서버를 직접 띄우지 않는 경로).
                       `DELETE /projects/{p}`는 admin 전용 + 스토리지 경로 순회 가드.
+                      errors.ts=HTTP 에러 타입 · translation-import.ts=번역 import 검증기
+                      (라우트 밖에서도 재사용 — MCP dry-run이 같은 판정을 쓰기 위해)
+  src/mcp/            MCP 도구 표면(`POST /mcp`) — validate.ts · preview.ts · server.ts(JSON-RPC)
   src/auth/           스코프 토큰 + RBAC 4역할(7.3) + DbTokenRegistry(사용자 토큰 영속 인증)
   src/observability/  Prometheus 메트릭 · 텔레메트리 · Notifier
   src/admin/          데이터 이식성 + 재해복구 rebuild(9.4)
@@ -596,6 +602,54 @@ Flutter `publish_to` 해제 + `example/`·CHANGELOG · Android POM·sources·jav
 
 > `GET .../descriptions`(빌드 플러그인용 사이드카)와 `/metrics`(Prometheus)는 **UI 대상이 아니다** — 격차 아님.
 
+## MCP 도구 표면 (`POST /mcp`, 2026-08-27)
+
+관리 플레인에 JSON-RPC 2.0(Streamable HTTP)로 붙은 **에이전트용 표면**. 끄려면
+`createManagementServer({ serveMcp: false })`. 상세는 `backend/README.md`의 같은 절.
+
+**인증은 새 축을 만들지 않는다** — 기존 Bearer + RBAC 4역할(7.3) + 프로젝트 스코프 그대로다.
+도구마다 관리 API 라우트와 같은 capability를 달고, `tools/list`는 **호출자가 쓸 수 없는 도구를
+아예 빼서** 내려준다(모델에게 보이지 않는 편이 호출 후 거부당하는 것보다 낫다).
+
+**전송 계층은 직접 구현했다.** `@modelcontextprotocol/sdk`를 넣으면 이 저장소 최초의 런타임
+의존성이 되는데, 필요한 것은 JSON-RPC 프레임 몇 개와 POST 하나뿐이다. 대가로 표면을 최소로 둔다:
+stateless(세션 없음) · 서버→클라이언트 스트림 없음(`GET /mcp`=405) · 알림은 본문 없는 202.
+셋 다 스펙이 허용하는 선택지다. 도구 실행 실패는 JSON-RPC 에러가 아니라 `isError` **결과**로
+나간다 — 모델이 반응해야 하는 정보지 호출 자체의 실패가 아니고, 프로토콜 에러로 올리면 대화가 끊긴다.
+
+### 도구 2종 (둘 다 read · 부작용 없음)
+
+- **`validate_translation`** — 번역 값을 **저장하지 않고** 검사한다.
+  **판정은 단일 원천이다**: `ok`를 실제 쓰기 경로가 쓰는 `requireTranslationImport`가 정한다.
+  여기서 규칙을 다시 구현하면 "미리보기는 통과, 실제 쓰기는 422"라는 최악의 조합이 생긴다.
+  로케일별로 문제를 쪼개는 것도 규칙 복제가 아니라 **같은 검증기를 슬라이스마다 다시 부르는 것**이고
+  (엔트리 1개 페이로드 → 그 엔트리의 문제 / 전체 페이로드 → 엔트리 간 문제), 그 불변식을 테스트가
+  케이스마다 직접 대조한다. 엔트리가 **배열**인 이유도 여기 있다 — "같은 키의 번역끼리 서명이
+  다르다"(422)는 단건 검증으로는 영영 못 잡는다. 서명 불일치는 문자열 두 개가 아니라
+  `missingArgs`·`extraArgs`·`changedArgs`로 나간다.
+  → **쓰기 도구를 나중에 붙일 때 입력 스키마를 그대로 공유할 것.** 스키마가 갈리면 그 사이에서
+  변형이 일어나 검증이 무의미해진다.
+- **`resolve_preview`** — "이 앱 버전에서 이 키가 실제로 무엇으로 보이고 **왜** 그런가."
+  **`preview.ts`에는 resolve 규칙이 한 줄도 없다** — 판정은 `RynL10nClient`(`src/client`)를 그대로
+  인스턴스화해 `refresh()`를 돌려 얻는다. 시뮬레이터를 따로 구현하면 실물과 갈라지는 순간 도구가
+  거짓말을 시작한다. `diagnosis` 14종은 `refresh()`·`resolveValue()`의 **조기 반환 지점과 1:1**이라
+  분기가 늘면 진단 코드도 늘어야 한다(그래서 코드마다 테스트가 하나씩 있다).
+  두 인자가 중요하다: 매칭 축 3종(`appVersion`·`releaseLabel`·`buildNumber`) 중 **최소 하나 필수**
+  (없으면 늘 bundle-only로 떨어져 무의미한 답이 나오므로 400)이고, **`bundleBase`를 생략하면**
+  "방금 빌드한 앱"을 가정한 뒤 `bundle.assumed: true`로 **가정했음을 밝힌다** — 밝히지 않으면
+  "정상입니다"라고 답하는데 사용자 앱은 스테일 번들 때문에 여전히 깨져 있는 조합이 생긴다.
+
+### 열지 않은 것 (의도적)
+
+배포 플레인은 도구 대상이 아니다(정적 읽기 경로 — 도구가 붙으면 플레인 분리가 흐려진다).
+`DELETE /projects` · `POST /projects/import` · 사용자 관리/토큰 발급도 넣지 않았다: admin·비가역이고
+확인 UI가 본질인 조작이라 대시보드 자리다. 관리 플레인이 배포 산출물을 **읽는** 것은 분리를 깨지
+않는다 — `GET /projects/{p}/manifest`가 이미 하는 진단용 read-through와 같은 성격이다.
+
+> **다운스트림에 이미 다른 MCP 서버가 있다**(`l10n.devryner.com/mcp`, RynL10n-Dashboard).
+> 그쪽은 번역을 **채우는** 축(읽기 + `add_translation` + 협업 워크플로 조회)이고, 여기 둘은
+> **검증·진단** 축이라 겹치지 않는다.
+
 ## 로케일 축 분리 (2026-08-21 수정) — 다시 붙이지 말 것
 
 `t()`의 기본 조회 로케일이 `locale ?? context.releaseLabel ?? bundle.defaultLocale`이었다.
@@ -643,6 +697,16 @@ t()의 조회 로케일 = 호출 인자 → 설정 locale → bundle.defaultLoca
   건너뛰어 인증 경로를 타지 않았다)과 **pub.dev 자동 게시**(같은 이유). 그때 npm 잡이 인증 실패할
   가능성을 열어두고 봐야 한다. 게시가 끝나면 **`npm run smoke:consumer`로 받는 쪽을 확인한다**.
   채널·좌표·남은 절차는 위 "SDK 배포 채널" 절.
+- **`signature()`가 비ASCII 인자 이름을 인자로 보지 않는다** (2026-08-27 발견, 미수정).
+  `src/core/placeholder.ts`의 스캔 정규식이 `[A-Za-z0-9_]+`인데 ICU의 `argName`은 비ASCII를
+  허용한다 — `{이름}`은 플레이스홀더가 아니라 리터럴로 취급돼 서명이 빈 문자열이 된다.
+  **대부분은 안전한 방향이다**(기대 서명과 달라져 포맷 가드가 걸린다). 새는 자리는 하나:
+  **원래 플레이스홀더가 없던 키**(서명 "")에 `{이름}`을 새로 넣으면 서명이 여전히 ""라 가드를
+  통과하고, 런타임에 치환되지 않아 사용자가 리터럴 `{이름}`을 본다.
+  **안 고친 이유**: 이 정규식은 TS·Swift·Kotlin·Dart **4개에 동일하게** 있고 골든 벡터가 그 정합을
+  계약으로 잡는다. 한쪽만 고치면 계약이 깨지고, 전부 고치면 기존 카탈로그의 서명이 바뀐다.
+  처리하려면 4개 언어 + `npm run gen:golden` + 전 SDK 재실행이 **한 묶음**이다.
+  현재 동작은 `backend/test/mcp-validate.test.ts`가 고정해 두었으니 조용히 달라지지는 않는다.
 - **프로덕션 토폴로지(M3+)**: Postgres·MinIO/S3·CDN·별도 빌더 워커·OIDC·Helm/K8s. 플레인 분리·API
   계약·결정적 빌더는 그대로 유지.
 

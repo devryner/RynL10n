@@ -136,6 +136,69 @@ publish 시: ① 버전 범위 충돌·자동 상한 닫힘 검증(쓰기 전, 4
 - `POST /projects/{p}/rebuild` — DB(SoT)만으로 산출물 재생성(결정적). 스토리지 유실 복구.
 - 운영 절차 전체는 [`../OPERATIONS.md`](../OPERATIONS.md).
 
+## MCP 도구 표면 (`POST /mcp`)
+
+관리 플레인에 JSON-RPC 2.0(Streamable HTTP)로 마운트된 **에이전트용 표면**. 끄려면
+`createManagementServer({ serveMcp: false })`. 인증·RBAC는 **관리 API와 같은 축**이다 —
+같은 Bearer 토큰, 같은 4역할, 같은 프로젝트 스코프. 도구마다 라우트와 같은 capability를 달고
+`tools/list`는 **호출자가 쓸 수 없는 도구를 아예 빼서** 내려준다(모델에게 보이지 않는 편이
+호출 후 거부당하는 것보다 낫다).
+
+전송 계층은 직접 구현했다 — 필요한 것은 JSON-RPC 프레임 몇 개와 POST 하나뿐이고,
+`@modelcontextprotocol/sdk`를 넣으면 이 저장소 최초의 런타임 의존성이 된다(의존성 0 원칙).
+대가로 표면을 최소로 둔다: **stateless**(세션 없음) · 서버→클라이언트 스트림 없음(`GET /mcp`는 405) ·
+알림은 본문 없는 202. 셋 다 스펙이 허용하는 선택지다.
+
+도구 실행 실패는 JSON-RPC 에러가 아니라 `isError: true` 결과로 나간다 — 모델이 반응해야 하는
+정보지 호출 자체의 실패가 아니고, 프로토콜 에러로 올리면 대화가 끊긴다.
+
+### `validate_translation` — 쓰기 전 검증 (read)
+
+번역 값이 키의 플레이스홀더 서명·복수형 형태·지원 로케일을 만족하는지 **저장하지 않고** 검사한다.
+`{project, key, entries:[{locale, value, state?}]}`.
+
+- **판정은 단일 원천이다**: `ok`는 실제 쓰기 경로가 쓰는 `requireTranslationImport`가 정한다.
+  여기서 규칙을 다시 구현하면 "미리보기는 통과, 실제 쓰기는 422"라는 최악의 조합이 생긴다.
+  로케일별로 문제를 쪼개는 것도 규칙 복제가 아니라 **같은 검증기를 슬라이스마다 다시 부르는 것**이다.
+- **엔트리가 배열인 이유**: 서버가 잡는 422 중 하나가 "같은 키의 번역끼리 서명이 다르다"인데
+  단건 검증으로는 영영 못 잡는다. 쓰기 도구를 붙일 때도 **입력 스키마를 그대로 공유**해야 한다 —
+  스키마가 갈리면 그 사이에서 변형이 일어나 검증이 무의미해진다.
+- 서명 불일치는 문자열 두 개가 아니라 `missingArgs`·`extraArgs`·`changedArgs`로 온다.
+  코드: `signature_mismatch` · `signature_inconsistent_across_locales` · `plural_shape_mismatch` ·
+  `plural_missing_other` · `plural_unknown_category` · `locale_not_supported` · `duplicate_locale` ·
+  `invalid_state`, 그리고 경고 `signature_will_be_established`(빈 서명은 값이 아니라 미확정
+  센티널이므로, 이 쓰기가 서명을 **확정**시킨다는 사실을 알린다).
+- 응답에 `key.description`을 함께 싣는다 — 검증하러 온 호출자가 "그럼 뭐라고 쓰나"의 맥락을
+  같은 호출에서 얻어 왕복이 준다.
+
+### `resolve_preview` — 해석 경로 미리보기 (read)
+
+"이 앱 버전에서 이 키가 실제로 무엇으로 보이는가, 그리고 **왜** 그런가."
+`{project, key, locale, appVersion?|releaseLabel?|buildNumber?, bundleBase?, args?, installId?, ...}`.
+
+- **SDK와 같은 코드를 돌린다**: 판정은 `RynL10nClient`(`../../src/client`)가 그대로 하고
+  `preview.ts`에는 resolve 규칙이 한 줄도 없다. 시뮬레이터를 따로 구현하면 실물과 갈라지는 순간
+  도구가 거짓말을 시작한다.
+- **매칭 축 3종 중 최소 하나 필수**(400). 셋 다 없으면 `selectRelease`가 무조건 bundle-only로
+  떨어져 늘 같은 무의미한 답이 나온다. `buildNumber`를 빠뜨리면 정수 범위 릴리스가 매칭에서
+  통째로 빠지므로 스키마 description에 그 경고를 박아 두었다(4.3의 상시 함정).
+- **`bundleBase`가 핵심 인자다.** 서버는 앱이 무엇을 구웠는지 모른다. 생략하면 "방금 빌드한 앱"을
+  가정하고 `bundle.assumed: true`로 **가정했음을 밝힌다** — 밝히지 않으면 "정상입니다"라고 답하는데
+  사용자 앱은 스테일 번들 때문에 여전히 깨져 있는 조합이 생긴다.
+- `diagnosis` 코드는 `refresh()`·`resolveValue()`의 **조기 반환 지점과 1:1**이다:
+  `manifest_missing` · `no_release_matched` · `release_not_published`(manifest에는 published·
+  superseded만 실리므로 DB를 봐야 "있는데 아직 draft"를 말할 수 있다) · `stale_bundle` ·
+  `bundle_unavailable` · `snapshot_missing` · `overlay_absent` · `canary_excluded` · `delta_missing` ·
+  `delta_base_mismatch` · `format_guard_fallback` · `tombstoned` · `locale_fallback` · `key_unresolved`.
+  **분기가 늘면 진단 코드도 늘어야 한다** — 그래서 테스트가 코드마다 하나씩 있다.
+
+### 열지 않은 것
+
+배포 플레인은 도구 대상이 아니다(정적 읽기 경로 — 도구가 붙으면 플레인 분리가 흐려진다).
+`DELETE /projects` · `POST /projects/import` · 사용자 관리/토큰 발급도 넣지 않았다: admin·비가역이고
+확인 UI가 본질인 조작이라 대시보드 자리다. 관리 플레인이 배포 산출물을 **읽는** 것은 분리를 깨지
+않는다 — `GET /projects/{p}/manifest`가 이미 하는 진단용 read-through와 같은 성격이다.
+
 ## 검증 (DoD)
 
 - `pipeline.test.ts` — publish → **M0 SDK 클라이언트가 백엔드 산출물 소비**(M2→M1 연결) → 편집·델타 →
@@ -145,6 +208,14 @@ publish 시: ① 버전 범위 충돌·자동 상한 닫힘 검증(쓰기 전, 4
 - `dashboard.test.ts` — 자산 서빙·허용 목록 밖 404 · `/me` · 스코프 필터 · **로케일 등록이 스냅샷 포함으로 이어짐**.
 - `dashboard-ui.test.ts` — 최소 DOM 스텁으로 `src/ui/app.js` 동작 계약 검증(로그인 분기 · 그리드 반영 ·
   편집→PUT 매핑 · 422 롤백 · RBAC UI 미러 · 배포 플레인 링크 · 사용자 패널).
+- `mcp-validate.test.ts` — **도구 판정 = 실제 쓰기 경로 판정**(모든 케이스에서 직접 대조) ·
+  서명 diff 정확도 · 검증이 DB를 건드리지 않음 · 비ASCII 인자 이름의 현재 동작 고정.
+- `mcp-preview.test.ts` — diagnosis 코드마다 그 원인을 실제로 만들어 대조(오버레이·스테일 번들·
+  카나리·델타 결측·포맷 가드·tombstone·draft 릴리스·빌드넘버 축 분리).
+- `mcp-server.test.ts` — JSON-RPC 표면: 401 · initialize · 알림 202 · tools/list 스키마 ·
+  권한 밖 도구 은닉 · 도구 실패가 `isError` 결과로 나감(대화 유지) · `GET /mcp` 405.
+- `storage.test.ts` — `readDelta`·`deliveryReader`(SDK와 같은 경로 규약) + **릴리스 id·상대 경로의
+  순회 가드**(프로젝트 id에만 있던 가드를 같은 부류의 나머지 세그먼트로 확장).
 - `users.test.ts` — 사용자 관리 API + DB 토큰 인증(발급 토큰의 역할·스코프 적용 · 평문/해시 비노출 ·
   폐기/비활성/삭제 즉시 401 · 마지막 admin 409 · 부트스트랩 공존).
 
