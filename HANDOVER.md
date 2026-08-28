@@ -9,17 +9,19 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
 ## 현재 상태 (한눈에)
 
 - **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 + 4개 플랫폼 앱 적용 경로.**
-  커밋 75개(`1c0e225`~`21d800f` — 이 줄을 갱신하는 문서 커밋 자신은 세지 않으므로 항상 한 칸 뒤처진다.
+  커밋 77개(`1c0e225`~`817aea2` — 이 줄을 갱신하는 문서 커밋 자신은 세지 않으므로 항상 한 칸 뒤처진다.
   정확한 값은 `git rev-list --count HEAD`). **전부 `origin/main` 반영 완료 · 머지 커밋 없는 선형 이력**
   (기능 작업은 PR #1~#17 rebase 머지, 그 뒤 문서·도구·코어 커밋은 `main` 직접 푸시 — 어느 쪽이든 CI가 게이트다).
-- **테스트 474개 전부 통과** — TS 참조 75 · 백엔드 208 · Web 33 · iOS 50 · Android 54 · Flutter 54.
+- **테스트 501개 전부 통과** — TS 참조 75 · 백엔드 208 · mcp-stdio 27 · Web 33 · iOS 50 · Android 54 · Flutter 54.
+  (2026-08-28 **앱 개발자용 stdio MCP 서버**의 첫 도구 `bake_preview` — `src/`·`fixtures/`·`sdks/`가
+  무변경이라 SDK 재실행 없이 TS 참조·백엔드·mcp-stdio만 돌렸다. 아래 "stdio MCP 서버" 절.)
   (2026-08-28 **ICU 인자 이름 경계 수정** — 서명·치환·변환이 각자 알고 있던 인자 이름 정의를 언어마다
   한 곳으로 모으고 골든 벡터 `signature.json`을 신설했다. **골든 벡터가 바뀌므로 5개 컴포넌트 전부
   재실행**했다. 아래 "ICU 인자 이름 경계" 절.)
   (2026-08-27 **MCP 도구 표면** + 토큰 최소 권한·Origin 가드로 백엔드 145 → 206. `src/`·`fixtures/`·`sdks/`는 무변경이라
   골든 벡터 계약이 걸린 자리를 건드리지 않았고, 재실행은 TS 참조·백엔드·Web으로 한정했다.
   아래 "MCP 도구 표면" 절.)
-  (**소비자 스모크는 이 474개 밖이다** — 저장소 소스가 아니라 레지스트리 게시본을 보므로 CI가 아니라
+  (**소비자 스모크는 이 501개 밖이다** — 저장소 소스가 아니라 레지스트리 게시본을 보므로 CI가 아니라
   게시 직후 수동 1회다. "SDK 배포 채널 › 소비자 스모크" 절.)
   (2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후 **GitHub Actions CI에서 5개 컴포넌트 전부 재실행**
   — run 32833302282. 같은 날 릴리스 dry-run 4채널 통과 — 아래 "SDK 배포 채널" 절.)
@@ -50,6 +52,9 @@ src/                  M0 참조 구현(TypeScript) — 결정적 코어의 단�
 test/                 참조 구현 유닛 + 시나리오 A/B/C 테스트
 tools/gen-golden.ts   골든 벡터 생성기 → fixtures/golden/*.json (크로스언어 계약)
 fixtures/golden/      12종 골든 벡터. 4개 언어 SDK가 이걸로 정합성 검증.
+
+mcp-stdio/            앱 개발자용 로컬 stdio MCP 서버(소비자 앱 저장소에서 돈다, 인증 없음).
+                      src/protocol.ts=JSON-RPC 프레이밍 · src/tools/=도구. 미게시(private).
 
 backend/              M2 관리 백엔드(TypeScript, node:sqlite). ../src/builder 재사용.
   src/db/             스키마 + Repo (정규화 관계형 SoT) — 마이그레이션은 schema.ts의 MIGRATIONS
@@ -102,6 +107,7 @@ LICENSE · NOTICE      Apache-2.0
 | 참조 구현(TS) | 루트 | `npm test` · `npm run typecheck` · `npm run demo` | Node ≥ 23.6 |
 | 골든 벡터 재생성 | 루트 | `npm run gen:golden` | Node |
 | 백엔드 | 루트 | `npm run test:backend` · `npm run typecheck:backend` · `npm run backend` | Node ≥ 23.6 |
+| stdio MCP 서버 | 루트 | `npm run test:mcp-stdio` · `npm run typecheck:mcp-stdio` · `npm run mcp:stdio` | Node ≥ 23.6 |
 | iOS SDK | `sdks/ios` | `swift test` · `swift run rynl10n-bake …` | Swift 6 |
 | Android SDK | `sdks/android` | `gradle test` · `gradle rynl10nBake …` | Gradle 9 / JDK 21 |
 | Web SDK | `sdks/web` | `node --test "test/*.test.ts"` | Node ≥ 23.6 |
@@ -141,7 +147,7 @@ npm·pub.dev의 0.1.0은 태그 이전에 **로컬 수동으로** 먼저 올라�
 
 게시가 끝났다는 것과 **소비자가 실제로 받아 쓸 수 있다**는 것은 다른 명제다. 그 사이에는 게시본에만
 있는 실패가 산다 — 패키징에서 빠진 파일, `.d.ts` 경로가 어긋난 `exports`, POM이 못 끌고 오는 전이
-의존성, 태그가 가리키는 커밋이 매니페스트 없는 자리인 경우. 저장소 안에서 도는 474개 테스트는 전부
+의존성, 태그가 가리키는 커밋이 매니페스트 없는 자리인 경우. 저장소 안에서 도는 501개 테스트는 전부
 **소스**를 보므로 이 층을 통과시킨다. 그래서 저장소 밖 빈 프로젝트 4개에서 **실 좌표로만** 설치해
 같은 6가지(기본 로케일 조회 · 호출 인자 로케일 우선 · 플레이스홀더 치환 · 복수형 one/other ·
 로케일 fallback 체인)를 굴렸다. 전부 통과다.
@@ -701,7 +707,13 @@ resource_metadata=...` ③ JWT 검증(JWKS 서명 · `iss` · **`aud`가 우리 
 핵심이었는데 그걸 스스로 깨는 셈이다. 로드맵의 "사람=OIDC"가 코어에 들어올 때 **같은 작업으로
 묶는 게 맞다**. 그때는 축이 하나로 유지된다.
 
-### ③ 앱 개발자 로컬 stdio MCP 서버 — 별개 서버다
+### ③ 앱 개발자 로컬 stdio MCP 서버 — **2026-08-28 착수(bake_preview 착지)**
+
+`bake_preview`가 들어왔다(아래 "stdio MCP 서버" 절). 남은 것은 `lockfile_status`(작다)와
+`extract_keys`·`promote_literal`(언어별 리터럴 파서라 제일 큰 덩어리). 게시는 미뤘다 —
+**저장소 안에서 먼저 쓸모를 보고 정한다**는 판단이고, 좌표(`@rynl10n/mcp`)만 잡아 두었다.
+아래는 착수 전에 정리해 둔 판단으로, 그대로 유효하다.
+
 
 **이 저장소가 아니라 소비자 앱 저장소에서 돈다.** 에이전트가 서브프로세스로 띄우고(`npx`),
 인증이 없다(그 사용자로 그 디렉토리에서 돈다). stdio인 이유는 **파일** 때문이다 — 관리 플레인
@@ -725,6 +737,49 @@ resource_metadata=...` ③ JWT 검증(JWKS 서명 · `iss` · **`aud`가 우리 
 **정하고 시작할 것**: 새 **게시 채널**이 하나 생긴다. 백엔드는 어디에도 게시되지 않지만(`private: true`)
 이건 npm에 올라가야 `npx`로 쓰인다. SDK 4채널 lockstep과 같은 줄에 둘 것인가 — 개발 도구지 SDK가
 아니므로 **별도 버전선이 맞다고 보지만** 정하고 시작해야 한다.
+
+## stdio MCP 서버 (`mcp-stdio/`, 2026-08-28) — 앱 저장소에서 도는 별개 서버
+
+**이 저장소가 아니라 소비자 앱 저장소에서 도는 것을 전제로 한다.** 에이전트가 서브프로세스로
+띄우고 **인증이 없다**(그 사용자로 그 디렉토리에서 돈다). stdio인 이유는 **파일** 때문이다 —
+관리 플레인 서버는 앱 저장소를 볼 수 없다. 경계는 **stdio = 파일 / HTTP = 카탈로그**이고,
+에이전트가 둘 다 붙여 두면 워크플로가 이어진다. 상세는 `mcp-stdio/README.md`.
+
+### `bake_preview` — 첫 도구
+
+빌드 플러그인이 빌드마다 스냅샷을 네이티브 산출물로 굽는데(6.3), **그 결과를 빌드 전에 볼 자리가
+없었다.** 빌드를 돌려 봐야 알고, 돌리고 나면 이미 덮어써져 있다. 이 도구는 같은 코어를 **쓰지
+않고** 돌려 디스크의 현재 산출물과 비교한다 — 파일별 `추가`/`변경`/`동일` · 직전/다음 lockfile ·
+카탈로그 diff(로케일별 set/delete) · 커버리지 갭·base 무결성 경고.
+
+**판정을 새로 쓰지 않는다**(`resolve_preview`와 같은 규칙): 갭·무결성은 `bake()`, 카탈로그 diff는
+`buildDelta()`, 네이티브 산출물은 `convert`가 낸다. 새로 짜면 미리보기와 실제 빌드가 갈라지는
+순간 도구가 거짓말을 시작한다.
+
+**만들면서 걸린 것 셋 — 다 "조용히 거짓말하는" 자리였다.**
+
+- **`.xcstrings`는 바이트로 비교하면 안 된다.** iOS bake CLI는 Foundation
+  `JSONEncoder(.prettyPrinted, .sortedKeys)`로 쓰는데 그 출력은 `"key" : value`(콜론 앞 공백)라
+  Node의 `JSON.stringify`와 **바이트가 절대 같아지지 않는다** — 내용이 똑같아도 매번 "변경"이라
+  답하게 된다. Foundation 포맷을 흉내내는 건 더 나쁜 길이라 파싱해 의미로 비교한다.
+  `strings.xml`은 굽는 쪽이 우리 생성기의 문자열을 그대로 쓰므로 바이트 비교가 맞다.
+- **경로 규약이 CLI와 어긋나면 "변경 없음"이라 답해 놓고 빌드가 다른 파일을 덮어쓴다.** 두 CLI가
+  쓰는 자리를 그대로 따르고 테스트가 그 경로를 고정한다.
+- **첫 빌드에서는 카탈로그 diff를 내지 않는다**(`null`). 비교 대상이 없는데 "전부 추가"를 델타로
+  부풀리면 그게 곧 노이즈다.
+
+### 프로토콜은 공유하지 않되, 결정은 대조한다
+
+관리 플레인 디스패처는 `McpDeps{repo, store}`·`Principal`·`authorize`에 묶여 있고 이 서버는
+**DB도 인증도 없다**. 재사용하려면 셋을 전부 제네릭으로 열어야 하는데 얻는 것은 프레이밍 50줄이고
+잃는 것은 방금 착지한 코드의 안정성이다. 대신 **갈리면 안 되는 결정**을
+`mcp-stdio/test/protocol.test.ts`가 두 서버에서 함께 읽어 대조한다 — 프로토콜 리비전 협상 ·
+알 수 없는 도구는 JSON-RPC 에러 · **도구 실행 실패는 `isError` 결과**. 구현을 합치는 대신 계약을
+고정하는 쪽이고, 골든 벡터와 같은 원리다.
+
+전송은 개행 구분 JSON이고 **로그는 전부 stderr로 간다** — stdout에 한 줄이라도 섞이면 클라이언트의
+프레임 해석이 깨진다. 이건 단위 테스트로 안 잡혀서 `stdio.test.ts`가 **실제 프로세스를 띄워**
+확인한다(청크가 줄 중간에서 끊기는 경우, 깨진 JSON 뒤에도 서버가 사는지 포함).
 
 ## 로케일 축 분리 (2026-08-21 수정) — 다시 붙이지 말 것
 
@@ -812,6 +867,13 @@ Pattern_White_Space도 아닌 문자 1개 이상**이라 비ASCII를 허용하�
   건너뛰어 인증 경로를 타지 않았다)과 **pub.dev 자동 게시**(같은 이유). 그때 npm 잡이 인증 실패할
   가능성을 열어두고 봐야 한다. 게시가 끝나면 **`npm run smoke:consumer`로 받는 쪽을 확인한다**.
   채널·좌표·남은 절차는 위 "SDK 배포 채널" 절.
+- **Android bake CLI에 `--descriptions`가 없다**(2026-08-28 발견, 미수정). `Convert.toAndroidStringsXml`은
+  설명을 XML 주석으로 굽는 인자를 받고 골든 벡터도 그것을 검증하는데, **CLI가 그 인자를 넘기지
+  않는다**(`sdks/android/src/cli/kotlin/com/rynl10n/BakeCli.kt` — 플래그 자체가 없다). 그래서 5.3/6.3이
+  약속한 "`strings.xml` XML 주석"이 Android 빌드에서는 실제로 구워지지 않는다. iOS CLI에는 있다.
+  변환기·골든은 이미 맞으므로 **CLI에 플래그와 사이드카 로딩을 더하는 일**이고, iOS `main.swift`의
+  `loadDescriptions`가 그대로 본이 된다. `bake_preview`는 그때까지 **CLI의 실제 동작을 따른다**
+  (android에는 설명을 넣지 않는다) — 미리보기가 앞서 나가면 "변경"이라 답하고 빌드는 안 바꾼다.
 - **프로덕션 토폴로지(M3+)**: Postgres·MinIO/S3·CDN·별도 빌더 워커·OIDC·Helm/K8s. 플레인 분리·API
   계약·결정적 빌더는 그대로 유지.
 
@@ -889,6 +951,13 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
   셋에 있었고, 서명만 고치면 "서명에는 잡히는데 화면에는 여전히 리터럴"이 된다. 정의를 언어마다
   한 파일로 모으고(`icu.ts`·`Icu.swift`·`Icu.kt`·`icu.dart`) 골든 벡터 `signature.json`을 신설했다.
   골든이 바뀌므로 5개 컴포넌트 전부 재실행(466 → 474). 상세는 위 "ICU 인자 이름 경계" 절.
+
+- **stdio MCP 서버 · `bake_preview`** `817aea2`(2026-08-28) — 빌드 플러그인이 굽는 결과를 **빌드 전에
+  볼 자리가 없었다.** 관리 플레인 서버로는 못 한다(앱 저장소 파일을 못 본다) — 그래서 소비자 앱
+  저장소에서 도는 별개 서버다. 판정은 `bake()`·`buildDelta()`·`convert`에서 가져온다. 걸린 것 셋은
+  전부 "조용히 거짓말하는" 자리였다: `.xcstrings` 바이트 비교(Foundation 포맷과 절대 안 맞는다) ·
+  CLI와 어긋난 경로 규약 · 첫 빌드의 카탈로그 diff 부풀리기. 프로토콜은 관리 플레인과 공유하지
+  않되 갈리면 안 되는 결정은 대조한다. 상세는 위 "stdio MCP 서버" 절.
 
 각 컴포넌트의 상세는 해당 디렉토리의 README(`sdks/README.md`, `sdks/*/README.md`, `backend/README.md`)와
 `OPERATIONS.md` 참조.

@@ -5,14 +5,15 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 474개 전부 통과(TS 참조 75 · 백엔드 208 · Web 33 · iOS 50 · Android 54 · Flutter 54 —
+테스트 501개 전부 통과(TS 참조 75 · 백엔드 208 · mcp-stdio 27 · Web 33 · iOS 50 · Android 54 · Flutter 54 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
 iOS는 실제 백엔드 대상 왕복 확인. 2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후
 GitHub Actions에서 5개 컴포넌트 전부 재실행.
 2026-08-27 **MCP 도구 표면** + 토큰 최소 권한·Origin 가드로 백엔드 145 → 206 — `src/`·`fixtures/`·`sdks/`가 무변경이라
 골든 벡터 계약이 걸린 자리를 안 건드렸고, 재실행은 TS 참조·백엔드·Web으로 한정했다.
-2026-08-28 **ICU 인자 이름 경계 수정** — 골든 벡터가 바뀌므로 5개 컴포넌트 전부 재실행).
+2026-08-28 **ICU 인자 이름 경계 수정** — 골든 벡터가 바뀌므로 5개 컴포넌트 전부 재실행.
+같은 날 **stdio MCP 서버**의 첫 도구 — `src/`·`fixtures/`·`sdks/` 무변경이라 TS·백엔드·mcp-stdio만 재실행).
 남은 것은 실제 앱/외부 환경 의존 항목뿐(아래 "열려 있는 항목" 참조). 전체 지도는 `HANDOVER.md`.
 
 - **코어 스택**: TypeScript/Node ≥ 23.6 (네이티브 타입 스트리핑, 빌드 스텝 없음). 참조 구현·백엔드 모두
@@ -21,6 +22,7 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
   - `npm test` / `npm run typecheck` / `npm run demo` — TS 참조 구현 (루트)
   - `npm run gen:golden` — 골든 벡터 재생성 → `fixtures/golden/*.json`
   - `npm run backend` / `npm run test:backend` / `npm run typecheck:backend` — 관리 백엔드
+  - `npm run mcp:stdio` / `npm run test:mcp-stdio` / `npm run typecheck:mcp-stdio` — 앱 개발자용 stdio MCP 서버
   - `swift test` (`sdks/ios`, Swift 6) · `gradle test` (`sdks/android`, Gradle 9/JDK 21) ·
     `node --test "test/*.test.ts"` (`sdks/web`) · `dart pub get && dart test` (`sdks/flutter`, Dart 3.5+)
   - `docker compose up` — 단일 노드 셀프호스트 (관리 API :8787 + 배포 플레인 :8788)
@@ -34,6 +36,7 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
   `backend/`(M2 관리 백엔드, `../src/builder` 재사용; `src/ui/`=대시보드 · `src/config.ts`=환경 판정 ·
   `src/mcp/`=MCP 도구 표면) ·
   `sdks/`(ios·android·web·flutter) ·
+  `mcp-stdio/`(앱 개발자용 stdio MCP 서버 — 소비자 앱 저장소에서 돈다, 미게시) ·
   `tools/gen-golden.ts` + `fixtures/golden/`(크로스언어 계약) · `tools/consumer-smoke/`(게시본 소비 검증) · `examples/ios-consumer/`(SPM 플러그인 소비 예제) ·
   `OPERATIONS.md`(운영 가이드). 상세는 `HANDOVER.md`와 각 디렉토리 README.
 - **골든 벡터 = 크로스언어 계약**: TS 참조 구현이 정규화·해시·resolve·매칭·카나리의 기대 출력을 언어 무관
@@ -208,6 +211,23 @@ CLI: `rynl10n-bake --descriptions <path|url> --emit-native` (읽기 실패 시 �
   (`PushConnect`·`TelemetryPost`, 어댑터는 `io*`/`http*`). **Flutter Web의 `httpPushConnect`는 SSE가
   스트리밍되지 않는다**(BrowserClient=XHR) — 웹은 `EventSource`를 `PushConnect`로 감싸 넣고,
   그대로 둬도 폴링이 보장선이라 기능은 안 깨지고 지연만 남는다.
+
+### 앱 개발자용 stdio MCP 서버 (`mcp-stdio/`, 2026-08-28)
+
+**이 저장소가 아니라 소비자 앱 저장소에서 도는 별개 서버.** 에이전트가 서브프로세스로 띄우고
+**인증이 없다**(그 사용자로 그 디렉토리에서 돈다). stdio인 이유는 **파일** 때문 — 관리 플레인
+서버는 앱 저장소를 볼 수 없다. 경계는 **stdio = 파일 / HTTP = 카탈로그**. 미게시(`private: true`,
+좌표 `@rynl10n/mcp`만 확보). 상세는 `mcp-stdio/README.md`.
+
+**`bake_preview`** — "다음 빌드가 무엇을 구울 것인가"를 빌드 전에 본다(쓰기 없음). 판정은 새로
+쓰지 않는다: 갭·무결성 `bake()` · 카탈로그 diff `buildDelta()` · 네이티브 산출물 `convert`.
+조용히 거짓말하는 자리 셋을 피했다 — **`.xcstrings`는 바이트가 아니라 의미로 비교**(iOS CLI는
+Foundation JSONEncoder라 `"key" : value`, Node의 `JSON.stringify`와 바이트가 절대 안 맞는다) ·
+경로 규약을 CLI와 맞춤 · 첫 빌드에서는 카탈로그 diff를 내지 않음(`null`).
+
+프로토콜은 관리 플레인과 **공유하지 않되**(저쪽은 DB·인증에 묶여 있다) **갈리면 안 되는 결정**을
+`mcp-stdio/test/protocol.test.ts`가 두 서버에서 함께 읽어 대조한다. 전송은 개행 구분 JSON이고
+**로그는 stderr로만** 간다(stdout 오염 = 프레임 해석 붕괴). 실제 프로세스 왕복 테스트가 있다.
 
 ### 배포 플레인은 CDN처럼 굴어야 한다 (`backend/src/storage/delivery-server.ts`)
 
