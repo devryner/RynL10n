@@ -245,7 +245,8 @@ rebinding에서는 Host도 공격자 도메인이라 Origin과 일치한다. 가
 - `dashboard-ui.test.ts` — 최소 DOM 스텁으로 `src/ui/app.js` 동작 계약 검증(로그인 분기 · 그리드 반영 ·
   편집→PUT 매핑 · 422 롤백 · RBAC UI 미러 · 배포 플레인 링크 · 사용자 패널).
 - `mcp-validate.test.ts` — **도구 판정 = 실제 쓰기 경로 판정**(모든 케이스에서 직접 대조) ·
-  서명 diff 정확도 · 검증이 DB를 건드리지 않음 · 비ASCII 인자 이름의 현재 동작 고정.
+  서명 diff 정확도 · 검증이 DB를 건드리지 않음 · **비ASCII 인자 이름**(ICU argName은 비ASCII를
+  허용한다 — 서명이 없던 키에 새로 넣는 방향까지).
 - `mcp-preview.test.ts` — diagnosis 코드마다 그 원인을 실제로 만들어 대조(오버레이·스테일 번들·
   카나리·델타 결측·포맷 가드·tombstone·draft 릴리스·빌드넘버 축 분리).
 - `mcp-server.test.ts` — JSON-RPC 표면: 401 · initialize · 알림 202 · tools/list 스키마 ·
