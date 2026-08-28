@@ -5,7 +5,7 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 511개 전부 통과(TS 참조 75 · 백엔드 208 · mcp-stdio 37 · Web 33 · iOS 50 · Android 54 · Flutter 54 —
+테스트 519개 전부 통과(TS 참조 75 · 백엔드 208 · mcp-stdio 38 · Web 33 · iOS 50 · Android 61 · Flutter 54 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
 iOS는 실제 백엔드 대상 왕복 확인. 2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후
@@ -149,6 +149,9 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
 기기 페이로드 절약). export/import에는 포함(9.2). 편집 경로는 `PUT /projects/{p}/keys/{key}`의 `description`.
 **네이티브 주석 bake**: 빌드 플러그인이 `GET /projects/{p}/releases/{r}/descriptions`(스냅샷과 분리된 사이드카)를
 fetch해 `.xcstrings` `comment` · `strings.xml` XML 주석 · `.arb` `@key.description`으로 굽는다(5.3/6.3).
+**두 bake CLI 모두 `--descriptions <path|url>`로 받는다**(Android는 Gradle `-Pdescriptions=`; 2026-08-28에
+배선됐다 — 그전까지 변환기·골든만 맞고 Android CLI가 인자를 안 넘겨 실제로는 안 구워졌다).
+사이드카라 **읽지 못해도 빌드는 주석 없이 계속한다.**
 Web JSON은 표준 주석 자리가 없어 생략. 변환기(TS·Swift·Kotlin)는 descriptions를 **선택 인자**로 받아
 생략 시 기존 산출물과 바이트 동일하며, 주입 시 출력은 골든 벡터(`convert.json`)로 3개 언어가 정합 검증된다.
 XML 주석은 `--`를 지우지 않고 하이픈 사이 공백으로 보존(XML 1.0 §2.5, 조용한 손실 금지).
