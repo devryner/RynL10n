@@ -5,7 +5,7 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 501개 전부 통과(TS 참조 75 · 백엔드 208 · mcp-stdio 27 · Web 33 · iOS 50 · Android 54 · Flutter 54 —
+테스트 511개 전부 통과(TS 참조 75 · 백엔드 208 · mcp-stdio 37 · Web 33 · iOS 50 · Android 54 · Flutter 54 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
 iOS는 실제 백엔드 대상 왕복 확인. 2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후
@@ -218,6 +218,11 @@ CLI: `rynl10n-bake --descriptions <path|url> --emit-native` (읽기 실패 시 �
 **인증이 없다**(그 사용자로 그 디렉토리에서 돈다). stdio인 이유는 **파일** 때문 — 관리 플레인
 서버는 앱 저장소를 볼 수 없다. 경계는 **stdio = 파일 / HTTP = 카탈로그**. 미게시(`private: true`,
 좌표 `@rynl10n/mcp`만 확보). 상세는 `mcp-stdio/README.md`.
+
+**`lockfile_status`** — "지금 무엇이 구워져 있고 **앱이 실제로 그걸 집는가**"(쓰기 없음).
+`--stable-name` 없이 구우면 `snapshot-<base>.json`이 쌓이는데 Android는 파일명 최소값(최신이 아니다),
+iOS는 순서 미보장인 것을 집는다 — 앱이 스테일 카탈로그를 들고 조용히 돈다. 진단 코드 9종.
+**탐색 순서가 SDK 로더와 같아야 한다**가 불변식이다.
 
 **`bake_preview`** — "다음 빌드가 무엇을 구울 것인가"를 빌드 전에 본다(쓰기 없음). 판정은 새로
 쓰지 않는다: 갭·무결성 `bake()` · 카탈로그 diff `buildDelta()` · 네이티브 산출물 `convert`.
