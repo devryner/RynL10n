@@ -17,6 +17,9 @@
  *   <outDir>/rynl10n/rynl10n.lock
  *   <outDir>/rynl10n/Localizable.xcstrings              (ios, --emit-native)
  *   <outDir>/rynl10n/res/values[-<locale>]/strings.xml  (android, --emit-native)
+ *
+ * 두 CLI 모두 `--descriptions`로 키 설명 주석을 함께 굽는다(5.3). 빌드가 그 플래그를 쓰지 않으면
+ * 미리보기도 쓰면 안 된다 — 그 차이가 그대로 가짜 "변경"이 된다.
  */
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -31,7 +34,7 @@ export interface BakePreviewInput {
   readonly snapshot: string;
   readonly outDir: string;
   readonly platform?: Platform;
-  /** 키 설명 사이드카 경로(5.1). **iOS만 적용된다** — 아래 nativeDiffs 주석 참조. */
+  /** 키 설명 사이드카 경로(5.1). 빌드가 `--descriptions` 없이 돈다면 **여기도 주지 말 것**. */
   readonly descriptions?: string;
   readonly strict?: boolean;
   readonly stableName?: boolean;
@@ -241,14 +244,14 @@ function nativeDiffs(
     return [compareJson(join(bundleDir, "Localizable.xcstrings"), toXcstrings(snap, descriptions).output)];
   }
   // android — 로케일별 `res/values[-locale]/strings.xml`.
-  // **설명(주석)을 주지 않는 것이 의도다**: Android bake CLI에는 `--descriptions` 플래그 자체가
-  // 없어 주석 없이 굽는다. 여기서 주석을 넣으면 미리보기만 "변경"이라 답하고 빌드는 안 바꾼다.
+  // 설명은 두 CLI 모두 `--descriptions`로 받는다. **빌드가 그 플래그 없이 돌면 여기서도 주지 말 것** —
+  // 미리보기만 주석을 넣으면 "변경"이라 답하고 빌드는 안 바꾼다.
   const out: FileDiff[] = [];
   for (const locale of Object.keys(snap.locales).sort()) {
     const catalog = snap.locales[locale];
     if (catalog === undefined) continue;
     const dir = locale === snap.defaultLocale ? "values" : `values-${locale}`;
-    out.push(compare(join(bundleDir, "res", dir, "strings.xml"), toAndroidStringsXml(catalog).output));
+    out.push(compare(join(bundleDir, "res", dir, "strings.xml"), toAndroidStringsXml(catalog, descriptions).output));
   }
   return out;
 }

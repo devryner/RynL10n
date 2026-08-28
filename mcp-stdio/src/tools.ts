@@ -43,7 +43,8 @@ export const TOOLS: readonly StdioTool[] = [
         descriptions: {
           type: "string",
           description:
-            "키 설명 사이드카 경로(선택). **iOS에만 반영된다** — Android bake CLI에는 설명 플래그가 없어 주석 없이 굽는다. " +
+            "키 설명 사이드카 경로(선택). ios·android 모두 반영된다(두 CLI의 `--descriptions`). " +
+            "**빌드가 그 플래그 없이 돈다면 여기도 주지 말 것** — 그 차이가 그대로 가짜 '변경'이 된다. " +
             "읽지 못하면 주석 없이 계속한다(bake CLI와 같은 실패 정책).",
         },
         strict: {

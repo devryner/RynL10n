@@ -37,6 +37,7 @@ tasks.test {
 // 빌드타임 자동 번들링(6.3) — 현재 릴리스 스냅샷을 SDK 번들 리소스로 bake.
 // 실제 프로젝트에서는 android { } 빌드 그래프에 preBuild 의존으로 엮인다(M1 α는 수동 실행 태스크).
 // 사용: gradle rynl10nBake -Psource=<snapshot.json> -Pout=<dir> [-Pstrict=true]
+//       [-PemitNative=true -Pdescriptions=<path|url>]  ← 네이티브 방출 + 키 설명 주석
 tasks.register<JavaExec>("rynl10nBake") {
     group = "rynl10n"
     description = "현재 릴리스 스냅샷을 SDK 번들(snapshot-<base>.json)+lockfile로 bake"
@@ -49,12 +50,16 @@ tasks.register<JavaExec>("rynl10nBake") {
     val fetch = project.findProperty("fetch") as String?   // 서버 스냅샷 URL(6.3)
     val cache = project.findProperty("cache") as String?   // 마지막 캐시 경로(fetch 실패 시)
     val token = project.findProperty("token") as String?
+    // 키 설명 사이드카(5.1) — --emit-native와 함께 쓰면 strings.xml XML 주석으로 구워진다.
+    // 빈 값은 값이 아니다: CI가 미설정 프로퍼티를 ""로 넘기는 경로가 흔하다.
+    val descriptions = (project.findProperty("descriptions") as String?)?.takeIf { it.isNotBlank() }
     val stableName = (project.findProperty("stableName") as String?) == "true"
     args = buildList {
         if (fetch != null) { add("--fetch"); add(fetch) } else add(source)
         add(out)
         if (cache != null) { add("--cache"); add(cache) }
         if (token != null) { add("--token"); add(token) }
+        if (descriptions != null) { add("--descriptions"); add(descriptions) }
         if (strict) add("--strict")
         if (emitNative) add("--emit-native")
         if (stableName) add("--stable-name")

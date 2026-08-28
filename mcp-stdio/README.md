@@ -28,7 +28,7 @@ npm run mcp:stdio          # 저장소 안에서 직접 (게시 전)
 | `snapshot` | ✓ | 스냅샷 JSON 경로. vendored 스냅샷이거나 플러그인이 남긴 캐시(`--cache`) |
 | `outDir` | ✓ | bake 산출물 디렉토리 — `rynl10n-bake`에 넘기는 out-dir와 같은 값 |
 | `platform` | | `ios`·`android`. 빌드가 `--emit-native`로 돌 때만. 생략하면 번들·lockfile만 |
-| `descriptions` | | 키 설명 사이드카 경로. **iOS만 반영** (아래) |
+| `descriptions` | | 키 설명 사이드카 경로. 빌드가 `--descriptions`를 쓸 때만 (아래) |
 | `strict` | | 커버리지 갭·base 불일치에서 실패(빌드의 `--strict`와 같은 판정) |
 | `stableName` | | 빌드가 `--stable-name`으로 돌면 true |
 
@@ -78,9 +78,10 @@ Node의 `JSON.stringify`와 **바이트가 절대 같아지지 않는다.** 바�
 매번 "변경"이라 답한다. Foundation 포맷을 흉내내는 건 더 나쁜 길이라 파싱해서 비교한다.
 `strings.xml`은 굽는 쪽이 우리 생성기의 문자열을 그대로 쓰므로 바이트로 비교한다.
 
-**③ `descriptions`는 iOS에만 반영된다.** Android bake CLI(`sdks/android/src/cli/.../BakeCli.kt`)에는
-`--descriptions` 플래그 자체가 없어 주석 없이 굽는다. 미리보기가 주석을 넣으면 "변경"이라 답하고
-빌드는 안 바꾸므로, **CLI의 실제 동작을 따른다.**
+**③ `descriptions`는 빌드가 쓸 때만 준다.** 두 CLI 모두 `--descriptions`로 키 설명 주석을 굽지만
+(iOS `.xcstrings` `comment` · Android `strings.xml` XML 주석), **빌드가 그 플래그 없이 돈다면
+미리보기도 주면 안 된다** — 그 차이가 그대로 가짜 "변경"이 된다. 미리보기는 언제나 CLI의 실제
+호출을 따라간다.
 
 ## 전송
 

@@ -127,6 +127,26 @@ test("android: 로케일별 res/values[-locale]/strings.xml을 비교한다", ()
 });
 
 /**
+ * 설명 사이드카는 **빌드가 `--descriptions`를 쓸 때만** 준다. 두 CLI 모두 그 플래그로 주석을 굽는데
+ * (2026-08-28에 Android CLI에도 들어왔다), 빌드가 안 쓰는데 미리보기만 주석을 넣으면 "변경"이라
+ * 답해 놓고 빌드는 안 바꾼다. 그 차이가 그대로 가짜 신호가 된다.
+ */
+test("android: descriptions를 주면 주석까지 반영해 비교한다 — 안 주면 주석 없는 산출물과 같다", () => {
+  const dir = tmp();
+  const out = join(dir, "out");
+  seedBaked(out, snapV1, { android: true }); // 주석 없이 구워진 상태
+  const path = writeSnapshot(dir, snapV1);
+
+  const withoutDesc = bakePreview({ snapshot: path, outDir: out, platform: "android" });
+  assert.deepEqual(withoutDesc.native.map((f) => f.status), ["동일", "동일"]);
+
+  const descPath = join(dir, "descriptions.json");
+  writeFileSync(descPath, JSON.stringify({ "cart.title": "장바구니 상단 제목." }), "utf8");
+  const withDesc = bakePreview({ snapshot: path, outDir: out, platform: "android", descriptions: descPath });
+  assert.deepEqual(withDesc.native.map((f) => f.status), ["변경", "변경"], "주석이 붙으면 산출물이 달라진다");
+});
+
+/**
  * iOS bake CLI는 `.xcstrings`를 Foundation JSONEncoder로 쓴다 — `"key" : value`라 Node의
  * `JSON.stringify`와 바이트가 절대 같지 않다. 바이트로 비교하면 내용이 같아도 매번 "변경"이라
  * 답하게 되므로 **의미로 비교한다.** 여기서 그 불변식을 고정한다.

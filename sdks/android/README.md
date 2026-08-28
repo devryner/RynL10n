@@ -81,7 +81,14 @@ Compose를 쓰지 않는 앱도 그대로 쓸 수 있다 — Compose 어댑터�
 
 `-PemitNative=true`를 더하면 `res/values-<locale>/strings.xml`도 함께 방출한다 —
 `getString(R.string.…)`을 쓰는 기존 코드에 fallback을 주고 싶을 때만 쓰면 된다(선택).
-대시보드에 적은 **키 설명이 XML 주석으로 구워져** 번역자에게 맥락이 전달된다.
+여기에 `-Pdescriptions=`로 키 설명 사이드카를 주면 대시보드에 적은 **키 설명이 XML 주석으로
+구워진다**(5.3). 스냅샷과 분리된 사이드카라 **읽지 못해도 빌드는 주석 없이 계속한다.**
+
+```bash
+./gradlew rynl10nBake -Pfetch="$API/projects/myapp/releases/R1/snapshot" -Ptoken="$TOKEN" \
+  -Pdescriptions="$API/projects/myapp/releases/R1/descriptions" \
+  -PemitNative=true -Pout=<앱 모듈>/src/main/assets -PstableName=true
+```
 
 ### 3-b. 확인
 
