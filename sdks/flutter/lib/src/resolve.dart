@@ -1,4 +1,5 @@
 // 2계층 resolve + ICU/CLDR 포맷팅 — 기획서 3.1.
+import 'icu.dart';
 import 'types.dart';
 import 'placeholder.dart';
 
@@ -84,7 +85,7 @@ String _pluralCategory(String locale, int n) {
   return 'other';
 }
 
-final _sub = RegExp(r'\{\s*([A-Za-z0-9_]+)\s*\}');
+final _sub = icuSimpleArg;
 
 String _substitute(String template, Map<String, Object?> args, int? count) {
   var out = template.replaceAllMapped(_sub, (m) {

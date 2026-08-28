@@ -25,6 +25,12 @@ before(() => {
   repo.putTranslation("shop", greet, "en", "Hello {name}", "reviewed");
   repo.setKeyDescription("shop", "greet", "홈 상단 인사말. 사용자 이름을 그대로 노출한다.");
   // cart.items: 복수형 키
+  // footer: 플레이스홀더가 없는 키(서명 "") — 비ASCII 인자를 새로 넣는 방향을 보기 위한 자리
+  const footer = repo.upsertKey("shop", "footer", "", false);
+  repo.putTranslation("shop", footer, "en", "Note", "reviewed");
+  // notice: 서명 자체가 비ASCII 인자로 확정된 키
+  const notice = repo.upsertKey("shop", "notice", "작성자:simple", false);
+  repo.putTranslation("shop", notice, "en", "posted by {작성자}", "reviewed");
   const cart = repo.upsertKey("shop", "cart.items", "count:plural", true);
   repo.putTranslation("shop", cart, "en", { one: "{count} item", other: "{count} items" }, "reviewed");
 });
@@ -72,21 +78,34 @@ test("서명 불일치: 인자 이름을 바꿔버린 경우 — missing과 extr
 });
 
 /**
- * 코어 `signature()`의 인자 이름 스캔은 `[A-Za-z0-9_]+`라 **비ASCII 인자 이름을 인자로 보지
- * 않는다**(ICU 스펙의 argName은 비ASCII를 허용하므로 under-match다). 그래서 `{이름}`은
- * 플레이스홀더가 아니라 리터럴로 취급돼 서명이 빈 문자열이 된다.
- *
- * 결과적으로 **가드는 여전히 건다**(기대 "name:simple" ≠ 실제 "") — 안전한 방향이다. 다만
- * extraArgs로 "{이름}을 새로 넣었다"까지는 말해 주지 못한다. 고치려면 4개 언어 SDK의 같은
- * 정규식을 동시에 바꾸고 골든 벡터를 재생성해야 하므로(크로스언어 계약) 여기서 건드리지 않고
- * 현재 동작을 못박아 둔다 — 조용히 달라지면 안 되는 자리다.
+ * ICU argName은 Pattern_Syntax도 Pattern_White_Space도 아닌 문자 1개 이상이라 **비ASCII를
+ * 허용한다**(5.3). 스캔이 `[A-Za-z0-9_]+`였을 때는 `{이름}`이 리터럴로 취급돼 서명이 ""가 됐고,
+ * 그래서 진단이 "인자를 새로 넣었다"까지 말해 주지 못했다. 이제 인자로 본다(`src/core/icu.ts`).
  */
-test("비ASCII 인자 이름은 인자로 인식되지 않는다 — 가드는 걸리되 진단은 반쪽(현재 동작 고정)", () => {
+test("비ASCII 인자 이름도 인자다 — missing과 extra가 함께 잡힌다", () => {
   const r = check("greet", [{ locale: "ko", value: "안녕하세요 {이름}님" }]);
   assert.equal(r.ok, false);
   const p = r.problems.find((x) => x.code === "signature_mismatch")!;
   assert.deepEqual(p.missingArgs, ["name"]);
-  assert.deepEqual(p.extraArgs, []);
+  assert.deepEqual(p.extraArgs, ["이름"]);
+});
+
+/**
+ * 새던 자리는 하나였다: **원래 플레이스홀더가 없던 키**(서명 "")에 비ASCII 인자를 넣는 경우.
+ * 양쪽 서명이 모두 ""라 가드가 그냥 열렸고, 런타임에 중괄호가 그대로 보였다. 여기가 회귀 지점이다.
+ */
+test("서명이 없던 키에 비ASCII 인자를 넣으면 잡는다 — 전에는 통과했다", () => {
+  const r = check("footer", [{ locale: "ko", value: "{이름}의 메모" }]);
+  assert.equal(r.ok, false);
+  const p = r.problems.find((x) => x.code === "signature_mismatch")!;
+  assert.deepEqual(p.missingArgs, []);
+  assert.deepEqual(p.extraArgs, ["이름"]);
+});
+
+test("비ASCII 인자 이름이 그대로 유지되면 통과한다", () => {
+  const r = check("notice", [{ locale: "ko", value: "{작성자}님이 올림" }]);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.problems, []);
 });
 
 test("복수형 형태 불일치: 맵이어야 하는데 문자열", () => {

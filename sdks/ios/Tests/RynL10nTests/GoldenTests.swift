@@ -95,6 +95,16 @@ final class GoldenTests: XCTestCase {
         }
     }
 
+    /// ICU argName 경계(Pattern_Syntax/Pattern_White_Space) — 4개 언어가 같은 문자를 인자로 본다.
+    func testSignature() throws {
+        struct Case: Decodable { let name: String; let value: TranslationValue; let expected: String }
+        struct File: Decodable { let cases: [Case] }
+        let f = try Golden.load("signature.json", as: File.self)
+        for c in f.cases {
+            XCTAssertEqual(Placeholder.signature(c.value), c.expected, "signature: \(c.name)")
+        }
+    }
+
     func testSemver() throws {
         struct Sat: Decodable { let version: String; let range: String; let matchPrerelease: Bool?; let expected: Bool }
         struct Rej: Decodable { let range: String; let expectedThrow: Bool }

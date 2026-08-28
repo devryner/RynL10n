@@ -14,7 +14,7 @@ object Convert {
         data class Ref(val name: String) : Token()
     }
 
-    private val INNER = Regex("""^([A-Za-z0-9_]+)\s*(?:,\s*([a-z]+))?""")
+    private val INNER = Regex(Icu.INNER_ARG)
 
     private fun tokenize(icu: String): Pair<List<Token>, List<Arg>> {
         val tokens = mutableListOf<Token>()

@@ -95,3 +95,36 @@ test("포맷팅: named 치환 + CLDR 복수형(en one/other, ko other)", () => {
   const koItems = { other: "{n}개" };
   assert.equal(formatValue(koItems, "ko", { n: 3 }), "3개");
 });
+
+// ── ICU argName 경계 (5.3) ───────────────────────────────────────────────────
+//
+// argName은 Pattern_Syntax도 Pattern_White_Space도 아닌 문자 1개 이상이라 비ASCII를 허용한다.
+// 스캔이 `[A-Za-z0-9_]+`였을 때는 `{이름}`이 리터럴이었고, 그래서 **번들에 플레이스홀더가
+// 없던 키**에서는 양쪽 서명이 모두 ""라 가드가 그냥 열렸다 — 오버레이가 그대로 적용되고
+// 런타임에 중괄호가 보였다. 서명·치환·변환이 같은 정의를 봐야 이게 닫힌다(`src/core/icu.ts`).
+
+test("비ASCII 인자: 서명이 없던 키에 새로 넣으면 가드가 잡는다", () => {
+  const overlay = new OverlayLayer();
+  overlay.set("en", "cart.title", "{이름}의 장바구니");
+  const r = resolveValue(bundle, overlay, "cart.title", "en");
+  assert.equal(r.guardFallback, true);
+  assert.equal(r.source, "bundle");
+  assert.equal(r.value, "Cart");
+});
+
+test("비ASCII 인자: 서명이 같으면 오버레이가 적용되고 치환까지 된다", () => {
+  const overlay = new OverlayLayer();
+  overlay.set("ko", "cart.title", "{이름}의 카트");
+  const bundleWithArg: Snapshot = {
+    ...bundle,
+    locales: { ...bundle.locales, ko: { "cart.title": "{이름} 장바구니" } },
+  };
+  const r = resolveValue(bundleWithArg, overlay, "cart.title", "ko");
+  assert.equal(r.guardFallback, false);
+  assert.equal(r.source, "overlay");
+  assert.equal(formatValue(r.value!, "ko", { 이름: "솔" }), "솔의 카트");
+});
+
+test("Pattern_Syntax 기호는 인자가 아니다 — 화살표·기호는 리터럴로 남는다", () => {
+  assert.equal(formatValue("{→} {★}", "en", {}), "{→} {★}");
+});

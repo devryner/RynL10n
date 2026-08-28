@@ -107,7 +107,7 @@ public enum Resolve {
         return "other"
     }
 
-    static let subRe = try! NSRegularExpression(pattern: #"\{\s*([A-Za-z0-9_]+)\s*\}"#)
+    static let subRe = try! NSRegularExpression(pattern: Icu.simpleArg)
 
     static func substitute(_ template: String, args: [String: JSONValue], count: Int?) -> String {
         let ns = template as NSString

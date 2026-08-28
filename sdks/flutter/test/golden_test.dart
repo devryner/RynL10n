@@ -89,6 +89,13 @@ void main() {
     }
   });
 
+  // ICU argName 경계(Pattern_Syntax/Pattern_White_Space) — 4개 언어가 같은 문자를 인자로 본다.
+  test('signature', () {
+    for (final c in _load('signature.json')['cases'] as List) {
+      expect(signature(TranslationValue.fromJson(c['value'])), c['expected'], reason: c['name'] as String);
+    }
+  });
+
   test('semver', () {
     final f = _load('semver.json');
     for (final c in f['satisfies'] as List) {

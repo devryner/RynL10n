@@ -123,6 +123,16 @@ class GoldenTest {
         }
     }
 
+    @Serializable data class SigCase(val name: String, val value: TranslationValue, val expected: String)
+    @Serializable data class SigFile(val cases: List<SigCase>)
+
+    /** ICU argName 경계(Pattern_Syntax/Pattern_White_Space) — 4개 언어가 같은 문자를 인자로 본다. */
+    @Test fun signature() {
+        for (c in load<SigFile>("signature.json").cases) {
+            assertEquals(c.expected, Placeholder.signature(c.value), "signature: ${c.name}")
+        }
+    }
+
     @Serializable data class SatCase(val version: String, val range: String, val matchPrerelease: Boolean? = null, val expected: Boolean)
     @Serializable data class RejCase(val range: String, val expectedThrow: Boolean)
     @Serializable data class SemverFile(val satisfies: List<SatCase>, val reject: List<RejCase>)

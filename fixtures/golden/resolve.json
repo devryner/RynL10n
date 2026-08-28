@@ -12,7 +12,8 @@
           "one": "{n} item",
           "other": "{n} items"
         },
-        "cart.empty": ""
+        "cart.empty": "",
+        "cart.note": "Note"
       },
       "ko": {
         "cart.title": "장바구니"
@@ -155,6 +156,42 @@
       "expected": {
         "value": "",
         "source": "bundle",
+        "matchedLocale": "en",
+        "guardFallback": false
+      }
+    },
+    {
+      "name": "포맷가드_비ASCII인자_신규→번들",
+      "overlay": [
+        {
+          "locale": "en",
+          "key": "cart.note",
+          "value": "{이름}의 메모"
+        }
+      ],
+      "key": "cart.note",
+      "locale": "en",
+      "expected": {
+        "value": "Note",
+        "source": "bundle",
+        "matchedLocale": "en",
+        "guardFallback": true
+      }
+    },
+    {
+      "name": "포맷가드_비ASCII인자_일치→오버레이",
+      "overlay": [
+        {
+          "locale": "en",
+          "key": "cart.note",
+          "value": "Memo"
+        }
+      ],
+      "key": "cart.note",
+      "locale": "en",
+      "expected": {
+        "value": "Memo",
+        "source": "overlay",
         "matchedLocale": "en",
         "guardFallback": false
       }

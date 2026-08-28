@@ -1,0 +1,78 @@
+{
+  "description": "signature(value) → 서명 문자열. ICU argName 경계(Pattern_Syntax/Pattern_White_Space)를 4개 언어가 공유하는지 검증.",
+  "cases": [
+    {
+      "name": "인자없음",
+      "value": "안녕하세요",
+      "expected": ""
+    },
+    {
+      "name": "빈문자열",
+      "value": "",
+      "expected": ""
+    },
+    {
+      "name": "ascii_단순",
+      "value": "Hello {name}",
+      "expected": "name:simple"
+    },
+    {
+      "name": "ascii_타입",
+      "value": "{count, number}개",
+      "expected": "count:number"
+    },
+    {
+      "name": "숫자_인자이름",
+      "value": "{0} / {1}",
+      "expected": "0:simple,1:simple"
+    },
+    {
+      "name": "비ASCII_한글",
+      "value": "{이름}님 안녕하세요",
+      "expected": "이름:simple"
+    },
+    {
+      "name": "비ASCII_키릴",
+      "value": "Привет, {имя}",
+      "expected": "имя:simple"
+    },
+    {
+      "name": "비ASCII_공백정리",
+      "value": "{ 개수 , number } 건",
+      "expected": "개수:number"
+    },
+    {
+      "name": "혼합_정렬",
+      "value": "{name} / {이름}",
+      "expected": "name:simple,이름:simple"
+    },
+    {
+      "name": "타입충돌",
+      "value": "{n} vs {n, number}",
+      "expected": "n:simple|number"
+    },
+    {
+      "name": "구두점은_인자아님",
+      "value": "가격: 100% (할인) — {price}원",
+      "expected": "price:simple"
+    },
+    {
+      "name": "Pattern_Syntax_기호는_인자아님",
+      "value": "{★} {⭐} {→}",
+      "expected": ""
+    },
+    {
+      "name": "하이픈에서_끊긴다",
+      "value": "{a-b}",
+      "expected": "a:simple"
+    },
+    {
+      "name": "복수형맵_카테고리합집합",
+      "value": {
+        "one": "{n}개",
+        "other": "{n}개 {이름}"
+      },
+      "expected": "n:simple,이름:simple"
+    }
+  ]
+}

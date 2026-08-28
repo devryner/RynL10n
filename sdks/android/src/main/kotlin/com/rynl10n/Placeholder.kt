@@ -2,9 +2,8 @@ package com.rynl10n
 
 /** 플레이스홀더 서명 & 포맷 안전 가드 — 기획서 3.1 / 5.3. */
 object Placeholder {
-    private val RE = Regex(
-        """\{\s*([A-Za-z0-9_]+)\s*(?:,\s*(plural|selectordinal|select|number|date|time|spellout|ordinal|duration))?"""
-    )
+    // 인자 이름의 정의는 `Icu.kt` 한 곳에 있다 — 서명·치환·변환이 갈리면 안 되기 때문(3.1).
+    private val RE = Regex(Icu.ARG_SCAN)
 
     fun signature(value: TranslationValue): String {
         val args = mutableMapOf<String, String>()

@@ -13,6 +13,7 @@
 import type { PluralCategory, Snapshot, TranslationValue } from "./types.ts";
 import { isPluralMap } from "./types.ts";
 import { signaturesMatch } from "./placeholder.ts";
+import { SIMPLE_ARG } from "./icu.ts";
 
 export const TOMBSTONE = Symbol("tombstone");
 export type OverlayEntry = TranslationValue | typeof TOMBSTONE;
@@ -130,7 +131,7 @@ function pluralCategory(locale: string, n: PluralArg): PluralCategory {
 }
 
 function substitute(template: string, args: Readonly<Record<string, unknown>>, count?: number): string {
-  let out = template.replace(/\{\s*([A-Za-z0-9_]+)\s*\}/g, (_m, name: string) => {
+  let out = template.replace(new RegExp(SIMPLE_ARG, "g"), (_m: string, name: string) => {
     const v = args[name];
     return v === undefined ? `{${name}}` : String(v);
   });

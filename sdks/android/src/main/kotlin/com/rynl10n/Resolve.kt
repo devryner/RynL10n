@@ -99,7 +99,7 @@ object Resolve {
         return "other"
     }
 
-    private val SUB = Regex("""\{\s*([A-Za-z0-9_]+)\s*\}""")
+    private val SUB = Regex(Icu.SIMPLE_ARG)
 
     private fun substitute(template: String, args: Map<String, Any?>, count: Int?): String {
         var out = SUB.replace(template) { m ->

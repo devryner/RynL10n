@@ -22,7 +22,7 @@ public enum Convert {
             if ch == "{" {
                 if let end = chars[i...].firstIndex(of: "}") {
                     let inner = String(chars[(i + 1)..<end]).trimmingCharacters(in: .whitespaces)
-                    if let m = firstMatch(inner, #"^([A-Za-z0-9_]+)\s*(?:,\s*([a-z]+))?"#) {
+                    if let m = firstMatch(inner, Icu.innerArg) {
                         let name = m[1]!
                         let type = (m[2] == "number") ? "number" : "string"
                         flush()

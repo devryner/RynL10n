@@ -9,6 +9,7 @@ export 'src/intrange.dart' show intInRange, parseIntRange;
 export 'src/canary.dart' show bucketOf, inRollout;
 export 'src/matching.dart' show selectRelease, findRangeConflicts, ClientContext, ConflictInput, Selection, Matched, NearestLower, BundleOnly;
 export 'src/resolve.dart' show OverlayLayer, resolveValue, format, fallbackChain, ResolveResult;
+export 'src/placeholder.dart' show signature, signaturesMatch;
 export 'src/client.dart';
 // 앱 적용 경로(6.3/6.4) — 순수 Dart. `dart:io` 기본 어댑터는 `rynl10n_io.dart` 참조.
 export 'src/baked.dart';

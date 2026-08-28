@@ -15,6 +15,7 @@
 
 import type { Snapshot, TranslationValue, PluralCategory } from "../core/types.ts";
 import { isPluralMap } from "../core/types.ts";
+import { INNER_ARG } from "../core/icu.ts";
 
 const CLDR_ORDER: PluralCategory[] = ["zero", "one", "two", "few", "many", "other"];
 
@@ -43,7 +44,7 @@ function tokenize(icu: string): { tokens: Token[]; args: Array<{ name: string; t
       const end = icu.indexOf("}", i);
       if (end === -1) { lit += ch; i++; continue; }
       const inner = icu.slice(i + 1, end).trim();
-      const m = /^([A-Za-z0-9_]+)\s*(?:,\s*([a-z]+))?/.exec(inner);
+      const m = new RegExp(INNER_ARG).exec(inner);
       if (m) {
         const name = m[1]!;
         const type: "string" | "number" = m[2] === "number" ? "number" : "string";

@@ -56,6 +56,22 @@
         "count": 7
       },
       "expected": "7 items"
+    },
+    {
+      "name": "비ASCII_인자_치환",
+      "value": "{이름}님 안녕하세요",
+      "locale": "ko",
+      "args": {
+        "이름": "솔"
+      },
+      "expected": "솔님 안녕하세요"
+    },
+    {
+      "name": "비ASCII_인자_미제공",
+      "value": "{이름}님 안녕하세요",
+      "locale": "ko",
+      "args": {},
+      "expected": "{이름}님 안녕하세요"
     }
   ]
 }

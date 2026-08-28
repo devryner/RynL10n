@@ -19,6 +19,7 @@ import { baseLocaleCoverage, verifyBase, buildLockfile, lockfileString, bundleSt
 import { toAndroidStringsXml, toXcstrings, toWebJson, toArb } from "../src/builder/convert.ts";
 import { bucketOf, inRollout } from "../src/core/canary.ts";
 import { intInRange, parseIntRange } from "../src/core/intrange.ts";
+import { signature } from "../src/core/placeholder.ts";
 import type { ManifestRelease, Snapshot, TranslationValue } from "../src/core/types.ts";
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "golden");
@@ -90,7 +91,7 @@ write("delta.json", {
 const rBundle: Snapshot = {
   schemaVersion: 1, release: "R42", base: "0000000000000000", defaultLocale: "en",
   locales: {
-    en: { "cart.title": "Cart", "cart.items": { one: "{n} item", other: "{n} items" }, "cart.empty": "" },
+    en: { "cart.title": "Cart", "cart.items": { one: "{n} item", other: "{n} items" }, "cart.empty": "", "cart.note": "Note" },
     ko: { "cart.title": "장바구니" },
     "ko-KR": {},
   },
@@ -110,6 +111,11 @@ const resolveCases: Array<{ name: string; overlay: OverlayInput; key: string; lo
   { name: "포맷가드_일치→오버레이", overlay: [{ locale: "en", key: "cart.items", value: { one: "{n} thing", other: "{n} things" } }], key: "cart.items", locale: "en" },
   { name: "tombstone_가림→다음로케일", overlay: [{ locale: "ko", key: "cart.title", tombstone: true }], key: "cart.title", locale: "ko" },
   { name: "빈문자열_유효", overlay: [], key: "cart.empty", locale: "en" },
+  // 비ASCII 인자 이름(ICU argName은 비ASCII를 허용한다). 번들에 플레이스홀더가 없던 키에
+  // 오버레이가 `{이름}`을 새로 넣는 경우 — 인자로 안 보면 양쪽 서명이 ""라 가드를 그냥 통과하고
+  // 런타임에 중괄호가 그대로 보인다. 그 자리를 계약으로 고정한다.
+  { name: "포맷가드_비ASCII인자_신규→번들", overlay: [{ locale: "en", key: "cart.note", value: "{이름}의 메모" }], key: "cart.note", locale: "en" },
+  { name: "포맷가드_비ASCII인자_일치→오버레이", overlay: [{ locale: "en", key: "cart.note", value: "Memo" }], key: "cart.note", locale: "en" },
   { name: "미해결", overlay: [], key: "no.such", locale: "ko-KR" },
 ];
 write("resolve.json", {
@@ -131,6 +137,8 @@ const fmtCases: Array<{ name: string; value: TranslationValue; locale: string; a
   { name: "ko_other", value: { other: "{n}개" }, locale: "ko", args: { n: 3 } },
   { name: "named_치환", value: "Hello {name}", locale: "en", args: { name: "Sol" } },
   { name: "sharp_치환", value: { one: "# item", other: "# items" }, locale: "en", args: { count: 7 } },
+  { name: "비ASCII_인자_치환", value: "{이름}님 안녕하세요", locale: "ko", args: { "이름": "솔" } },
+  { name: "비ASCII_인자_미제공", value: "{이름}님 안녕하세요", locale: "ko", args: {} },
 ];
 write("format.json", {
   description: "formatValue(value, locale, args) → string",
@@ -235,6 +243,8 @@ const convSnap: Snapshot = {
     ko: {
       "home.title": "홈",
       "cart.items": { other: "{n}개" },
+      // 비ASCII 인자 이름 — 네이티브 위치 인자 재매핑(%1$s/%1$@)과 .arb placeholders 키까지 계약.
+      "user.greeting": "{이름}님, 안녕하세요",
     },
   },
 };
@@ -300,6 +310,32 @@ write("intrange.json", {
   description: "intInRange(n, range) === satisfies. reject[]는 parseIntRange가 예외.",
   satisfies: intSat.map((c) => ({ ...c, expected: intInRange(c.n, c.range) })),
   reject: intReject.map((range) => { let t = false; try { parseIntRange(range); } catch { t = true; } return { range, expectedThrow: t }; }),
+});
+
+// ── 13) 플레이스홀더 서명 (3.1 포맷 가드의 입력) ──────────────────────────────
+//
+// ICU argName은 Pattern_Syntax도 Pattern_White_Space도 아닌 문자 1개 이상이다(5.3).
+// `[A-Za-z0-9_]+`로 좁히면 `{이름}`이 리터럴이 되어 서명이 ""가 되고, 번들에 플레이스홀더가
+// 없던 키에서는 가드가 그냥 열린다. 4개 언어가 같은 경계를 보는지를 여기서 못박는다.
+const sigCases: Array<{ name: string; value: TranslationValue }> = [
+  { name: "인자없음", value: "안녕하세요" },
+  { name: "빈문자열", value: "" },
+  { name: "ascii_단순", value: "Hello {name}" },
+  { name: "ascii_타입", value: "{count, number}개" },
+  { name: "숫자_인자이름", value: "{0} / {1}" },
+  { name: "비ASCII_한글", value: "{이름}님 안녕하세요" },
+  { name: "비ASCII_키릴", value: "Привет, {имя}" },
+  { name: "비ASCII_공백정리", value: "{ 개수 , number } 건" },
+  { name: "혼합_정렬", value: "{name} / {이름}" },
+  { name: "타입충돌", value: "{n} vs {n, number}" },
+  { name: "구두점은_인자아님", value: "가격: 100% (할인) — {price}원" },
+  { name: "Pattern_Syntax_기호는_인자아님", value: "{★} {⭐} {→}" },
+  { name: "하이픈에서_끊긴다", value: "{a-b}" },
+  { name: "복수형맵_카테고리합집합", value: { one: "{n}개", other: "{n}개 {이름}" } },
+];
+write("signature.json", {
+  description: "signature(value) → 서명 문자열. ICU argName 경계(Pattern_Syntax/Pattern_White_Space)를 4개 언어가 공유하는지 검증.",
+  cases: sigCases.map((c) => ({ name: c.name, value: c.value, expected: signature(c.value) })),
 });
 
 console.log("golden vectors 생성 완료 →", OUT);

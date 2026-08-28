@@ -1,8 +1,9 @@
 // 플레이스홀더 서명 & 포맷 안전 가드 — 기획서 3.1 / 5.3.
+import 'icu.dart';
 import 'types.dart';
 
-final _re = RegExp(
-    r'\{\s*([A-Za-z0-9_]+)\s*(?:,\s*(plural|selectordinal|select|number|date|time|spellout|ordinal|duration))?');
+// 인자 이름의 정의는 `icu.dart` 한 곳에 있다 — 서명·치환·변환이 갈리면 안 되기 때문(3.1).
+final _re = icuArgScan;
 
 String signature(TranslationValue value) {
   final args = <String, String>{};

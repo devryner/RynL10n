@@ -19,13 +19,14 @@
         "home.title": "홈",
         "cart.items": {
           "other": "{n}개"
-        }
+        },
+        "user.greeting": "{이름}님, 안녕하세요"
       }
     }
   },
   "androidXml": {
     "en": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n  <plurals name=\"cart_items\">\n    <item quantity=\"one\">%1$d item</item>\n    <item quantity=\"other\">%1$d items</item>\n  </plurals>\n  <string name=\"files\">%1$d files in %2$s</string>\n  <string name=\"greet\">Hello %1$s</string>\n  <string name=\"home_title\">Home</string>\n</resources>\n",
-    "ko": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n  <plurals name=\"cart_items\">\n    <item quantity=\"other\">%1$d개</item>\n  </plurals>\n  <string name=\"home_title\">홈</string>\n</resources>\n"
+    "ko": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n  <plurals name=\"cart_items\">\n    <item quantity=\"other\">%1$d개</item>\n  </plurals>\n  <string name=\"home_title\">홈</string>\n  <string name=\"user_greeting\">%1$s님, 안녕하세요</string>\n</resources>\n"
   },
   "xcstrings": {
     "sourceLanguage": "en",
@@ -99,6 +100,16 @@
             }
           }
         }
+      },
+      "user.greeting": {
+        "localizations": {
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%1$@님, 안녕하세요"
+            }
+          }
+        }
       }
     },
     "version": "1.0"
@@ -117,7 +128,8 @@
       "cart.items": {
         "other": "{n}개"
       },
-      "home.title": "홈"
+      "home.title": "홈",
+      "user.greeting": "{이름}님, 안녕하세요"
     }
   },
   "arb": {
@@ -162,7 +174,15 @@
           }
         }
       },
-      "home.title": "홈"
+      "home.title": "홈",
+      "user.greeting": "{이름}님, 안녕하세요",
+      "@user.greeting": {
+        "placeholders": {
+          "이름": {
+            "type": "String"
+          }
+        }
+      }
     }
   },
   "descriptions": {
@@ -171,7 +191,7 @@
   },
   "androidXmlWithDescriptions": {
     "en": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n  <!-- 장바구니에 담긴 수량 표시. 복수형 카테고리를 그대로 유지할 것. -->\n  <plurals name=\"cart_items\">\n    <item quantity=\"one\">%1$d item</item>\n    <item quantity=\"other\">%1$d items</item>\n  </plurals>\n  <string name=\"files\">%1$d files in %2$s</string>\n  <string name=\"greet\">Hello %1$s</string>\n  <!-- 홈 탭 상단 제목. 짧게 - - 12자 이내. -->\n  <string name=\"home_title\">Home</string>\n</resources>\n",
-    "ko": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n  <!-- 장바구니에 담긴 수량 표시. 복수형 카테고리를 그대로 유지할 것. -->\n  <plurals name=\"cart_items\">\n    <item quantity=\"other\">%1$d개</item>\n  </plurals>\n  <!-- 홈 탭 상단 제목. 짧게 - - 12자 이내. -->\n  <string name=\"home_title\">홈</string>\n</resources>\n"
+    "ko": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n  <!-- 장바구니에 담긴 수량 표시. 복수형 카테고리를 그대로 유지할 것. -->\n  <plurals name=\"cart_items\">\n    <item quantity=\"other\">%1$d개</item>\n  </plurals>\n  <!-- 홈 탭 상단 제목. 짧게 - - 12자 이내. -->\n  <string name=\"home_title\">홈</string>\n  <string name=\"user_greeting\">%1$s님, 안녕하세요</string>\n</resources>\n"
   },
   "xcstringsWithDescriptions": {
     "sourceLanguage": "en",
@@ -247,6 +267,16 @@
             }
           }
         }
+      },
+      "user.greeting": {
+        "localizations": {
+          "ko": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "%1$@님, 안녕하세요"
+            }
+          }
+        }
       }
     },
     "version": "1.0"
@@ -301,6 +331,14 @@
       "home.title": "홈",
       "@home.title": {
         "description": "홈 탭 상단 제목. 짧게 -- 12자 이내."
+      },
+      "user.greeting": "{이름}님, 안녕하세요",
+      "@user.greeting": {
+        "placeholders": {
+          "이름": {
+            "type": "String"
+          }
+        }
       }
     }
   }

@@ -18,8 +18,8 @@ public enum Placeholder {
         signature(a) == signature(b)
     }
 
-    private static let re = try! NSRegularExpression(
-        pattern: #"\{\s*([A-Za-z0-9_]+)\s*(?:,\s*(plural|selectordinal|select|number|date|time|spellout|ordinal|duration))?"#)
+    // 인자 이름의 정의는 `Icu.swift` 한 곳에 있다 — 서명·치환·변환이 갈리면 안 되기 때문(3.1).
+    private static let re = try! NSRegularExpression(pattern: Icu.argScan)
 
     private static func collect(_ icu: String, into args: inout [String: String]) {
         let range = NSRange(icu.startIndex..<icu.endIndex, in: icu)

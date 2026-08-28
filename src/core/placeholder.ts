@@ -8,6 +8,7 @@
 
 import type { TranslationValue } from "./types.ts";
 import { isPluralMap } from "./types.ts";
+import { ARG_SCAN } from "./icu.ts";
 
 /**
  * ICU 인자 추출: `{name}`, `{name, plural, ...}`, `{name, number}` 등에서
@@ -16,7 +17,8 @@ import { isPluralMap } from "./types.ts";
  */
 function collectArgs(icu: string, into: Map<string, string>): void {
   // 최상위 인자만 정확히 파싱하기보다, 도메인에 충분한 근사: `{ name , type ...}` 패턴 스캔.
-  const re = /\{\s*([A-Za-z0-9_]+)\s*(?:,\s*(plural|selectordinal|select|number|date|time|spellout|ordinal|duration))?/g;
+  // 인자 이름의 정의는 `icu.ts` 한 곳에 있다 — 서명·치환·변환이 갈리면 안 되기 때문(3.1).
+  const re = new RegExp(ARG_SCAN, "g");
   let m: RegExpExecArray | null;
   while ((m = re.exec(icu)) !== null) {
     const name = m[1]!;
