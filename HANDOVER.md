@@ -89,7 +89,7 @@ sdks/flutter/         순수 Dart SDK(dart test 검증)
 examples/ios-consumer/  SPM 플러그인 소비 예제(플러그인 한 줄 → 자동 bake)
 
 docker-compose.yml · backend/Dockerfile   단일 노드 셀프호스트(9.1)
-OPERATIONS.md         운영 가이드(설치·업그레이드·백업·에어갭·관측성, 9.4)  ← git 미추적(로컬 전용)
+OPERATIONS.md         운영 가이드(설치·업그레이드·백업·에어갭·관측성, 9.4)
 AGENTS.md             에이전트용 저장소 요약 + 확정 스택(추적본)
 CLAUDE.md             AGENTS.md의 사본                                     ← git 미추적(로컬 전용)
 HANDOVER.md           이 문서
