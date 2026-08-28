@@ -14,6 +14,9 @@
     "gen:golden": "node tools/gen-golden.ts",
     "test:backend": "node --test \"backend/test/*.test.ts\"",
     "typecheck:backend": "tsc --noEmit -p backend/tsconfig.json",
+    "mcp:stdio": "node mcp-stdio/src/main.ts",
+    "test:mcp-stdio": "node --test \"mcp-stdio/test/*.test.ts\"",
+    "typecheck:mcp-stdio": "tsc --noEmit -p mcp-stdio/tsconfig.json",
     "backend": "node backend/src/main.ts",
     "smoke:consumer": "node tools/consumer-smoke/run.ts"
   },

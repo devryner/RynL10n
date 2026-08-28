@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   reference:
-    name: TS 참조 구현 · 백엔드 · 골든 벡터
+    name: TS 참조 구현 · 백엔드 · mcp-stdio · 골든 벡터
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +42,8 @@ jobs:
       - run: npm test
       - run: npm run typecheck:backend
       - run: npm run test:backend
+      - run: npm run typecheck:mcp-stdio
+      - run: npm run test:mcp-stdio
 
       # 골든 벡터 = 크로스언어 계약. 재생성 결과가 커밋 상태와 1바이트라도 다르면 릴리스를 막는다.
       - name: 골든 벡터 결정성 (재생성 후 diff 없음)

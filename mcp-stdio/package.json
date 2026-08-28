@@ -1,0 +1,11 @@
+{
+  "name": "@rynl10n/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "앱 개발자용 로컬 stdio MCP 서버 — 빌드에 무엇이 구워지는지 소비자 앱 저장소에서 본다",
+  "engines": {
+    "node": ">=23.6.0"
+  },
+  "license": "Apache-2.0"
+}
