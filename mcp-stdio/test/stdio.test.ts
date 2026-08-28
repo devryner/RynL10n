@@ -54,7 +54,7 @@ test("initialize → tools/list 왕복이 stdio로 성립한다", async () => {
   assert.equal(responses.length, 2);
   assert.equal(responses[0].result.protocolVersion, "2025-06-18");
   assert.equal(responses[0].result.serverInfo.name, "rynl10n-stdio");
-  assert.deepEqual(responses[1].result.tools.map((t: any) => t.name), ["bake_preview"]);
+  assert.deepEqual(responses[1].result.tools.map((t: any) => t.name), ["bake_preview", "lockfile_status"]);
 });
 
 test("로그는 stderr로만 간다 — stdout은 JSON 줄만", async () => {

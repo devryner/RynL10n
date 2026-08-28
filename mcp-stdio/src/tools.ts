@@ -7,7 +7,8 @@
  * 이어진다 — 여기서 "빌드에 무엇이 구워지나"를 보고, 저기서 카탈로그를 고친다.
  */
 import type { StdioTool } from "./protocol.ts";
-import { bakePreview, summarize, type Platform } from "./tools/bake-preview.ts";
+import { bakePreview, summarize as summarizeBake, type Platform } from "./tools/bake-preview.ts";
+import { lockfileStatus, summarize as summarizeLockfile } from "./tools/lockfile-status.ts";
 
 export const SERVER_INFO = { name: "rynl10n-stdio", version: "0.0.0" } as const;
 
@@ -68,7 +69,30 @@ export const TOOLS: readonly StdioTool[] = [
         throw new Error(`platform은 "ios" 또는 "android"여야 한다: ${String(args.platform)}`);
       }
       const result = bakePreview(input);
-      return { summary: summarize(result), data: result };
+      return { summary: summarizeBake(result), data: result };
+    },
+  },
+  {
+    name: "lockfile_status",
+    title: "구워진 번들 상태 진단(쓰기 없음)",
+    description:
+      "지금 이 빌드에 어느 릴리스·base가 구워져 있는지 lockfile로 확인하고, **앱이 실제로 그 번들을 집는지**까지 대조한다. " +
+      "`--stable-name` 없이 구우면 `snapshot-<base>.json`이 쌓이는데 그때 Android는 파일명 최소값(최신이 아니다)을, " +
+      "iOS는 순서가 보장되지 않는 것을 집는다 — 앱이 스테일 카탈로그를 들고 조용히 돈다. " +
+      "'새 번역이 왜 안 보이지'를 묻는 자리에 먼저 쓴다. 다음 빌드가 무엇을 바꿀지는 bake_preview가 본다.",
+    inputSchema: {
+      type: "object",
+      required: ["outDir"],
+      properties: {
+        outDir: {
+          type: "string",
+          description: "bake 산출물 디렉토리 — `rynl10n-bake`에 넘긴 out-dir(또는 Android의 assets 루트). 그 아래 `rynl10n/`도 함께 본다.",
+        },
+      },
+    },
+    run: (args: any) => {
+      const result = lockfileStatus({ outDir: requireString(args, "outDir") });
+      return { summary: summarizeLockfile(result), data: result };
     },
   },
 ];

@@ -39,10 +39,31 @@ lockfile · **카탈로그 diff**(로케일별 set/delete + 예시 20건) · 커
 네이티브 산출물은 `convert`가 낸다. 여기서 다시 구현하면 미리보기와 실제 빌드가 갈라지는 순간
 도구가 거짓말을 시작한다(HTTP 표면의 `resolve_preview`와 같은 규칙).
 
+### `lockfile_status` — 지금 무엇이 구워져 있고, 앱이 그걸 집는가 (쓰기 없음)
+
+`bake_preview`가 **다음** 빌드를 보는 도구라면 이건 **지금** 상태를 보는 도구다. lockfile은 빌드가
+의도한 릴리스·base의 유일한 기록이고(런타임은 안 읽는다 — 스냅샷 자신이 들고 있다), "의도한 것"과
+"디스크에 있는 것"이 어긋났는지 볼 자리도 여기뿐이다. 인자는 `outDir` 하나.
+
+**핵심은 SDK가 어느 파일을 집느냐다.** `--stable-name` 없이 구우면 `snapshot-<base>.json`이 빌드마다
+**쌓이고**, 그때 로더는:
+
+- Android `BakedBundle.locate` — `minByOrNull { it.name }`, **파일명 최소값**이지 최신이 아니다.
+- iOS `Snapshot.bakedURL` — `bundle.urls(...)`의 `first(where:)`라 **순서가 보장되지 않는다.**
+
+둘 다 조용하다. 앱은 스테일 카탈로그를 들고 멀쩡히 돌고 개발자는 왜 새 번역이 안 보이는지 모른다.
+"새 번역이 왜 안 보이지"를 묻는 자리에 먼저 쓴다.
+
+진단 코드 9종은 코드의 조기 반환 지점과 1:1이다 — `ok` · `lockfile_missing` ·
+`lockfile_unreadable` · `bundle_missing` · `base_mismatch` · `base_integrity_failed` ·
+`stale_candidates` · **`loads_stale_bundle`**(lockfile이 가리키는 번들이 옆에 있는데 로더가 안 집는
+경우) · `ios_load_order_undefined`. 각 코드마다 그 원인을 실제로 만들어 대조하는 테스트가 있다.
+
 ## 알아 둘 것 셋
 
-**① 경로 규약은 bake CLI를 그대로 따른다.** 어긋나면 "변경 없음"이라 답해 놓고 빌드가 다른 파일을
-덮어쓴다.
+**① 경로 규약은 bake CLI·SDK 로더를 그대로 따른다.** 어긋나면 "변경 없음"이라 답해 놓고 빌드가
+다른 파일을 덮어쓰거나, "앱이 이걸 집는다"고 답한 파일과 앱이 실제로 집는 파일이 달라진다 —
+진단 도구가 낼 수 있는 최악의 오답이다.
 
 ```
 <outDir>/rynl10n/snapshot-<base>.json            (--stable-name이면 snapshot.json)
@@ -83,13 +104,15 @@ SDK와 같은 문제를 풀어야 한다 — 이 서버는 `../src/builder`를 �
 ## 테스트
 
 ```bash
-npm run test:mcp-stdio       # 27개
+npm run test:mcp-stdio       # 37개
 npm run typecheck:mcp-stdio
 ```
 
 - `bake-preview.test.ts` — 경로 규약이 CLI와 같은가 · **아무것도 쓰지 않는가**(미리보기 전후
   바이트 대조) · 판정을 코어에서 가져오는가 · `.xcstrings` 의미 비교 · 첫 빌드에서 카탈로그
   diff를 부풀리지 않는가.
+- `lockfile-status.test.ts` — 진단 코드마다 그 원인을 실제로 만들어 대조 · **탐색 순서가 SDK
+  로더와 같은가**(stable-name 우선 · 내용해시는 파일명 최소값 · `rynl10n/` 다음 루트).
 - `protocol.test.ts` — 프레이밍 + **관리 플레인과의 대조**.
 - `stdio.test.ts` — 실제 프로세스 왕복. 개행 프레이밍 · stdout 오염 없음 · 청크가 줄 중간에서
   끊겨도 살아남는가 · 깨진 JSON 뒤에도 서버가 사는가.

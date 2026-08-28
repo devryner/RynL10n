@@ -54,9 +54,13 @@ test("ping은 빈 결과", () => {
 
 test("tools/list: 이름·설명·입력 스키마를 낸다(인증이 없으므로 필터도 없다)", () => {
   const tools = (call({ jsonrpc: "2.0", id: 4, method: "tools/list" })?.result as any).tools;
-  assert.deepEqual(tools.map((t: any) => t.name), ["bake_preview"]);
-  assert.equal(typeof tools[0].inputSchema, "object");
+  assert.deepEqual(tools.map((t: any) => t.name), ["bake_preview", "lockfile_status"]);
+  for (const t of tools) {
+    assert.equal(typeof t.inputSchema, "object", `${t.name}: 입력 스키마가 있어야 한다`);
+    assert.ok(Array.isArray(t.inputSchema.required), `${t.name}: required가 있어야 한다`);
+  }
   assert.deepEqual(tools[0].inputSchema.required, ["snapshot", "outDir"]);
+  assert.deepEqual(tools[1].inputSchema.required, ["outDir"]);
 });
 
 test("알 수 없는 도구·메서드는 JSON-RPC 에러 — 관리 플레인과 같은 코드", () => {
