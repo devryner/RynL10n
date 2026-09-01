@@ -1248,11 +1248,23 @@ const SNAPSHOT = {
   schemaVersion: 1, release: "R1", defaultLocale: "en",
   locales: { en: { "cart.title": "Cart" }, ko: { "cart.title": "장바구니" } },
 };
+const RELEASE_CHANGES = {
+  releaseId: "R1",
+  baseline: { releaseId: "R1", hash: "cccc3333dddd4444", entries: 3 },
+  target: { releaseId: "R1", hash: "eeee5555ffff6666", entries: 3 },
+  summary: { added: 1, changed: 1, deleted: 1, total: 3 },
+  changes: [
+    { type: "added", key: "cart.empty", locale: "en", after: "Your cart is empty" },
+    { type: "changed", key: "cart.title", locale: "ko", before: "카트", after: "장바구니" },
+    { type: "deleted", key: "checkout.old", locale: "en", before: "Old checkout" },
+  ],
+};
 
 function catalogTable(me: Me = ME_ADMIN) {
   const table = projectTable(me);
   table["GET /projects/shop/releases/R1/keys"] = { keys: ["cart.title", "cart.empty"] };
   table["GET /projects/shop/releases/R1/snapshot"] = SNAPSHOT;
+  table["GET /projects/shop/releases/R1/changes"] = RELEASE_CHANGES;
   return table;
 }
 
@@ -1266,18 +1278,23 @@ async function openCatalog(table = catalogTable()) {
   await settle();
   btn(byId.app, "릴리스")!.fire("click");
   await settle();
-  btn(byId.app, "카탈로그")!.fire("click");
+  btn(byId.app, "변경사항")!.fire("click");
   await settle();
   return { byId, calls };
 }
 
-test("카탈로그 패널은 키 목록과 스냅샷을 한 번에 읽어 보여준다", async () => {
+test("출시 전 변경사항은 마지막 게시본과 현재 카탈로그를 한 번에 보여준다", async () => {
   const { byId, calls } = await openCatalog();
 
   assert.ok(calls.some((c) => c.path === "/projects/shop/releases/R1/keys"));
   assert.ok(calls.some((c) => c.path === "/projects/shop/releases/R1/snapshot"));
+  assert.ok(calls.some((c) => c.path === "/projects/shop/releases/R1/changes"));
 
-  assert.match(byId.app!.textContent, /R1 카탈로그/);
+  assert.match(byId.app!.textContent, /R1 변경사항/);
+  assert.match(byId.app!.textContent, /추가1수정1삭제1전체 변경3/);
+  assert.match(byId.app!.textContent, /cccc3333dddd4444→R1 · eeee5555ffff6666/, "비교 기준과 게시 후 해시가 이어져야 한다");
+  assert.match(byId.app!.textContent, /카트→장바구니/, "이전 값과 게시 후 값을 같은 행에서 읽을 수 있어야 한다");
+  assert.match(byId.app!.textContent, /Old checkout/, "삭제되는 값도 게시 전에 확인할 수 있어야 한다");
   assert.match(byId.app!.textContent, /cart\.empty/, "카탈로그의 키는 번역 그리드와 별개로 릴리스 소속을 보여준다");
   assert.match(byId.app!.textContent, /키 2개 · 로케일 2개 · 기본 en/);
   assert.match(byId.app!.textContent, /게시된 base aaaa1111bbbb2222/, "게시본과 지금 카탈로그를 나란히 볼 수 있어야 한다");
@@ -1286,6 +1303,24 @@ test("카탈로그 패널은 키 목록과 스냅샷을 한 번에 읽어 보여
   assert.ok(pre, "스냅샷은 JSON 그대로 보여준다 — 빌드 플러그인이 받는 것과 같은 바이트다");
   assert.match(pre.textContent, /"schemaVersion": 1/);
   assert.match(pre.textContent, /장바구니/);
+});
+
+test("변경 유형과 키·로케일로 출시 전 목록을 좁힐 수 있다", async () => {
+  const { byId } = await openCatalog();
+  const filter = tags(byId.app, "select").find((n) => n.attrs["aria-label"] === "변경 유형 필터")!;
+  const search = tags(byId.app, "input").find((n) => n.attrs["aria-label"] === "변경사항 검색")!;
+
+  filter.value = "deleted";
+  filter.fire("change");
+  let rows = tags(byId.app, "tr").filter((n) => n.className.startsWith("diff-row"));
+  assert.deepEqual(rows.map((n) => n.textContent), ["− 삭제checkout.oldenOld checkout→—"]);
+
+  filter.value = "";
+  filter.fire("change");
+  search.value = "CART.TITLE";
+  search.fire("input");
+  rows = tags(byId.app, "tr").filter((n) => n.className.startsWith("diff-row"));
+  assert.deepEqual(rows.map((n) => n.textContent), ["↗ 수정cart.titleko카트→장바구니"]);
 });
 
 test("닫으면 릴리스 탭으로 돌아가고 다시 읽지 않는다", async () => {
@@ -1319,12 +1354,13 @@ test("카탈로그 읽기는 viewer에게도 열려 있다 (read 권한 축)", a
   btn(byId.app, "릴리스")!.fire("click");
   await settle();
 
-  assert.ok(btn(byId.app, "카탈로그"), "쓰기 게이트 앞에 있어야 viewer도 닿는다");
+  assert.ok(btn(byId.app, "변경사항"), "쓰기 게이트 앞에 있어야 viewer도 닿는다");
   assert.match(byId.app!.textContent, /읽기 전용/, "쓰기 작업이 없다는 표시는 그대로 남는다");
 
-  btn(byId.app, "카탈로그")!.fire("click");
+  btn(byId.app, "변경사항")!.fire("click");
   await settle();
-  assert.match(byId.app!.textContent, /R1 카탈로그/);
+  assert.match(byId.app!.textContent, /R1 변경사항/);
+  assert.equal(btn(byId.app, "이 변경사항 게시"), undefined, "viewer에게 게시 동작은 열지 않는다");
 });
 
 /**
@@ -1372,4 +1408,3 @@ test("MCP가 꺼진 배포에서는 메뉴가 없다", async () => {
 
   assert.ok(!tags(byId.app, "button").some((b) => b.textContent === "MCP"), "죽은 메뉴를 그리면 안 된다");
 });
-

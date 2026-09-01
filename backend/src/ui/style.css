@@ -360,6 +360,79 @@ pre.json {
   border-radius: 12px; padding: 10px 12px;
 }
 
+/* ── 출시 전 변경사항 ─────────────────────────────────────────────────────── */
+/* manifest의 포인터 이동을 그대로 읽는 '출시 장부'다. 장식 대신 이전→게시 후의 방향과
+   delta 연산(+ / ↗ / −)이 구조를 만든다. */
+.release-preview { width: 100%; }
+.release-diff-panel { padding: 0; overflow: hidden; border-color: var(--accent); }
+.release-diff-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+  padding: 20px 22px 17px; background: var(--accent-tint); border-bottom: 1px solid var(--border);
+}
+.release-diff-head h2 { margin: 2px 0 3px; font-size: 19px; letter-spacing: -0.035em; }
+.release-diff-head p { margin: 0; }
+.release-diff-eyebrow {
+  color: var(--accent-ink); letter-spacing: 0.11em;
+  font: 800 9.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.release-route {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px;
+  align-items: center; max-width: 620px; padding: 9px 12px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 11px;
+}
+.release-route span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.release-route span:last-child { color: var(--accent-ink); font-weight: 700; }
+.release-route b { color: var(--accent-ink); }
+
+.release-diff-stats {
+  display: grid; grid-template-columns: repeat(3, minmax(92px, 1fr)) minmax(120px, 1.2fr);
+  border-bottom: 1px solid var(--border);
+}
+.diff-stat {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 12px 16px; border-right: 1px solid var(--line-faint);
+}
+.diff-stat:last-child { border-right: none; }
+.diff-stat span { color: var(--muted); font-size: 10.5px; font-weight: 700; }
+.diff-stat b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.diff-stat.added b { color: var(--ok); }
+.diff-stat.changed b { color: var(--warn); }
+.diff-stat.deleted b { color: var(--danger); }
+
+.release-diff-tools { padding: 12px 16px; margin: 0; border-bottom: 1px solid var(--line-faint); }
+.release-diff-tools input { flex: 1; min-width: 220px; }
+.release-diff-table { max-height: 52vh; overflow: auto; }
+.release-diff-table th { top: 0; z-index: 1; }
+.release-diff-table th:nth-child(5), .release-diff-table td:nth-child(5) { width: 28px; padding-inline: 3px; }
+.diff-row.added td { background: var(--ok-tint); }
+.diff-row.changed td { background: var(--warn-tint); }
+.diff-row.deleted td { background: var(--danger-tint); }
+.diff-row:hover td { filter: brightness(0.985); }
+.change-mark {
+  display: inline-block; min-width: 48px; border-radius: 7px; padding: 3px 7px;
+  font-size: 10px; font-weight: 800; text-align: center; white-space: nowrap;
+}
+.change-mark.added { color: var(--ok); background: var(--ok-tint); }
+.change-mark.changed { color: var(--warn); background: var(--warn-tint); }
+.change-mark.deleted { color: var(--danger); background: var(--danger-tint); }
+.diff-value {
+  min-width: 220px; max-width: 520px; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.diff-value.before { color: var(--muted); }
+.diff-value.after { color: var(--text); font-weight: 600; }
+.diff-row.deleted .diff-value.before { color: var(--danger); text-decoration: line-through; text-decoration-thickness: 1px; }
+.diff-arrow { color: var(--muted-2); text-align: center; }
+.release-diff-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 34px 20px; text-align: center; color: var(--muted);
+}
+.release-diff-empty b { color: var(--ok); font-size: 13px; }
+.snapshot-details { margin-top: 12px; }
+.snapshot-details summary { color: var(--accent-ink); font-size: 11.5px; font-weight: 700; cursor: pointer; }
+.snapshot-details[open] summary { margin-bottom: 8px; }
+.snapshot-details p { margin: 0 0 8px; }
+
 /* ── 관측성 ───────────────────────────────────────────────────────────────── */
 /* 머리글은 액센트 tint 위에 얹는다 — 전에 쓰던 남색은 팔레트 밖 하드코딩이라 테마를 따라가지
    못했다(다크에서 홀로 밝은 판이 됐다). */
@@ -451,4 +524,9 @@ pre.json {
   main { padding: 14px; }
   .telemetry-intro { flex-direction: column; }
   .signal-grid { grid-template-columns: 1fr; }
+  .release-diff-head { flex-direction: column; gap: 12px; padding: 17px 16px; }
+  .release-route { width: 100%; max-width: none; }
+  .release-diff-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .diff-stat:nth-child(2) { border-right: none; }
+  .diff-stat:nth-child(-n+2) { border-bottom: 1px solid var(--line-faint); }
 }

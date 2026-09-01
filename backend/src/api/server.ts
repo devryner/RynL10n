@@ -8,7 +8,7 @@ import { randomUUID, randomBytes } from "node:crypto";
 import type { Repo } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
 import { publishRelease, rollbackRelease, RangeConflictError, NotFoundError } from "../pipeline/publish.ts";
-import { buildSnapshot } from "../../../src/builder/builder.ts";
+import { buildDelta, buildSnapshot } from "../../../src/builder/builder.ts";
 import { authenticate, authorize, AuthError, tokenHash, ROLES, SURFACES, type Capability, type PrincipalResolver, type Principal, type Role, type Surface } from "../auth/rbac.ts";
 import { signature } from "../../../src/core/placeholder.ts";
 import { parseRange } from "../../../src/core/semver.ts";
@@ -119,6 +119,91 @@ function requireProjectScope(v: unknown): "*" | string[] {
     return v.map((x: string) => x.trim());
   }
   throw new BadRequestError("projects는 '*' 또는 비지 않은 프로젝트 id 배열");
+}
+
+/** 스냅샷 안의 번역 엔트리 수. 키 하나가 로케일 둘에 있으면 배포 변경도 둘이므로 2로 센다. */
+function snapshotEntryCount(locales: Record<string, Record<string, TranslationValue>>): number {
+  return Object.values(locales).reduce((sum, catalog) => sum + Object.keys(catalog).length, 0);
+}
+
+type ReleaseChangeType = "added" | "changed" | "deleted";
+interface ReleaseChange {
+  readonly type: ReleaseChangeType;
+  readonly key: string;
+  readonly locale: string;
+  readonly before?: TranslationValue;
+  readonly after?: TranslationValue;
+}
+
+/**
+ * publish 직전 현재 DB 카탈로그와 현장에 걸린 마지막 불변 스냅샷을 비교한다.
+ * 판정은 publish가 쓰는 `buildSnapshot`·`buildDelta`를 그대로 재사용한다 — UI용 diff를 따로
+ * 구현하면 미리보기와 실제 delta가 갈리는 순간이 생긴다.
+ *
+ * 처음 게시하는 신규 릴리스는 같은 매칭 전략의 직전 릴리스(생성 seq 기준)를 기준으로 삼는다.
+ * 같은 릴리스를 재게시할 때는 rollback까지 반영된 현재 overlay가 기준이다.
+ */
+function releaseChanges(repo: Repo, store: ArtifactStore, projectId: string, releaseId: string): unknown {
+  const project = repo.getProject(projectId);
+  if (!project) throw new NotFoundError(`project ${projectId}`);
+  const release = repo.getRelease(projectId, releaseId);
+  if (!release) throw new NotFoundError(`release ${releaseId}`);
+
+  const target = buildSnapshot({
+    release: releaseId,
+    defaultLocale: project.defaultLocale,
+    locales: repo.catalogForRelease(projectId, releaseId),
+  });
+  const previous = release.overlay
+    ? release
+    : repo.listReleases(projectId)
+      .filter((candidate) =>
+        candidate.seq < release.seq && candidate.overlay &&
+        candidate.versionMatch.strategy === release.versionMatch.strategy)
+      .at(-1);
+  const baseline = previous?.overlay
+    ? store.readSnapshot(projectId, previous.id, previous.overlay)
+    : undefined;
+  if (previous?.overlay && !baseline) {
+    throw new NotFoundError(`snapshot ${previous.id}/${previous.overlay}`);
+  }
+
+  // 첫 릴리스도 현재 엔트리를 모두 "추가"로 보여 준다. 이 임시 스냅샷은 비교 입력일 뿐 저장되지 않는다.
+  const empty = {
+    schemaVersion: 1 as const,
+    release: releaseId,
+    base: "unpublished",
+    defaultLocale: project.defaultLocale,
+    locales: {},
+  };
+  const delta = buildDelta(baseline ?? empty, target);
+  const changes: ReleaseChange[] = delta.ops.map((op) => {
+    const before = baseline?.locales[op.locale]?.[op.key];
+    if (op.op === "delete") {
+      return { type: "deleted", key: op.key, locale: op.locale, before: before! };
+    }
+    return {
+      type: before === undefined ? "added" : "changed",
+      key: op.key,
+      locale: op.locale,
+      ...(before === undefined ? {} : { before }),
+      after: op.value,
+    };
+  });
+  const summary: Record<ReleaseChangeType, number> & { total: number } = {
+    added: 0, changed: 0, deleted: 0, total: changes.length,
+  };
+  for (const change of changes) summary[change.type] += 1;
+
+  return {
+    releaseId,
+    baseline: baseline && previous
+      ? { releaseId: previous.id, hash: baseline.base, entries: snapshotEntryCount(baseline.locales) }
+      : null,
+    target: { releaseId, hash: target.base, entries: snapshotEntryCount(target.locales) },
+    summary,
+    changes,
+  };
 }
 
 /** 사용자 관리는 인스턴스 수준이라 audit_log의 project_id 자리에 이 마커를 쓴다. */
@@ -432,6 +517,11 @@ const routes: Route[] = [
     if (!repo.getRelease(params.p!, params.r!)) throw new NotFoundError(`release ${params.r}`);
     const catalog = repo.catalogForRelease(params.p!, params.r!);
     return { status: 200, body: buildSnapshot({ release: params.r!, defaultLocale: project.defaultLocale, locales: catalog }) };
+  }),
+
+  // 출시 전 변경사항 — 현재 DB 카탈로그와 마지막 게시본(신규 릴리스는 직전 릴리스)을 비교. Viewer+.
+  route("GET", "/projects/:p/releases/:r/changes", "read", ({ params, repo, store }) => {
+    return { status: 200, body: releaseChanges(repo, store, params.p!, params.r!) };
   }),
 
   // 릴리스 키들의 번역자용 설명(5.1) — 빌드 플러그인이 네이티브 주석으로 bake할 때 fetch.

@@ -306,6 +306,50 @@ test("GET /projects/{p}/manifests: 게시 이력 → 롤백 대상(overlay) 추�
   assert.ok(candidates.includes(baseHash), "이전 overlay가 롤백 후보로 남아야 한다");
 });
 
+test("GET /projects/{p}/releases/{r}/changes: 마지막 게시본과 publish 직전 카탈로그를 실제 delta 규칙으로 비교", async () => {
+  const unchanged = await api("GET", "/projects/shop/releases/RD1/changes", { token: TOK.view });
+  assert.equal(unchanged.status, 200);
+  assert.equal(unchanged.body.baseline.releaseId, "RD1");
+  assert.equal(unchanged.body.baseline.hash, unchanged.body.target.hash);
+  assert.deepEqual(unchanged.body.summary, { added: 0, changed: 0, deleted: 0, total: 0 });
+
+  // 게시하지 않은 DB 편집만 미리보기에 잡혀야 한다. 현재 overlay 포인터는 아직 이전 값을 가리킨다.
+  await api("PUT", "/projects/shop/translations/cart.title/ko", {
+    token: TOK.trans, body: { value: "새 장바구니", state: "reviewed" },
+  });
+  const changed = await api("GET", "/projects/shop/releases/RD1/changes", { token: TOK.view });
+  assert.equal(changed.body.baseline.releaseId, "RD1");
+  assert.equal(changed.body.summary.changed, 1);
+  assert.deepEqual(changed.body.changes[0], {
+    type: "changed", key: "cart.title", locale: "ko", before: "카트", after: "새 장바구니",
+  });
+
+  // 한 번도 게시하지 않은 다음 릴리스는 같은 매칭 전략의 직전 릴리스를 자동 기준으로 삼는다.
+  await api("POST", "/projects/shop/releases", {
+    token: TOK.maint,
+    body: { id: "RD2", name: "v2", versionMatch: { strategy: "semver-range", value: ">=2.0.0 <3.0.0" }, keys: ["cart.title", "cart.items"] },
+  });
+  const next = await api("GET", "/projects/shop/releases/RD2/changes", { token: TOK.view });
+  assert.equal(next.body.baseline.releaseId, "RD1");
+  assert.equal(next.body.target.releaseId, "RD2");
+  assert.ok(next.body.summary.total > 0, "직전 버전과 달라진 번역을 보여줘야 한다");
+
+  // 프로젝트의 첫 릴리스는 비교 기준이 없음을 밝히고 현재 번역을 모두 '추가'로 분류한다.
+  await api("PUT", "/projects/secret/keys/hello", { token: TOK.admin });
+  await api("PUT", "/projects/secret/translations/hello/en", { token: TOK.admin, body: { value: "Hello" } });
+  await api("POST", "/projects/secret/releases", {
+    token: TOK.admin,
+    body: { id: "FIRST", name: "first", versionMatch: { strategy: "exact-label", value: "first" }, keys: ["hello"] },
+  });
+  const first = await api("GET", "/projects/secret/releases/FIRST/changes", { token: TOK.admin });
+  assert.equal(first.body.baseline, null);
+  assert.deepEqual(first.body.summary, { added: 1, changed: 0, deleted: 0, total: 1 });
+  assert.deepEqual(first.body.changes[0], { type: "added", key: "hello", locale: "en", after: "Hello" });
+
+  assert.equal((await api("GET", "/projects/shop/releases/RD1/changes")).status, 401);
+  assert.equal((await api("GET", "/projects/shop/releases/NOPE/changes", { token: TOK.view })).status, 404);
+});
+
 test("설명 사이드카: 빌드 플러그인이 네이티브 주석용으로 fetch (5.1 / 6.3)", async () => {
   const r = await api("GET", "/projects/shop/releases/RD1/descriptions", { token: TOK.view });
   assert.equal(r.status, 200);

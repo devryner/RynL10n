@@ -1239,18 +1239,9 @@ function tabReleases() {
 }
 
 function releaseActions(r, manage) {
-  // 카탈로그 읽기는 `read` 권한이면 된다 — 쓰기 게이트 앞에 둬야 viewer도 닿는다.
-  const inspect = el("button", { class: "tiny", text: "카탈로그", onClick: () => openReleaseCatalog(r) });
+  // 변경사항 읽기는 `read` 권한이면 된다 — 쓰기 게이트 앞에 둬야 viewer도 닿는다.
+  const inspect = el("button", { class: "tiny", text: "변경사항", onClick: () => openReleaseCatalog(r) });
   if (!manage) return el("div", { class: "row" }, inspect, el("span", { class: "muted small", text: "읽기 전용" }));
-
-  const publish = async () => {
-    const res = await run(null, () => api("POST", `/projects/${enc(state.projectId)}/releases/${enc(r.id)}/publish`));
-    if (!res) return;
-    const job = await run(null, () => api("GET", `/projects/${enc(state.projectId)}/jobs/${enc(res.jobId)}`));
-    if (job?.state === "done") toast("ok", `${r.id} 게시 완료`, `base ${job.result?.base} · overlay ${job.result?.overlay}`);
-    else toast("error", `${r.id} 게시 실패`, job?.result?.error ?? "잡 상태를 확인하세요");
-    await refresh();
-  };
 
   const rollback = async () => {
     const targets = rollbackTargets(r.id);
@@ -1294,7 +1285,7 @@ function releaseActions(r, manage) {
   };
 
   return el("div", { class: "row" },
-    el("button", { class: "tiny primary", text: "publish", onClick: publish }),
+    el("button", { class: "tiny primary", text: "publish", onClick: () => publishReleaseFromUi(r) }),
     el("button", { class: "tiny", text: "키 추가", onClick: addKeys }),
     inspect,
     r.base ? el("button", { class: "tiny", text: "롤백", onClick: rollback }) : null,
@@ -1302,39 +1293,130 @@ function releaseActions(r, manage) {
   );
 }
 
+async function publishReleaseFromUi(r) {
+  const res = await run(null, () => api("POST", `/projects/${enc(state.projectId)}/releases/${enc(r.id)}/publish`));
+  if (!res) return;
+  const job = await run(null, () => api("GET", `/projects/${enc(state.projectId)}/jobs/${enc(res.jobId)}`));
+  if (job?.state === "done") toast("ok", `${r.id} 게시 완료`, `base ${job.result?.base} · overlay ${job.result?.overlay}`);
+  else toast("error", `${r.id} 게시 실패`, job?.result?.error ?? "잡 상태를 확인하세요");
+  await refresh();
+}
+
 /**
- * 릴리스 카탈로그·스냅샷 읽기(7.1). **배포 탭이 보여주는 것과 다른 것을 본다**: 저기는 이미 게시된
+ * 출시 전 변경사항 + 릴리스 카탈로그·스냅샷 읽기(7.1). **배포 탭이 보여주는 것과 다른 것을 본다**:
+ * 저기는 이미 게시된
  * 불변 산출물이고, 여기는 DB에서 지금 다시 빌드한 카탈로그다(11.1 결정성 — 같은 입력이면 같은 바이트).
- * 그래서 publish 전 draft도, 게시 뒤 키가 더 붙은 릴리스도 이 화면에서만 확인할 수 있고,
- * 둘을 나란히 보면 "다음 publish에 무엇이 바뀌는지"가 드러난다.
+ * 변경 판정은 서버가 실제 publish와 같은 buildDelta로 계산한 결과라 "다음 publish에 무엇이 바뀌는지"와
+ * 일치한다. 신규 릴리스는 같은 매칭 전략의 직전 릴리스, 재게시는 현재 overlay가 비교 기준이다.
  * 빌드 플러그인(6.3)이 fetch 하는 스냅샷과 같은 JSON이라, 앱에 구워질 내용을 미리 보는 자리이기도 하다.
  */
 async function openReleaseCatalog(r) {
   const p = enc(state.projectId);
-  const [catalog, snapshot] = await Promise.all([
+  const [catalog, snapshot, diff] = await Promise.all([
     run(null, () => api("GET", `/projects/${p}/releases/${enc(r.id)}/keys`)),
     run(null, () => api("GET", `/projects/${p}/releases/${enc(r.id)}/snapshot`)),
+    run(null, () => api("GET", `/projects/${p}/releases/${enc(r.id)}/changes`)),
   ]);
-  if (!catalog || !snapshot) return; // 실패는 run()이 이미 토스트로 표면화했다
+  if (!catalog || !snapshot || !diff) return; // 실패는 run()이 이미 토스트로 표면화했다
 
   const keys = catalog.keys ?? [];
   const locales = Object.keys(snapshot.locales ?? {});
-  const panel = el("div", { class: "panel", style: "border-color:var(--accent)" },
-    el("h2", {}, `${r.id} 카탈로그`,
-      el("span", { class: "hint", text: "게시된 산출물이 아니라 DB에서 지금 다시 빌드한 현재 상태입니다" })),
-    el("p", { class: "small muted", text:
-      `키 ${keys.length}개 · 로케일 ${locales.length}개 · 기본 ${snapshot.defaultLocale ?? "—"}` +
-      (r.base ? ` · 게시된 base ${r.base}` : " · 미게시") }),
-    keys.length
-      ? el("div", { class: "row catalog-keys" }, ...keys.map((n) => el("span", { class: "badge mono", text: n })))
-      : el("p", { class: "muted", text: "포함된 키가 없습니다 — 이대로 publish 하면 빈 카탈로그가 나갑니다." }),
-    el("h2", { style: "margin-top:16px" }, "스냅샷",
-      el("span", { class: "hint", text: "빌드 플러그인이 fetch 해 앱에 굽는 것과 같은 JSON (6.3)" })),
-    el("pre", { class: "json", text: JSON.stringify(snapshot, null, 2) }),
+  const search = el("input", { type: "search", placeholder: "키 또는 로케일 검색", "aria-label": "변경사항 검색" });
+  const filter = el("select", { "aria-label": "변경 유형 필터" },
+    el("option", { value: "", text: `전체 ${diff.summary.total}` }),
+    el("option", { value: "added", text: `추가 ${diff.summary.added}` }),
+    el("option", { value: "changed", text: `수정 ${diff.summary.changed}` }),
+    el("option", { value: "deleted", text: `삭제 ${diff.summary.deleted}` }),
+  );
+  const changeBody = el("tbody");
+  const emptyChanges = el("div", { class: "release-diff-empty" },
+    el("b", { text: "배포 콘텐츠 변경 없음" }),
+    el("span", { text: "현재 게시본과 지금 카탈로그가 같습니다." }),
+  );
+  const valueText = (value) => value === undefined ? "—" : typeof value === "string" ? (value === "" ? '""' : value) : JSON.stringify(value);
+  const renderChanges = () => {
+    const q = search.value.trim().toLocaleLowerCase();
+    const visible = diff.changes.filter((change) =>
+      (!filter.value || change.type === filter.value) &&
+      (!q || change.key.toLocaleLowerCase().includes(q) || change.locale.toLocaleLowerCase().includes(q)));
+    changeBody.replaceChildren(...visible.map((change) => el("tr", { class: `diff-row ${change.type}` },
+      el("td", {}, el("span", { class: `change-mark ${change.type}`, text:
+        change.type === "added" ? "+ 추가" : change.type === "changed" ? "↗ 수정" : "− 삭제" })),
+      el("td", { class: "key", text: change.key }),
+      el("td", {}, el("span", { class: "badge mono", text: change.locale })),
+      el("td", { class: "diff-value before", text: valueText(change.before) }),
+      el("td", { class: "diff-arrow", text: "→" }),
+      el("td", { class: "diff-value after", text: valueText(change.after) }),
+    )));
+    emptyChanges.replaceChildren(
+      el("b", { text: diff.changes.length ? "조건에 맞는 변경사항 없음" : "배포 콘텐츠 변경 없음" }),
+      el("span", { text: diff.changes.length ? "검색어나 필터를 바꿔 보세요." : "현재 게시본과 지금 카탈로그가 같습니다." }),
+    );
+    emptyChanges.setAttribute("style", visible.length ? "display:none" : "");
+  };
+  search.addEventListener("input", renderChanges);
+  filter.addEventListener("change", renderChanges);
+
+  const baselineText = diff.baseline
+    ? `${diff.baseline.releaseId} · ${diff.baseline.hash}`
+    : "비교할 게시본 없음";
+  const comparisonHint = !diff.baseline
+    ? "프로젝트의 첫 게시입니다 — 현재 번역을 모두 추가로 표시합니다"
+    : diff.baseline.releaseId === r.id
+      ? "현재 배포 중인 이 릴리스와 비교합니다"
+      : `같은 매칭 전략의 직전 릴리스 ${diff.baseline.releaseId}와 비교합니다`;
+  const panel = el("div", { class: "release-preview" },
+    el("section", { class: "panel release-diff-panel" },
+      el("div", { class: "release-diff-head" },
+        el("div", {},
+          el("div", { class: "release-diff-eyebrow", text: "출시 전 점검" }),
+          el("h2", { text: `${r.id} 변경사항` }),
+          el("p", { class: "small muted", text: comparisonHint }),
+        ),
+        el("div", { class: "release-route mono small" },
+          el("span", { text: baselineText }), el("b", { text: "→" }),
+          el("span", { text: `${r.id} · ${diff.target.hash}` }),
+        ),
+      ),
+      el("div", { class: "release-diff-stats" },
+        el("div", { class: "diff-stat added" }, el("span", { text: "추가" }), el("b", { text: diff.summary.added })),
+        el("div", { class: "diff-stat changed" }, el("span", { text: "수정" }), el("b", { text: diff.summary.changed })),
+        el("div", { class: "diff-stat deleted" }, el("span", { text: "삭제" }), el("b", { text: diff.summary.deleted })),
+        el("div", { class: "diff-stat total" }, el("span", { text: "전체 변경" }), el("b", { text: diff.summary.total })),
+      ),
+      el("div", { class: "row filters release-diff-tools" }, search, filter),
+      el("div", { class: "tablewrap release-diff-table" },
+        el("table", {},
+          el("thead", {}, el("tr", {},
+            el("th", { text: "구분" }), el("th", { text: "키" }), el("th", { text: "로케일" }),
+            el("th", { text: "이전" }), el("th", { "aria-label": "변경 방향" }), el("th", { text: "게시 후" }),
+          )),
+          changeBody,
+        ),
+        emptyChanges,
+      ),
+    ),
+    el("section", { class: "panel" },
+      el("h2", {}, "현재 카탈로그",
+        el("span", { class: "hint", text: "게시된 산출물이 아니라 DB에서 지금 다시 빌드한 상태입니다" })),
+      el("p", { class: "small muted", text:
+        `키 ${keys.length}개 · 로케일 ${locales.length}개 · 기본 ${snapshot.defaultLocale ?? "—"}` +
+        (r.base ? ` · 게시된 base ${r.base}` : " · 미게시") }),
+      keys.length
+        ? el("div", { class: "row catalog-keys" }, ...keys.map((n) => el("span", { class: "badge mono", text: n })))
+        : el("p", { class: "muted", text: "포함된 키가 없습니다 — 이대로 publish 하면 빈 카탈로그가 나갑니다." }),
+      el("details", { class: "snapshot-details" },
+        el("summary", { text: "스냅샷 JSON 보기" }),
+        el("p", { class: "small muted", text: "빌드 플러그인이 fetch 해 앱에 굽는 것과 같은 JSON (6.3)" }),
+        el("pre", { class: "json", text: JSON.stringify(snapshot, null, 2) }),
+      ),
+    ),
     el("div", { class: "row end", style: "margin-top:10px" },
+      can("manage_release") ? el("button", { class: "primary", text: "이 변경사항 게시", onClick: () => publishReleaseFromUi(r) }) : null,
       el("button", { text: "닫기", onClick: () => renderProject() })),
   );
   document.querySelector("main").replaceChildren(panel);
+  renderChanges();
   panel.scrollIntoView({ block: "center" });
 }
 
