@@ -8,7 +8,7 @@
 ```bash
 npm run backend            # 대시보드 + 관리 API :8787 · 배포 플레인 :8788 (node:sqlite 내장, 외부 의존성 0)
                            # → 브라우저로 http://localhost:8787 접속, 토큰으로 로그인
-npm run test:backend       # node --test — 파이프라인 + API 통합 + 대시보드 + 사용자 관리 (118 tests)
+npm run test:backend       # node --test — 파이프라인 + API 통합 + 대시보드 + 사용자 관리 (210 tests)
 npm run typecheck:backend  # tsc --noEmit
 docker compose up          # 단일 노드 셀프호스트 (9.1)
 ```
@@ -23,6 +23,9 @@ docker compose up          # 단일 노드 셀프호스트 (9.1)
 - 자산 경로는 **고정 허용 목록**(`src/ui/serve.ts`)이라 임의 파일 요청·경로 순회가 불가능하다.
 - 정적 자산은 인증 없이 내려가지만 **모든 데이터 접근은 Bearer 토큰**을 거친다(로그인 = `GET /me` 검증).
 - 역할별로 쓰기 UI가 잠긴다(7.3의 UI 미러). 최종 판정은 언제나 서버.
+- 릴리스의 **변경사항**에서 publish 전에 마지막 게시본(신규 릴리스는 같은 매칭 전략의 직전 릴리스)과
+  현재 DB 카탈로그를 비교한다. 추가·수정·삭제 합계와 키·로케일별 이전/게시 후 값을 보여주며,
+  판정은 실제 publish와 같은 `buildSnapshot`·`buildDelta`를 쓴다(`GET /projects/{p}/releases/{r}/changes`).
 - publish·롤백 시 SSE(`/projects/{p}/events`)로 화면이 자동 갱신된다 — 신호만 오고 데이터는 정적 경로 유지.
 - 끄려면 `createManagementServer({ serveDashboard: false })`.
 
