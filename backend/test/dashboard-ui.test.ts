@@ -1489,6 +1489,36 @@ test("MCP 화면: 발급된 MCP 전용 토큰만 목록에 두고 그 자리에�
     "평문을 잃었을 때 할 수 있는 일은 폐기 → 재발급뿐이라 이 화면에서 끝나야 한다");
 });
 
+test("MCP 화면: 발급 뒤에도 고른 사용자·표면은 남고 라벨만 비워진다", async () => {
+  const table = projectTable();
+  table["GET /users"] = MCP_USERS;
+  table["POST /users/ci-bot/tokens"] =
+    { id: "tok-1", token: "rl10n_first", label: "one", surface: "all", maxRole: null };
+  const { byId } = await openMcpScreen(table);
+
+  const sel = (label: string) => tags(byId.app, "select").find((x) => x.attrs["aria-label"] === label)!;
+  sel("토큰 표면").value = "all";
+  sel("토큰 표면").fire("change");
+  tags(byId.app, "input").find((i) => i.attrs.placeholder === "github-actions")!.value = "one";
+  btn(byId.app, "발급")!.fire("click");
+  await settle();
+
+  // 발급하면 목록에 새 토큰이 실려야 해서 화면을 다시 그린다 — 그 재렌더가 선택을 먹으면
+  // 연달아 발급할 때 엉뚱한 사용자에게 토큰이 붙는다.
+  assert.equal(sel("토큰을 발급할 사용자").value, "ci-bot", "고른 사용자가 남는다");
+  assert.equal(sel("토큰 표면").value, "all", "고른 표면도 남는다");
+  assert.match(byId.app!.textContent, /CI 빌드 플러그인/, "안내도 그 표면의 것으로 남는다");
+  assert.equal(tags(byId.app, "input").find((i) => i.attrs.placeholder === "github-actions")!.value, "",
+    "라벨만은 비운다 — 직전 토큰의 이름이 다음 토큰에 붙으면 안 된다");
+});
+
+test("MCP 화면은 상단바 제목도 MCP다 (인스턴스 화면이 둘이라는 사실이 제목에서도 보여야 한다)", async () => {
+  const { byId } = await openMcpScreen();
+  const titles = walk(byId.app!).find((x: any) => x.className === "titles")!;
+  assert.match(titles.textContent, /MCP/);
+  assert.doesNotMatch(titles.textContent, /토큰 스코프에 포함된 프로젝트/, "목록 화면의 부제가 남으면 안 된다");
+});
+
 test("MCP 화면: admin이 아니면 발급 폼도 GET /users 도 없다", async () => {
   const me = { ...ME_ADMIN, actor: "m", role: "maintainer" };
   const { byId, calls } = await openMcpScreen({ ...projectTable(me), "GET /me": me });

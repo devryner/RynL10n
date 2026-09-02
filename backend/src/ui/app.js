@@ -120,6 +120,7 @@ const state = {
   issuedToken: null,     // {userId, token} — 방금 발급한 토큰 평문. **이 화면이 유일한 노출**이다
   instanceView: "projects", // 프로젝트에 들어가 있지 않을 때 어느 인스턴스 화면인가: projects | mcp
   mcpTools: [],          // [{name,title,description,capability}] — 서버가 준 것(하드코딩 금지)
+  mcpForm: { userId: null, surface: "mcp", maxRole: "" }, // MCP 화면 발급 폼 — 재렌더를 넘어 남는 선택
 };
 
 const ROLE_CAPS = {
@@ -311,7 +312,8 @@ function sidebar() {
 
 function topbar() {
   const tab = TABS.find(([id]) => id === state.tab);
-  const title = state.project ? (tab ? tab[1] : state.project.name) : "프로젝트";
+  const mcp = !state.project && state.instanceView === "mcp";
+  const title = state.project ? (tab ? tab[1] : state.project.name) : mcp ? "MCP" : "프로젝트";
 
   return el("header", { class: "topbar" },
     el("div", { class: "titles" },
@@ -321,7 +323,7 @@ function topbar() {
             el("button", { class: "link", text: "프로젝트", onClick: () => openProjects() }),
             el("span", { text: "/" }),
             el("b", { text: state.project.name }))
-        : el("div", { class: "crumbs", text: "토큰 스코프에 포함된 프로젝트" })),
+        : el("div", { class: "crumbs", text: mcp ? "에이전트가 이 인스턴스에 붙는 자리" : "토큰 스코프에 포함된 프로젝트" })),
     el("span", { class: "spacer" }),
     el("div", { class: "who" },
       el("span", { class: "avatar", text: initials(state.me.actor) }),
@@ -757,27 +759,38 @@ function mcpTokenPanel() {
     );
   }
 
+  // 발급하면 목록에 새 토큰이 실려야 하므로 화면을 다시 그린다 — 그때 고른 값이 처음으로 돌아가면
+  // "방금 ci-bot으로 발급했는데 폼은 다른 사람을 가리킨다"가 된다. 선택은 state에 남긴다.
+  const form = state.mcpForm;
   const userSel = el("select", { "aria-label": "토큰을 발급할 사용자" },
     ...users.map((u) => el("option", { value: u.id, text: `${u.id} (${u.role})` })));
-  userSel.value = users[0].id; // 셀렉트의 기본값은 속성이 아니라 프로퍼티로 확정한다
+  // 고른 사용자가 사라졌을(삭제·비활성) 수 있다 — 그때만 첫 사용자로 접는다.
+  userSel.value = users.some((u) => u.id === form.userId) ? form.userId : users[0].id;
+  userSel.addEventListener("change", () => { form.userId = userSel.value; });
 
+  // 라벨만은 비워 둔다 — 같은 라벨을 두 번 발급하는 일은 없고, 남아 있으면 직전 토큰의 이름이
+  // 다음 토큰에 그대로 붙는다.
   const labelIn = el("input", { placeholder: "github-actions", class: "grow" });
 
-  const hint = el("span", { class: "hint", text: SURFACE_HINTS.mcp });
+  const hint = el("span", { class: "hint", text: SURFACE_HINTS[form.surface] });
   const surfaceSel = el("select", { "aria-label": "토큰 표면" },
     el("option", { value: "mcp", text: "MCP 전용" }),
     el("option", { value: "all", text: "전체 API" }));
-  surfaceSel.value = "mcp"; // 이 화면의 기본값 = 최소 권한
-  surfaceSel.addEventListener("change", () => { hint.textContent = SURFACE_HINTS[surfaceSel.value]; });
+  surfaceSel.value = form.surface; // 기본값은 최소 권한 'mcp'(state 초기값)
+  surfaceSel.addEventListener("change", () => {
+    form.surface = surfaceSel.value;
+    hint.textContent = SURFACE_HINTS[surfaceSel.value];
+  });
 
   // 상한은 사용자 역할보다 위로 못 간다(서버가 판정) — 여기서는 좁히는 쪽만 제공한다.
   const ceilingSel = el("select", { "aria-label": "역할 상한" },
     el("option", { value: "", text: "역할 그대로" }),
     ...["maintainer", "translator", "viewer"].map((r) => el("option", { value: r, text: `${r}로 제한` })));
-  ceilingSel.value = "";
+  ceilingSel.value = form.maxRole;
+  ceilingSel.addEventListener("change", () => { form.maxRole = ceilingSel.value; });
 
   const issue = async () => {
-    const userId = userSel.value;
+    const userId = form.userId = userSel.value;
     const out = await run(null, () => api("POST", `/users/${enc(userId)}/tokens`, {
       label: labelIn.value.trim(), surface: surfaceSel.value, maxRole: ceilingSel.value || null,
     }));
