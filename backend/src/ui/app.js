@@ -469,22 +469,30 @@ const ROLE_HINTS = {
   admin: "어드민 — 전부 + 프로젝트·사용자 관리",
 };
 
+/**
+ * 사용자 목록을 쓰는 인스턴스 화면은 둘이다 — 프로젝트 목록의 사용자 관리, MCP 화면의 토큰 발급.
+ * 어느 쪽에서 발급·폐기했든 그 화면이 다시 그려져야 한다(다른 화면으로 튀면 작업 맥락을 잃는다).
+ */
+const rerenderInstance = () => (state.instanceView === "mcp" ? renderMcp : renderProjects)();
+
 async function reloadUsers() {
   state.users = (await api("GET", "/users")).users;
-  renderProjects();
+  rerenderInstance();
 }
 
 /** 방금 발급한 토큰 안내 — 평문은 DB에 없으므로(해시만) 이 패널을 닫으면 다시 볼 수 없다. */
 function issuedTokenNotice() {
-  const { userId, token } = state.issuedToken;
+  const { userId, token, surface } = state.issuedToken;
   const box = el("input", { value: token, readonly: true, class: "grow mono" });
   return el("div", { class: "panel", style: "border-color:var(--accent)" },
-    el("h2", {}, `${userId} 의 새 토큰`, el("span", { class: "hint", text: "지금만 볼 수 있습니다 — 복사해 전달하세요" })),
+    el("h2", {}, `${userId} 의 새 토큰`,
+      surface ? el("span", { class: "badge", text: surface === "mcp" ? "MCP 전용" : "전체 API" }) : null,
+      el("span", { class: "hint", text: "지금만 볼 수 있습니다 — 복사해 전달하세요" })),
     el("p", { class: "small muted", text: "서버에는 해시만 저장됩니다. 잃어버리면 폐기하고 다시 발급하세요." }),
     el("div", { class: "row" },
       box,
       el("button", { class: "tiny", text: "복사", onClick: () => globalThis.navigator?.clipboard?.writeText(token) }),
-      el("button", { class: "tiny", text: "닫기", onClick: () => { state.issuedToken = null; renderProjects(); } }),
+      el("button", { class: "tiny", text: "닫기", onClick: () => { state.issuedToken = null; rerenderInstance(); } }),
     ),
   );
 }
@@ -517,7 +525,7 @@ function userRow(u) {
       label: "", surface: surfaceSel.value, maxRole: ceilingSel.value || null,
     }));
     if (!out) return;
-    state.issuedToken = { userId: u.id, token: out.token };
+    state.issuedToken = { userId: u.id, token: out.token, surface: out.surface };
     await reloadUsers();
   };
 
@@ -712,14 +720,118 @@ async function openMcp() {
   closeStream();
   state.instanceView = "mcp";
   state.projectId = null; state.project = null;
+  state.issuedToken = null;   // 화면을 새로 열면 이전 평문 노출은 끝난다(openProject와 같은 규칙)
   state.mcpTools = (await api("GET", "/mcp/tools")).tools;
+  // 발급 폼이 고를 대상. 사용자 관리와 같은 admin 전용 라우트라 다른 역할은 아예 부르지 않는다.
+  if (can("admin")) state.users = (await api("GET", "/users")).users;
   renderMcp();
+}
+
+/**
+ * 표면 안내의 단일 원천(ROLE_HINTS와 같은 패턴). 고르는 자리에서 차이를 말해 준다 —
+ * **CI 빌드 플러그인은 MCP가 아니라 관리 API(스냅샷 fetch)를 부른다**. 거기에 MCP 전용 토큰을
+ * 넣으면 403이고, 그 실패는 다음 빌드 로그에서야 보인다.
+ */
+const SURFACE_HINTS = {
+  mcp: "MCP 전용 — 에이전트가 POST /mcp 로만 붙습니다. 평문이 새더라도 다른 관리 API로는 못 갑니다(403).",
+  all: "전체 API — CI 빌드 플러그인처럼 관리 API(스냅샷 fetch)를 부르는 쪽에 필요합니다. 넓은 만큼 역할 상한을 함께 거세요.",
+};
+
+/**
+ * 토큰 발급(7.3) — **여기가 그 토큰을 쓰는 화면이라서** 이 자리에 둔다. 사용자 관리(프로젝트
+ * 목록)에도 같은 경로가 있지만 그쪽은 사람 계정을 다루는 표라, "에이전트·CI를 붙인다"는 작업이
+ * 행 안의 셀렉트 두 개로 흩어져 보이지 않는다. 규칙은 여기서 다시 만들지 않는다 — 같은
+ * `POST /users/{id}/tokens` 한 라우트가 표면·상한을 검증한다.
+ */
+function mcpTokenPanel() {
+  // 비활성 사용자에게 발급해도 인증에서 막힌다 — 쓸 수 없는 토큰을 만들어 두고 CI가 401로
+  // 죽는 자리를 남기지 않는다.
+  const users = state.users.filter((u) => !u.disabled);
+  if (!users.length) {
+    return el("div", { class: "panel" },
+      el("h2", {}, "토큰 발급", el("span", { class: "hint", text: "에이전트·CI가 이 인스턴스에 붙을 자격" })),
+      el("p", { class: "muted" },
+        "발급할 수 있는 활성 사용자가 없습니다 — ",
+        el("button", { class: "link", text: "사용자 관리", onClick: () => openProjects() }),
+        " 에서 에이전트·CI용 사용자를 먼저 만드세요(최소 권한이면 viewer)."),
+    );
+  }
+
+  const userSel = el("select", { "aria-label": "토큰을 발급할 사용자" },
+    ...users.map((u) => el("option", { value: u.id, text: `${u.id} (${u.role})` })));
+  userSel.value = users[0].id; // 셀렉트의 기본값은 속성이 아니라 프로퍼티로 확정한다
+
+  const labelIn = el("input", { placeholder: "github-actions", class: "grow" });
+
+  const hint = el("span", { class: "hint", text: SURFACE_HINTS.mcp });
+  const surfaceSel = el("select", { "aria-label": "토큰 표면" },
+    el("option", { value: "mcp", text: "MCP 전용" }),
+    el("option", { value: "all", text: "전체 API" }));
+  surfaceSel.value = "mcp"; // 이 화면의 기본값 = 최소 권한
+  surfaceSel.addEventListener("change", () => { hint.textContent = SURFACE_HINTS[surfaceSel.value]; });
+
+  // 상한은 사용자 역할보다 위로 못 간다(서버가 판정) — 여기서는 좁히는 쪽만 제공한다.
+  const ceilingSel = el("select", { "aria-label": "역할 상한" },
+    el("option", { value: "", text: "역할 그대로" }),
+    ...["maintainer", "translator", "viewer"].map((r) => el("option", { value: r, text: `${r}로 제한` })));
+  ceilingSel.value = "";
+
+  const issue = async () => {
+    const userId = userSel.value;
+    const out = await run(null, () => api("POST", `/users/${enc(userId)}/tokens`, {
+      label: labelIn.value.trim(), surface: surfaceSel.value, maxRole: ceilingSel.value || null,
+    }));
+    if (!out) return;
+    state.issuedToken = { userId, token: out.token, surface: out.surface };
+    await reloadUsers(); // 아래 목록에 새 토큰이 보여야 폐기할 수 있다
+  };
+
+  // 이 인스턴스에 살아 있는 MCP 전용 토큰. 사람 계정 화면을 열지 않고도 회전(폐기 → 재발급)이
+  // 끝나야 한다 — 평문을 잃어버렸을 때 할 수 있는 일은 그것뿐이기 때문이다.
+  const tokens = state.users
+    .flatMap((u) => (u.tokens ?? []).map((t) => ({ ...t, userId: u.id })))
+    .filter((t) => t.surface === "mcp");
+
+  const revoke = (t) => async () => {
+    const ok = await run("토큰을 폐기했습니다", () =>
+      api("DELETE", `/users/${enc(t.userId)}/tokens/${enc(t.id)}`));
+    if (ok) await reloadUsers();
+  };
+
+  return el("div", { class: "panel" },
+    el("h2", {}, "토큰 발급", el("span", { class: "hint", text: "평문은 발급 직후 한 번만 보입니다" })),
+    el("div", { class: "row" },
+      el("label", { class: "field" }, "사용자", userSel),
+      el("label", { class: "field grow" }, "라벨", labelIn),
+      el("label", { class: "field" }, "표면", surfaceSel),
+      el("label", { class: "field" }, "역할 상한", ceilingSel),
+      el("button", { class: "primary", text: "발급", onClick: issue }),
+    ),
+    el("p", { class: "muted small" }, hint),
+    tokens.length
+      ? el("div", { class: "tablewrap" }, el("table", {},
+          el("thead", {}, el("tr", {},
+            el("th", { text: "사용자" }), el("th", { text: "라벨" }),
+            el("th", { text: "상한" }), el("th", { text: "" }))),
+          el("tbody", {}, ...tokens.map((t) => el("tr", {},
+            el("td", { class: "mono", text: t.userId }),
+            el("td", { class: "mono small", text: t.label || t.id.slice(0, 8) }),
+            el("td", {}, t.maxRole ? el("span", { class: "badge", text: `≤ ${t.maxRole}` }) : null),
+            el("td", {}, el("button", { class: "tiny danger", text: "폐기", onClick: revoke(t) })),
+          ))),
+        ))
+      : el("p", { class: "muted small", text: "아직 MCP 전용 토큰이 없습니다." }),
+  );
 }
 
 function renderMcp() {
   const endpoint = `${location.origin}/mcp`;
+  const admin = can("admin");
+  const issued = state.issuedToken;
+  // 방금 발급했다면 스니펫이 그대로 붙여넣을 수 있는 것이 된다 — 평문을 손으로 옮기는 단계가
+  // 사라지면 그 값이 클립보드·에디터를 떠도는 시간도 짧아진다.
   const snippet = JSON.stringify({
-    mcpServers: { rynl10n: { type: "http", url: endpoint, headers: { Authorization: "Bearer <발급한 토큰>" } } },
+    mcpServers: { rynl10n: { type: "http", url: endpoint, headers: { Authorization: `Bearer ${issued ? issued.token : "<발급한 토큰>"}` } } },
   }, null, 2);
   const origins = state.me?.mcp?.allowedOrigins ?? [];
 
@@ -737,11 +849,18 @@ function renderMcp() {
       el("p", { class: "muted small" },
         "인증은 관리 API와 같은 축입니다 — 같은 Bearer 토큰, 같은 역할·프로젝트 스코프. ",
         el("b", {}, "토큰은 'MCP 전용'으로 발급하세요"),
-        " (프로젝트 목록 → 사용자 관리). 그 평문은 에이전트 설정 파일에 놓이므로, 새더라도 이 표면 밖으로는 못 갑니다."),
+        admin ? " (아래 '토큰 발급')." : " (프로젝트 목록 → 사용자 관리).",
+        " 그 평문은 에이전트 설정 파일에 놓이므로, 새더라도 이 표면 밖으로는 못 갑니다."),
     ),
 
+    admin ? mcpTokenPanel() : null,
+    issued ? issuedTokenNotice() : null,
+
     el("div", { class: "panel" },
-      el("h2", {}, "붙이는 설정", el("span", { class: "hint", text: "클라이언트 설정 파일에 그대로" })),
+      el("h2", {}, "붙이는 설정", el("span", {
+        class: "hint",
+        text: issued ? "방금 발급한 평문이 들어 있습니다 — 지금만 볼 수 있습니다" : "클라이언트 설정 파일에 그대로",
+      })),
       el("pre", { class: "json", text: snippet }),
       el("div", { class: "row" },
         el("button", { class: "tiny", text: "복사", onClick: copy(snippet) })),

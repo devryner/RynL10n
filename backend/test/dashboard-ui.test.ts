@@ -1399,6 +1399,105 @@ test("MCP 화면: 허용 Origin이 비어 있으면 그것이 안전 기본값�
   assert.match(byId.app!.textContent, /RYNL10N_MCP_ALLOWED_ORIGINS/, "바꾸는 방법을 알려줘야 한다");
 });
 
+/**
+ * MCP 화면의 토큰 발급(7.3). 이 화면에 두는 이유는 여기가 그 토큰을 **쓰는** 자리여서다.
+ * 검증 축은 넷:
+ *  ① 폼 값이 그대로 하나뿐인 발급 라우트로 가는가(여기서 규칙을 다시 만들지 않는다)
+ *  ② 기본 표면이 최소 권한('mcp')인가
+ *  ③ 평문이 붙여넣을 설정 스니펫에 들어가는가 — 손으로 옮기는 단계가 사라져야 값이 덜 떠돈다
+ *  ④ admin이 아니면 폼도, 그 폼이 필요로 하는 GET /users 도 없는가
+ */
+const MCP_USERS = {
+  users: [
+    {
+      id: "ci-bot", name: "CI", role: "viewer", projects: ["shop"], disabled: false,
+      createdAt: "2026-09-01T00:00:00.000Z",
+      tokens: [
+        { id: "tok-mcp-0001", label: "agent", surface: "mcp", maxRole: "viewer", createdAt: "2026-09-01T00:00:00.000Z" },
+        { id: "tok-all-0002", label: "build", surface: "all", maxRole: null, createdAt: "2026-09-01T00:00:00.000Z" },
+      ],
+    },
+    { id: "old", name: "Old", role: "viewer", projects: "*", disabled: true, createdAt: "2026-09-01T00:00:00.000Z", tokens: [] },
+  ],
+};
+
+async function openMcpScreen(table = projectTable()) {
+  const { byId, store } = installDom();
+  store["rynl10n.token"] = "t";
+  const calls = installFetch(table);
+  await loadApp();
+  btn(byId.app, "MCP")!.fire("click");
+  await settle();
+  return { byId, calls };
+}
+
+test("MCP 화면: 발급 폼의 값이 그대로 POST 되고 평문이 설정 스니펫에 들어간다", async () => {
+  const table = projectTable();
+  table["GET /users"] = MCP_USERS;
+  table["POST /users/ci-bot/tokens"] =
+    { id: "tok-9999", token: "rl10n_mcp-only-once", label: "github-actions", surface: "mcp", maxRole: "viewer" };
+  const { byId, calls } = await openMcpScreen(table);
+
+  const sel = (label: string) => tags(byId.app, "select").find((x) => x.attrs["aria-label"] === label)!;
+  assert.equal(sel("토큰 표면").value, "mcp", "이 화면의 기본 표면은 최소 권한이다");
+  assert.equal(sel("토큰을 발급할 사용자").value, "ci-bot", "첫 활성 사용자가 기본값");
+  assert.equal(tags(sel("토큰을 발급할 사용자"), "option").length, 1,
+    "비활성 사용자는 고를 수 없다 — 인증에서 막히는 토큰을 만들지 않는다");
+
+  tags(byId.app, "input").find((i) => i.attrs.placeholder === "github-actions")!.value = "github-actions";
+  sel("역할 상한").value = "viewer";
+  btn(byId.app, "발급")!.fire("click");
+  await settle();
+
+  const post = calls.find((c) => c.method === "POST" && c.path === "/users/ci-bot/tokens")!;
+  assert.ok(post, "발급 요청이 나가야 한다");
+  assert.deepEqual(post.body, { label: "github-actions", surface: "mcp", maxRole: "viewer" });
+
+  const text = byId.app!.textContent;
+  assert.match(text, /지금만 볼 수 있습니다/, "평문은 1회 노출임을 말한다");
+  assert.match(text, /Bearer rl10n_mcp-only-once/, "붙이는 설정 스니펫에 그대로 들어간다");
+  assert.ok(calls.some((c) => c.method === "GET" && c.path === "/users" && calls.indexOf(c) > calls.indexOf(post)),
+    "발급 뒤 목록을 다시 읽어야 새 토큰을 폐기할 수 있다");
+});
+
+test("MCP 화면: 표면을 '전체 API'로 바꾸면 CI 빌드 플러그인 쪽 안내로 바뀐다", async () => {
+  const table = projectTable();
+  table["GET /users"] = MCP_USERS;
+  const { byId } = await openMcpScreen(table);
+
+  assert.match(byId.app!.textContent, /POST \/mcp 로만 붙습니다/, "MCP 전용 안내가 먼저 보인다");
+  const surfaceSel = tags(byId.app, "select").find((x) => x.attrs["aria-label"] === "토큰 표면")!;
+  surfaceSel.value = "all";
+  surfaceSel.fire("change");
+  assert.match(byId.app!.textContent, /CI 빌드 플러그인/, "전체 API가 필요한 이유를 말해 준다");
+});
+
+test("MCP 화면: 발급된 MCP 전용 토큰만 목록에 두고 그 자리에서 폐기한다", async () => {
+  const table = projectTable();
+  table["GET /users"] = MCP_USERS;
+  table["DELETE /users/ci-bot/tokens/tok-mcp-0001"] = { id: "tok-mcp-0001", revoked: true };
+  const { byId, calls } = await openMcpScreen(table);
+
+  const text = byId.app!.textContent;
+  assert.match(text, /agent/, "MCP 전용 토큰은 보인다");
+  assert.doesNotMatch(text, /build/, "전체 API 토큰은 이 화면의 축이 아니다");
+  assert.match(text, /≤ viewer/, "역할 상한을 배지로 드러낸다");
+
+  btn(byId.app, "폐기")!.fire("click");
+  await settle();
+  assert.ok(calls.some((c) => c.method === "DELETE" && c.path === "/users/ci-bot/tokens/tok-mcp-0001"),
+    "평문을 잃었을 때 할 수 있는 일은 폐기 → 재발급뿐이라 이 화면에서 끝나야 한다");
+});
+
+test("MCP 화면: admin이 아니면 발급 폼도 GET /users 도 없다", async () => {
+  const me = { ...ME_ADMIN, actor: "m", role: "maintainer" };
+  const { byId, calls } = await openMcpScreen({ ...projectTable(me), "GET /me": me });
+
+  assert.equal(btn(byId.app, "발급"), undefined, "쓰기 표면을 열지 않는다");
+  assert.ok(!calls.some((c) => c.path === "/users"), "admin 전용 라우트를 부르지 않는다(403 소음 방지)");
+  assert.match(byId.app!.textContent, /프로젝트 목록 → 사용자 관리/, "발급 자리는 여전히 알려준다");
+});
+
 test("MCP가 꺼진 배포에서는 메뉴가 없다", async () => {
   const { byId, store } = installDom();
   store["rynl10n.token"] = "t";
