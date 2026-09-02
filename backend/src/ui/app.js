@@ -843,8 +843,11 @@ function renderMcp() {
   const issued = state.issuedToken;
   // 방금 발급했다면 스니펫이 그대로 붙여넣을 수 있는 것이 된다 — 평문을 손으로 옮기는 단계가
   // 사라지면 그 값이 클립보드·에디터를 떠도는 시간도 짧아진다.
+  // 단 **이 표면에서 쓸 토큰일 때만** 꽂는다. 전체 API 토큰도 MCP에 붙기는 하지만, CI 시크릿에
+  // 넣으려고 뽑은 값이 에이전트 설정 스니펫에 나타나면 어디에 넣을 값인지가 흐려진다.
+  const inline = issued?.surface === "mcp" ? issued.token : null;
   const snippet = JSON.stringify({
-    mcpServers: { rynl10n: { type: "http", url: endpoint, headers: { Authorization: `Bearer ${issued ? issued.token : "<발급한 토큰>"}` } } },
+    mcpServers: { rynl10n: { type: "http", url: endpoint, headers: { Authorization: `Bearer ${inline ?? "<발급한 토큰>"}` } } },
   }, null, 2);
   const origins = state.me?.mcp?.allowedOrigins ?? [];
 
@@ -872,7 +875,9 @@ function renderMcp() {
     el("div", { class: "panel" },
       el("h2", {}, "붙이는 설정", el("span", {
         class: "hint",
-        text: issued ? "방금 발급한 평문이 들어 있습니다 — 지금만 볼 수 있습니다" : "클라이언트 설정 파일에 그대로",
+        text: inline ? "방금 발급한 평문이 들어 있습니다 — 지금만 볼 수 있습니다"
+          : issued ? "방금 발급한 것은 전체 API 토큰입니다 — 위 카드에서 복사해 CI 시크릿에 넣으세요"
+          : "클라이언트 설정 파일에 그대로",
       })),
       el("pre", { class: "json", text: snippet }),
       el("div", { class: "row" },

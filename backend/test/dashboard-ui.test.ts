@@ -1489,6 +1489,27 @@ test("MCP 화면: 발급된 MCP 전용 토큰만 목록에 두고 그 자리에�
     "평문을 잃었을 때 할 수 있는 일은 폐기 → 재발급뿐이라 이 화면에서 끝나야 한다");
 });
 
+test("MCP 화면: 전체 API 토큰은 설정 스니펫에 꽂지 않는다 (넣을 자리가 다르다)", async () => {
+  const table = projectTable();
+  table["GET /users"] = MCP_USERS;
+  table["POST /users/ci-bot/tokens"] =
+    { id: "tok-2", token: "rl10n_for-ci", label: "ci", surface: "all", maxRole: "viewer" };
+  const { byId } = await openMcpScreen(table);
+
+  const surfaceSel = tags(byId.app, "select").find((x) => x.attrs["aria-label"] === "토큰 표면")!;
+  surfaceSel.value = "all";
+  surfaceSel.fire("change");
+  btn(byId.app, "발급")!.fire("click");
+  await settle();
+
+  // 전체 API 토큰도 MCP에 붙기는 하지만, CI 시크릿에 넣으려고 뽑은 값이 에이전트 설정에
+  // 나타나면 어디에 넣을 값인지가 흐려진다. 평문 자체는 1회 노출 카드에 그대로 있다.
+  // 평문은 복사할 수 있게 입력 상자의 value로 들어간다(텍스트 노드가 아니다).
+  assert.ok(tags(byId.app, "input").some((i) => i.value === "rl10n_for-ci"), "평문은 1회 노출 카드에 보인다");
+  assert.match(byId.app!.textContent, /Bearer <발급한 토큰>/, "스니펫은 자리표시자로 남는다");
+  assert.match(byId.app!.textContent, /CI 시크릿에 넣으세요/, "어디에 넣을 값인지는 말해 준다");
+});
+
 test("MCP 화면: 발급 뒤에도 고른 사용자·표면은 남고 라벨만 비워진다", async () => {
   const table = projectTable();
   table["GET /users"] = MCP_USERS;
