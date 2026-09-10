@@ -102,7 +102,7 @@ public final class ServerPushChannel: @unchecked Sendable {
 
     /// 신호를 받을 때마다 배포 플레인에서 갱신 사이클을 한 번 돌리는 기본 배선.
     public func start(updating client: RynL10nClient, via store: RemoteDeliveryStore) {
-        start { try? await store.update(client) }
+        start { _ = try? await store.update(client) }
     }
 
     /// 구독 중단(백그라운드 전환·로그아웃). 재개는 `start`를 다시 호출하면 된다.
