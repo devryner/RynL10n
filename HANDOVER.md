@@ -6,12 +6,37 @@
 이 문서는 저장소를 처음 여는 사람(또는 나중에 돌아온 나)을 위한 전체 지도다. **설계의 단일 원천(SoT)은
 Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현·검증한 코드다. 상충 시 기획서가 우선한다.
 
+## 2026-09-10 인수인계 — 로컬 CI 전환 완료
+
+- [PR #20](https://github.com/devryner/RynL10n/pull/20) **main 머지 완료**(2026-09-10 18:20 KST).
+  구현 커밋 `ed53666`, 머지 커밋 `04f1386`.
+- `ci.yml`의 push·PR 자동 실행을 제거했다. `workflow_dispatch` 수동 실행과
+  `workflow_call`을 통한 태그 릴리스 검증은 유지한다. PR 커밋과 머지 커밋 모두
+  GitHub API 조회 시 Actions 실행 **0건**을 확인했다.
+- 로컬 `./tools/ci-local.sh`는 reference·web·ios·android·flutter **5개 컴포넌트,
+  20단계 전부 통과**(종료 코드 0, 캐시 사용 시 28초). 골든 벡터 재생성 후 diff 없음.
+  경고는 Node SQLite 실험 기능 안내뿐이었다. 당시 로컬 도구는 Node 25·Java 21·
+  Dart 3.10·Swift 6.3으로, CI 고정값(Node 24.x·Dart 3.5)과 차이가 있다.
+- 이전 세션은 PR 생성 직후 사용 한도(429)로 중단됐다. 이후 PR 머지와 Actions 확인을
+  마쳤으며, 이 기록으로 남았던 인수인계를 완료한다. 커밋·PR을 다시 만들 필요는 없다.
+
+### 집에서 이어가기
+
+1. RynL10n 저장소에서 로컬 변경사항을 먼저 확인한 뒤 `git switch main`과
+   `git pull --ff-only origin main`으로 이 문서까지 받는다. 로컬 변경사항은 덮어쓰지 않는다.
+2. `AGENTS.md`와 이 문서를 읽는다. 이번 CI 전환 작업 자체의 남은 구현은 없다.
+3. 새 코드 작업의 PR·푸시 전에는 `./tools/ci-local.sh`를 실행한다.
+   선택 실행은 `./tools/ci-local.sh reference web`처럼 컴포넌트를 지정한다.
+   집 환경의 도구·캐시가 다르므로 28초는 보장 시간이 아니다.
+4. 다음 기능은 아래 "열려 있는 항목"에서 사용자와 정한다. 이 작업은 태그 생성이나
+   SDK 게시를 수행하지 않았다.
+
 ## 현재 상태 (한눈에)
 
 - **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 + 4개 플랫폼 앱 적용 경로.**
   커밋 81개(`1c0e225`~`ccf8b8f` — 이 줄을 갱신하는 문서 커밋 자신은 세지 않으므로 항상 한 칸 뒤처진다.
-  정확한 값은 `git rev-list --count HEAD`). **전부 `origin/main` 반영 완료 · 머지 커밋 없는 선형 이력**
-  (기능 작업은 PR #1~#17 rebase 머지, 그 뒤 문서·도구·코어 커밋은 `main` 직접 푸시 — 어느 쪽이든 CI가 게이트다).
+  정확한 값은 `git rev-list --count HEAD`). 이 수치는 당시 기록이다.
+  PR #1~#17은 rebase 머지했으며, PR #20은 머지 커밋 `04f1386`으로 `main`에 반영했다.
   **2026-09-10 부터 평상시 CI 는 로컬 `tools/ci-local.sh` 다** — `ci.yml` 은 push·PR 트리거를 빼고
   `workflow_call`(태그 게시 게이트)·`workflow_dispatch` 만 남겼다. Actions 한도 절약.
 - **테스트 519개 전부 통과** — TS 참조 75 · 백엔드 208 · mcp-stdio 38 · Web 33 · iOS 50 · Android 61 · Flutter 54.
