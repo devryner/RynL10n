@@ -27,6 +27,10 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
   - `swift test` (`sdks/ios`, Swift 6) · `gradle test` (`sdks/android`, Gradle 9/JDK 21) ·
     `node --test "test/*.test.ts"` (`sdks/web`) · `dart pub get && dart test` (`sdks/flutter`, Dart 3.5+)
   - `docker compose up` — 단일 노드 셀프호스트 (관리 API :8787 + 배포 플레인 :8788)
+  - `./tools/ci-local.sh [reference|web|ios|android|flutter]` — **로컬 CI**. 2026-09-10 부터 `ci.yml` 은
+    push·PR 에서 돌지 않는다(Actions 한도 절약). **PR·푸시 전에 이것이 평상시 유일한 게이트다.**
+    `workflow_call` 은 남아 있어 태그 게시(`release.yml`) 때만 Actions 에서 전 컴포넌트가 다시 돈다.
+    로컬 도구 버전이 CI 고정값(Node 24.x·Java 21·Dart 3.5)과 다를 수 있다.
   - `npm run smoke:consumer` — **소비자 스모크**(`tools/consumer-smoke/`). 네 채널의 **게시본**을
     저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 466개는 전부 소스를
     보므로 게시본에만 있는 실패(패키징 누락·`exports` 경로·POM 스코프·태그가 가리키는 커밋)를 볼

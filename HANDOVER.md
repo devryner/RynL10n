@@ -12,6 +12,8 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
   커밋 81개(`1c0e225`~`ccf8b8f` — 이 줄을 갱신하는 문서 커밋 자신은 세지 않으므로 항상 한 칸 뒤처진다.
   정확한 값은 `git rev-list --count HEAD`). **전부 `origin/main` 반영 완료 · 머지 커밋 없는 선형 이력**
   (기능 작업은 PR #1~#17 rebase 머지, 그 뒤 문서·도구·코어 커밋은 `main` 직접 푸시 — 어느 쪽이든 CI가 게이트다).
+  **2026-09-10 부터 평상시 CI 는 로컬 `tools/ci-local.sh` 다** — `ci.yml` 은 push·PR 트리거를 빼고
+  `workflow_call`(태그 게시 게이트)·`workflow_dispatch` 만 남겼다. Actions 한도 절약.
 - **테스트 519개 전부 통과** — TS 참조 75 · 백엔드 208 · mcp-stdio 38 · Web 33 · iOS 50 · Android 61 · Flutter 54.
   (2026-08-28 **Android bake CLI에 `--descriptions`** — 변환기·골든은 이미 맞았고 CLI 배선만 빠져
   있었다. `src/`·`fixtures/`가 무변경이라 Android·mcp-stdio만 재실행.)
