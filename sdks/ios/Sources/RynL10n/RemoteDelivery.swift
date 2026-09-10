@@ -100,7 +100,7 @@ public final class RemoteDeliveryStore: DeliveryStore, @unchecked Sendable {
             }
             // 델타는 sparse라 작다. 카나리 미대상이면 refresh가 무시하므로 실패해도 그냥 진행한다.
             if let deltaPath = release.delta, release.overlay != release.base {
-                try? await fetchDelta(deltaPath)
+                _ = try? await fetchDelta(deltaPath)
             }
         }
 

@@ -44,7 +44,9 @@ func tryFetch(_ urlString: String, _ token: String?) -> String? {
     var req = URLRequest(url: url)
     if let token { req.setValue("Bearer \(token)", forHTTPHeaderField: "authorization") }
     let sem = DispatchSemaphore(value: 0)
-    var body: String?
+    // 완료 클로저 → sem.signal() → sem.wait() 순서가 happens-before 를 보장한다. 동기 CLI 라
+    // 락을 더 두지 않고 Swift 6 의 동시 변경 경고만 명시적으로 끈다.
+    nonisolated(unsafe) var body: String?
     URLSession.shared.dataTask(with: req) { data, resp, _ in
         if let http = resp as? HTTPURLResponse, http.statusCode == 200, let data { body = String(data: data, encoding: .utf8) }
         sem.signal()
