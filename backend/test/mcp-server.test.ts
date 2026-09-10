@@ -16,10 +16,12 @@ import { publishRelease } from "../src/pipeline/publish.ts";
 
 let base = "";
 let server: ReturnType<typeof createManagementServer>;
-const TOK = { view: "t-view", other: "t-other" };
+let repo: Repo;
+let promoId = 0;
+const TOK = { view: "t-view", other: "t-other", trans: "t-trans", maint: "t-maint" };
 
 before(async () => {
-  const repo = new Repo(openDatabase());
+  repo = new Repo(openDatabase());
   const store = new MemoryArtifactStore();
   repo.createProject("shop", "Shop", "en", ["en", "ko"]);
   repo.createRelease("shop", "R42", "v3.2", { strategy: "semver-range", value: ">=3.2.0" }, "draft");
@@ -32,9 +34,24 @@ before(async () => {
   repo.addReleaseKey("shop", "R42", greet);
   publishRelease(repo, store, "shop", "R42", "pm");
 
+  // publish_release 도구 검증용 draft 둘: 겹치지 않는 exact-label(성공 경로)과
+  // R42의 열린 범위 안에서 시작하는 semver(409 충돌 경로).
+  repo.createRelease("shop", "beta", "beta", { strategy: "exact-label", value: "beta" }, "draft");
+  repo.addReleaseKey("shop", "beta", pay);
+  repo.createRelease("shop", "R50", "v3.0", { strategy: "semver-range", value: ">=3.0.0" }, "draft");
+  repo.addReleaseKey("shop", "R50", pay);
+
+  // review_translation 검증용: 서명이 확정된 키에 서명 위반 draft를 직접 심는다(검증을 거치지
+  // 않는 경로로 들어온 레거시 값 시뮬레이션 — 검수가 이런 값을 걸러내야 한다).
+  promoId = repo.upsertKey("shop", "promo.title", "pct:simple", false);
+  repo.putTranslation("shop", promoId, "en", "Sale {pct}", "reviewed");
+  repo.putTranslation("shop", promoId, "ko", "세일", "draft");
+
   const tokens = new TokenRegistry();
   tokens.issue(TOK.view, { actor: "vw", role: "viewer", projects: new Set(["shop"]) });
   tokens.issue(TOK.other, { actor: "ot", role: "viewer", projects: new Set(["elsewhere"]) });
+  tokens.issue(TOK.trans, { actor: "tr", role: "translator", projects: new Set(["shop"]) });
+  tokens.issue(TOK.maint, { actor: "mnt", role: "maintainer", projects: new Set(["shop"]) });
   server = createManagementServer({ repo, store, tokens });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -78,13 +95,25 @@ test("알림(id 없음)은 본문 없는 202", async () => {
   assert.equal(await res.text(), "");
 });
 
-test("tools/list: 두 도구가 스키마와 함께 나온다", async () => {
+test("tools/list: viewer에게는 read 도구 둘만 — publish_release는 목록에서 은닉", async () => {
   const r = await rpc("tools/list", {}, { token: TOK.view });
   const names = r.body.result.tools.map((t: any) => t.name).sort();
   assert.deepEqual(names, ["resolve_preview", "validate_translation"]);
   const v = r.body.result.tools.find((t: any) => t.name === "validate_translation");
   assert.equal(v.inputSchema.type, "object");
   assert.deepEqual(v.inputSchema.required, ["project", "key", "entries"]);
+});
+
+test("tools/list: translator 토큰에는 review_translation까지 — publish_release는 없다", async () => {
+  const r = await rpc("tools/list", {}, { token: TOK.trans });
+  const names = r.body.result.tools.map((t: any) => t.name).sort();
+  assert.deepEqual(names, ["resolve_preview", "review_translation", "validate_translation"]);
+});
+
+test("tools/list: maintainer 토큰에는 네 도구 전부", async () => {
+  const r = await rpc("tools/list", {}, { token: TOK.maint });
+  const names = r.body.result.tools.map((t: any) => t.name).sort();
+  assert.deepEqual(names, ["publish_release", "resolve_preview", "review_translation", "validate_translation"]);
 });
 
 test("validate_translation: 통과 — structuredContent로 온다", async () => {
@@ -122,6 +151,60 @@ test("프로젝트 스코프 밖이면 403이 도구 결과로 온다", async ()
   const r = await call("resolve_preview", { project: "shop", key: "pay.button", locale: "en", appVersion: "3.2.1" }, TOK.other);
   assert.equal(r.body.result.isError, true);
   assert.equal(r.body.result.structuredContent.error.status, 403);
+});
+
+test("review_translation: 서명 위반 저장값은 거부 — 아무것도 안 바뀐다", async () => {
+  const r = await call("review_translation", { project: "shop", key: "promo.title", locales: ["ko"] }, TOK.trans);
+  assert.equal(r.body.result.isError, false); // 도구는 정상 실행됐다 — 거부는 결과다
+  const out = r.body.result.structuredContent;
+  assert.deepEqual(out.reviewed, []);
+  assert.equal(out.validation.ok, false);
+  assert.equal(out.validation.problems[0].code, "signature_mismatch");
+  assert.equal(repo.getTranslation(promoId, "ko")!.state, "draft"); // 전이 없음
+});
+
+test("review_translation: 값을 고친 뒤에는 draft → reviewed 전이", async () => {
+  repo.putTranslation("shop", promoId, "ko", "세일 {pct}", "draft"); // 번역자가 값을 고쳤다
+  const r = await call("review_translation", { project: "shop", key: "promo.title", locales: ["ko"] }, TOK.trans);
+  const out = r.body.result.structuredContent;
+  assert.deepEqual(out.reviewed, [{ locale: "ko", state: "reviewed", alreadyReviewed: false }]);
+  const t = repo.getTranslation(promoId, "ko")!;
+  assert.equal(t.state, "reviewed");
+  assert.equal(t.value, "세일 {pct}"); // 값은 그대로 — 이 도구는 상태만 만진다
+});
+
+test("review_translation: 저장된 번역이 없는 로케일은 isError 404", async () => {
+  const r = await call("review_translation", { project: "shop", key: "promo.title", locales: ["fr"] }, TOK.trans);
+  assert.equal(r.body.result.isError, true);
+  assert.equal(r.body.result.structuredContent.error.status, 404);
+});
+
+test("publish_release: viewer 토큰에는 도구 자체가 없다 — 호출하면 -32602", async () => {
+  const r = await call("publish_release", { project: "shop", release: "beta" }, TOK.view);
+  assert.equal(r.body.error.code, -32602); // 은닉된 도구는 '권한 없음'이 아니라 '없는 도구'다
+});
+
+test("publish_release: draft를 게시하고 잡 id·포인터를 돌려준다 — 관리 API와 같은 경로", async () => {
+  const r = await call("publish_release", { project: "shop", release: "beta" }, TOK.maint);
+  assert.equal(r.body.result.isError, false);
+  const out = r.body.result.structuredContent;
+  assert.equal(out.releaseId, "beta");
+  assert.equal(out.base, out.overlay); // 최초 publish: base=overlay
+  assert.ok(out.manifest.releases.some((rec: any) => rec.id === "beta"));
+
+  // 관리 API 라우트와 같은 publishReleaseJob을 돌았다는 물증: 릴리스 전이 + 잡 기록.
+  assert.equal(repo.getRelease("shop", "beta")!.state, "published");
+  const job = repo.getJob(out.jobId)!;
+  assert.equal(job.state, "done");
+  assert.deepEqual(job.result, { base: out.base, overlay: out.overlay });
+});
+
+test("publish_release: 버전 범위 충돌은 isError 409 — 릴리스는 draft로 남는다", async () => {
+  // R50(>=3.0.0)은 published R42(>=3.2.0)의 아래에서 시작해 자동 상한 닫힘이 불가능한 겹침이다.
+  const r = await call("publish_release", { project: "shop", release: "R50" }, TOK.maint);
+  assert.equal(r.body.result.isError, true);
+  assert.equal(r.body.result.structuredContent.error.status, 409);
+  assert.equal(repo.getRelease("shop", "R50")!.state, "draft");
 });
 
 test("알 수 없는 메서드는 -32601", async () => {

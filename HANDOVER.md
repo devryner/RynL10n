@@ -658,7 +658,7 @@ stateless(세션 없음) · 서버→클라이언트 스트림 없음(`GET /mcp`
 셋 다 스펙이 허용하는 선택지다. 도구 실행 실패는 JSON-RPC 에러가 아니라 `isError` **결과**로
 나간다 — 모델이 반응해야 하는 정보지 호출 자체의 실패가 아니고, 프로토콜 에러로 올리면 대화가 끊긴다.
 
-### 도구 2종 (둘 다 read · 부작용 없음)
+### 도구 4종 (read 2 + 쓰기 2, 2026-09-11 review_translation·publish_release 추가)
 
 - **`validate_translation`** — 번역 값을 **저장하지 않고** 검사한다.
   **판정은 단일 원천이다**: `ok`를 실제 쓰기 경로가 쓰는 `requireTranslationImport`가 정한다.
@@ -679,18 +679,34 @@ stateless(세션 없음) · 서버→클라이언트 스트림 없음(`GET /mcp`
   (없으면 늘 bundle-only로 떨어져 무의미한 답이 나오므로 400)이고, **`bundleBase`를 생략하면**
   "방금 빌드한 앱"을 가정한 뒤 `bundle.assumed: true`로 **가정했음을 밝힌다** — 밝히지 않으면
   "정상입니다"라고 답하는데 사용자 앱은 스테일 번들 때문에 여전히 깨져 있는 조합이 생긴다.
+- **`review_translation`** (2026-09-11, edit_translation — translator 이상) — 저장된 번역을
+  draft → reviewed로 전이한다. **값은 바꾸지 않는다** — 검수와 편집을 한 도구에 섞으면 "승인했더니
+  값이 바뀌어 있었다"가 가능해진다. 전이 전에 저장값을 `validateTranslation`(단일 원천 검증기)으로
+  재검사해, 검증을 거치지 않은 경로(직접 DB 조작·규칙 변경 이전 저장값)로 들어온 값이 검수 딱지를
+  달고 통과하지 못하게 한다. 하나라도 걸리면 아무것도 쓰지 않고 문제 목록을 **정상 결과**로 돌려준다.
+- **`publish_release`** (2026-09-11, manage_release — maintainer 이상) — 릴리스 게시. **관리 API
+  라우트와 같은 `publishReleaseJob`(`pipeline/publish.ts`)을 돈다**: 잡 기록·publish 지표·실시간
+  알림이 어느 표면으로 게시하든 동일하게 남는다(라우트의 인라인 잡 처리를 이 함수로 추출했다).
+  HTTP의 202+잡 폴링과 달리 동기라 `{jobId, base, overlay, manifest}`를 그대로 돌려주고, 범위
+  충돌은 `isError` 결과의 409다(릴리스는 draft로 남는다). 감사 actor는 principal — 그래서 도구
+  `run`이 세 번째 인자로 principal을 받는다.
 
 ### 열지 않은 것 (의도적)
 
 배포 플레인은 도구 대상이 아니다(정적 읽기 경로 — 도구가 붙으면 플레인 분리가 흐려진다).
 `DELETE /projects` · `POST /projects/import` · 사용자 관리/토큰 발급도 넣지 않았다: admin·비가역이고
-확인 UI가 본질인 조작이라 대시보드 자리다. 관리 플레인이 배포 산출물을 **읽는** 것은 분리를 깨지
-않는다 — `GET /projects/{p}/manifest`가 이미 하는 진단용 read-through와 같은 성격이다.
+확인 UI가 본질인 조작이라 대시보드 자리다. publish는 그 경계 안쪽이다 — maintainer capability이고
+산출물 불변이라 롤백으로 즉시 되돌릴 수 있다. 반면 **롤백 자체는 열지 않았다**: 대상 target을
+manifest 이력에서 고르는 조작이라 확인 UI가 본질이다. 관리 플레인이 배포 산출물을 **읽는** 것은
+분리를 깨지 않는다 — `GET /projects/{p}/manifest`가 이미 하는 진단용 read-through와 같은 성격이다.
 
 **토큰은 `surface: "mcp"`로 발급하는 것을 권한다.** 그 평문이 에이전트 설정 파일에 놓이므로,
 새더라도 `POST /mcp` 외의 관리 API로는 못 간다(403). 역할 상한(`maxRole`)까지 걸면 표면 안에서도
-할 수 있는 일이 줄어든다. 둘 다 **발급 시점에만** 정해지고 이후 불변이라 바꾸려면 재발급한다.
-기본값이 곧 기존 동작이라 이미 발급된 토큰은 업그레이드해도 그대로 산다.
+할 수 있는 일이 줄어든다 — `tools/list`가 capability로 걸러지므로 **상한이 곧 도구 목록**이다:
+`maxRole: "viewer"`면 read 도구 둘, `translator`면 review_translation까지, publish까지
+맡길 에이전트에만 상한 없이(또는 maintainer 상한으로) 발급한다. 둘 다 **발급 시점에만** 정해지고
+이후 불변이라 바꾸려면 재발급한다. 기본값이 곧 기존 동작이라 이미 발급된 토큰은 업그레이드해도
+그대로 산다.
 
 **Origin 가드**: MCP 클라이언트는 Origin을 보내지 않으므로, Origin이 붙어 있다는 것 자체가
 브라우저에서 왔다는 신호다 — `RYNL10N_MCP_ALLOWED_ORIGINS`(기본 빈 목록 = 전부 거부)에 없으면

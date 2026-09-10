@@ -121,6 +121,8 @@ const MCP_TOOLS = {
   tools: [
     { name: "validate_translation", title: "번역 값 검증(쓰기 없음)", description: "…", capability: "read" },
     { name: "resolve_preview", title: "해석 경로 미리보기", description: "…", capability: "read" },
+    { name: "review_translation", title: "번역 검수 승인 (쓰기 — translator 이상)", description: "…", capability: "edit_translation" },
+    { name: "publish_release", title: "릴리스 publish (쓰기 — maintainer 이상)", description: "…", capability: "manage_release" },
   ],
 };
 const PROJECTS = { projects: [{ id: "shop", name: "Shop", defaultLocale: "en" }] };

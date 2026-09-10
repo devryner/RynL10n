@@ -179,6 +179,12 @@ rebinding에서는 Host도 공격자 도메인이라 Origin과 일치한다. 가
 **토큰은 `surface: "mcp"`로 발급하는 것을 권한다** — 그 토큰이 에이전트 설정 파일에 놓이므로,
 새더라도 관리 API 전체가 딸려가지 않는다(위 "인증 & RBAC"의 토큰 최소 권한).
 
+**역할 상한은 쓰기 도구가 생기면서 실질이 됐다.** `tools/list`가 capability로 걸러지므로
+상한이 곧 도구 목록이다: `maxRole: "viewer"`면 read 도구 둘, `translator`면 검수
+(review_translation)까지, publish까지 맡기려면 상한 없이(또는 `maintainer` 상한으로) 발급해야
+한다. 조사·진단만 시킬 에이전트에는 상한을 묶어서 주는 것을 권한다 — 같은 사용자의 토큰이라도
+**토큰마다 줄 수 있는 권한이 다르다**는 것이 상한을 둔 이유다.
+
 ### `validate_translation` — 쓰기 전 검증 (read)
 
 번역 값이 키의 플레이스홀더 서명·복수형 형태·지원 로케일을 만족하는지 **저장하지 않고** 검사한다.
@@ -219,6 +225,39 @@ rebinding에서는 Host도 공격자 도메인이라 Origin과 일치한다. 가
   `delta_base_mismatch` · `format_guard_fallback` · `tombstoned` · `locale_fallback` · `key_unresolved`.
   **분기가 늘면 진단 코드도 늘어야 한다** — 그래서 테스트가 코드마다 하나씩 있다.
 
+### `review_translation` — 번역 검수 승인 (edit_translation, 쓰기)
+
+저장된 번역의 상태를 draft → reviewed로 전이한다. `{project, key, locales}`.
+**translator 이상 토큰에서 나타난다** — 대시보드 편집 그리드의 검수 토글과 같은 축이다.
+
+- **값은 바꾸지 않는다.** 값 수정은 관리 API·대시보드의 일이고, 이 도구는 상태만 만진다 —
+  검수와 편집을 한 도구에 섞으면 "승인했더니 값이 바뀌어 있었다"가 가능해진다.
+- **전이 전에 저장된 값을 validate_translation과 같은 검증기로 재검사한다.** 검증을 거치지 않는
+  경로(직접 DB 조작, 규칙 변경 이전의 저장값)로 들어온 값이 검수 딱지를 달고 통과하면 안 된다.
+  하나라도 걸리면 **아무것도 쓰지 않고** 문제 목록을 결과로 돌려준다(거부는 `isError`가 아니라
+  정상 결과다 — 모델이 반응해야 하는 정보다).
+- locales가 배열인 이유는 validate_translation과 같다: 로케일끼리 서명이 갈리는 경우는 한 번에
+  넣어야 잡힌다. 저장된 번역이 없는 로케일은 404.
+
+### `publish_release` — 릴리스 publish (manage_release, 쓰기)
+
+릴리스를 게시한다: 충돌 검증 → 스냅샷·델타 생성 → manifest 재게시. `{project, release}`.
+**maintainer 이상 토큰에서만 목록에 나타난다** — 첫 쓰기 도구이고, 현장의 앱이 즉시 새 카탈로그를
+받는 조작이다.
+
+- **관리 API 라우트와 같은 경로다**: `POST /projects/{p}/releases/{r}/publish`와 MCP 도구가
+  둘 다 `publishReleaseJob`(pipeline/publish.ts)을 부른다. 잡 기록·publish 지표·실시간 알림이
+  표면과 무관하게 남는다 — 표면마다 따로 감싸면 MCP로 게시한 publish가 대시보드 잡 목록과
+  지표에서 빠진다.
+- 응답은 `{jobId, releaseId, base, overlay, manifest}` — HTTP의 202+잡 폴링과 달리 동기라
+  결과를 그대로 돌려준다(에이전트가 잡을 폴링할 이유가 없다).
+- 버전 범위 충돌(자동 상한 닫힘이 불가능한 겹침)은 `isError` 결과의 409로 온다 — 대화는 안
+  끊기고, 릴리스는 draft로 남는다.
+- 감사 로그의 actor는 토큰의 principal이다 — 쓰기 도구가 "누가"를 잃으면 안 되므로 `run`이
+  principal을 받는다.
+- 게시 전 확인은 read 도구 둘이 맡는다: 값이 온전한지는 `validate_translation`, 매칭이
+  의도대로인지는 `resolve_preview`. 도구 description에도 그 순서를 박아 두었다.
+
 ### 대시보드 화면
 
 사이드바 **인스턴스 › MCP**(`serveMcp`가 켜져 있을 때만 보인다). 엔드포인트 URL, 붙이는 설정
@@ -252,7 +291,9 @@ rebinding에서는 Host도 공격자 도메인이라 Origin과 일치한다. 가
 
 배포 플레인은 도구 대상이 아니다(정적 읽기 경로 — 도구가 붙으면 플레인 분리가 흐려진다).
 `DELETE /projects` · `POST /projects/import` · 사용자 관리/토큰 발급도 넣지 않았다: admin·비가역이고
-확인 UI가 본질인 조작이라 대시보드 자리다. 관리 플레인이 배포 산출물을 **읽는** 것은 분리를 깨지
+확인 UI가 본질인 조작이라 대시보드 자리다. publish는 그 경계 안쪽이다 — maintainer capability이고,
+산출물 불변이라 롤백으로 즉시 되돌릴 수 있다. 반면 **롤백 자체는 열지 않았다**: 대상 target을
+manifest 이력에서 고르는 조작이라 확인 UI가 본질이고, 사고 대응 중에 에이전트가 끼어들 자리가 아니다. 관리 플레인이 배포 산출물을 **읽는** 것은 분리를 깨지
 않는다 — `GET /projects/{p}/manifest`가 이미 하는 진단용 read-through와 같은 성격이다.
 
 ## 검증 (DoD)
@@ -270,13 +311,18 @@ rebinding에서는 Host도 공격자 도메인이라 Origin과 일치한다. 가
 - `mcp-preview.test.ts` — diagnosis 코드마다 그 원인을 실제로 만들어 대조(오버레이·스테일 번들·
   카나리·델타 결측·포맷 가드·tombstone·draft 릴리스·빌드넘버 축 분리).
 - `mcp-server.test.ts` — JSON-RPC 표면: 401 · initialize · 알림 202 · tools/list 스키마 ·
-  권한 밖 도구 은닉 · 도구 실패가 `isError` 결과로 나감(대화 유지) · `GET /mcp` 405.
+  권한별 도구 은닉(viewer=read 둘 · translator=+검수 · maintainer=전부, 은닉된 도구 호출은 -32602) ·
+  도구 실패가 `isError` 결과로 나감(대화 유지) · `GET /mcp` 405 · **publish_release가 관리 API와
+  같은 경로를 돎**(릴리스 전이 + 잡 기록 대조) · 범위 충돌이 isError 409로 오고 릴리스는 draft로
+  남음 · **review_translation이 서명 위반 저장값을 거부하고 통과 값만 reviewed로 전이**(값 불변).
 - `storage.test.ts` — `readDelta`·`deliveryReader`(SDK와 같은 경로 규약) + **릴리스 id·상대 경로의
   순회 가드**(프로젝트 id에만 있던 가드를 같은 부류의 나머지 세그먼트로 확장).
 - `dashboard-ui.test.ts`의 MCP 절 — 목록이 서버에서 오는가 · **대시보드가 `POST /mcp`를 부르지 않는가** ·
   꺼진 배포에서 메뉴가 사라지는가.
 - `token-scope.test.ts` — 토큰 최소 권한(표면 제한·역할 상한이 실제로 막는가 · 잘못된 값은 400 ·
-  목록에 제한 노출) + **구 스키마 업그레이드 회귀**(이미 발급된 토큰이 계속 산다) + MCP Origin 가드.
+  목록에 제한 노출 · **상한이 MCP 도구 목록에도 적용** — viewer 상한이면 쓰기 도구가, translator
+  상한이면 publish_release가 사라진다)
+  + **구 스키마 업그레이드 회귀**(이미 발급된 토큰이 계속 산다) + MCP Origin 가드.
 - `users.test.ts` — 사용자 관리 API + DB 토큰 인증(발급 토큰의 역할·스코프 적용 · 평문/해시 비노출 ·
   폐기/비활성/삭제 즉시 401 · 마지막 admin 409 · 부트스트랩 공존).
 

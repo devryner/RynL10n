@@ -84,7 +84,35 @@ test("MCP 전용 토큰은 관리 API가 403 — MCP는 통과", async () => {
 
   const mcp = await mcpCall(t.token);
   assert.equal(mcp.status, 200);
-  assert.equal(mcp.body.result.tools.length, 2);
+  // 사용자 'agent'는 maintainer라 상한 없는 토큰에는 쓰기 도구까지 전부 보인다.
+  assert.deepEqual(
+    mcp.body.result.tools.map((x: any) => x.name).sort(),
+    ["publish_release", "resolve_preview", "review_translation", "validate_translation"],
+  );
+});
+
+/**
+ * publish_release가 생기면서 MCP 토큰의 역할 상한이 실질이 됐다: maintainer 사용자의
+ * 에이전트 토큰을 viewer로 묶으면 **쓰기 도구가 목록에서 아예 사라져야** 한다 —
+ * 보이는데 호출만 거부되는 것이 아니라.
+ */
+test("역할 상한은 MCP 도구 목록에도 적용된다 — viewer 상한이면 쓰기 도구가 없다", async () => {
+  const t = await issueToken({ label: "agent-ro", surface: "mcp", maxRole: "viewer" });
+  const mcp = await mcpCall(t.token);
+  assert.equal(mcp.status, 200);
+  assert.deepEqual(
+    mcp.body.result.tools.map((x: any) => x.name).sort(),
+    ["resolve_preview", "validate_translation"],
+  );
+});
+
+test("translator 상한이면 review_translation까지 — publish_release만 빠진다", async () => {
+  const t = await issueToken({ label: "agent-tr", surface: "mcp", maxRole: "translator" });
+  const mcp = await mcpCall(t.token);
+  assert.deepEqual(
+    mcp.body.result.tools.map((x: any) => x.name).sort(),
+    ["resolve_preview", "review_translation", "validate_translation"],
+  );
 });
 
 test("MCP 전용 토큰은 대시보드 데이터에도 닿지 못한다(/me 포함)", async () => {

@@ -13,8 +13,11 @@
  */
 import type { Repo } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
+import type { Metrics } from "../observability/metrics.ts";
+import type { Notifier } from "../observability/notifier.ts";
 import { authorize, AuthError, type Capability, type Principal } from "../auth/rbac.ts";
-import { HttpError } from "../api/errors.ts";
+import { HttpError, BadRequestError } from "../api/errors.ts";
+import { publishReleaseJob, NotFoundError } from "../pipeline/publish.ts";
 import { validateTranslation } from "./validate.ts";
 import { resolvePreview } from "./preview.ts";
 
@@ -25,6 +28,8 @@ const SERVER_INFO = { name: "rynl10n", version: "0.1.0" };
 export interface McpDeps {
   readonly repo: Repo;
   readonly store: ArtifactStore;
+  readonly metrics: Metrics;
+  readonly notifier: Notifier;
 }
 
 interface McpTool {
@@ -33,7 +38,8 @@ interface McpTool {
   readonly description: string;
   readonly capability: Capability;
   readonly inputSchema: Record<string, unknown>;
-  readonly run: (deps: McpDeps, args: any) => { summary: string; data: unknown };
+  /** principal은 감사 로그의 actor로 쓴다 — 쓰기 도구가 "누가"를 잃으면 안 된다. */
+  readonly run: (deps: McpDeps, args: any, principal: Principal) => { summary: string; data: unknown };
 }
 
 const VERSION_AXES = {
@@ -125,7 +131,102 @@ export const MCP_TOOLS: readonly McpTool[] = [
       };
     },
   },
+  {
+    name: "review_translation",
+    title: "번역 검수 승인 (쓰기 — translator 이상)",
+    description:
+      "저장된 번역의 상태를 draft → reviewed로 전이한다. **값은 바꾸지 않는다** — 값 수정은 관리 API·대시보드의 일이고, " +
+      "이 도구는 대시보드 편집 그리드의 검수 토글과 같은 축이다. " +
+      "전이 전에 저장된 값을 validate_translation과 **같은 검증기**로 재검사해, 규칙이 바뀐 뒤 남아 있던 값이 " +
+      "검수 딱지를 달고 통과하는 일을 막는다 — 하나라도 걸리면 아무것도 쓰지 않고 문제 목록을 돌려준다. " +
+      "한 키의 여러 로케일을 한 번에 승인해야 로케일끼리 서명이 갈리는 경우까지 잡힌다. " +
+      "translator 이상(edit_translation) 토큰에서만 목록에 나타난다.",
+    capability: "edit_translation",
+    inputSchema: {
+      type: "object",
+      required: ["project", "key", "locales"],
+      properties: {
+        project: { type: "string", description: "프로젝트 id" },
+        key: { type: "string", description: "키 이름(namespace.key)" },
+        locales: {
+          type: "array", minItems: 1, items: { type: "string" },
+          description: "승인할 로케일 목록(BCP 47). 저장된 번역이 있어야 한다 — 없는 로케일은 404다.",
+        },
+      },
+    },
+    run: (deps, args) => {
+      const project = requireString(args, "project");
+      const key = requireString(args, "key");
+      const locales: unknown = args.locales;
+      if (!Array.isArray(locales) || locales.length === 0 || locales.some((l) => typeof l !== "string" || l === "")) {
+        throw new BadRequestError("locales(비어 있지 않은 문자열 배열) 필요");
+      }
+      const keyRow = deps.repo.getKeyByName(project, key);
+      if (!keyRow) throw new NotFoundError(`key ${key}`);
+      const entries = (locales as string[]).map((locale) => {
+        const t = deps.repo.getTranslation(keyRow.id, locale);
+        if (!t) throw new NotFoundError(`translation ${key}/${locale}`);
+        return { locale, value: t.value, alreadyReviewed: t.state === "reviewed" };
+      });
+      // 저장된 값 그대로 단일 원천 검증기를 통과해야 전이한다 — 여기서 규칙을 다시 만들지 않는다.
+      const v = validateTranslation(deps.repo, {
+        project, key, entries: entries.map((e) => ({ locale: e.locale, value: e.value, state: "reviewed" })),
+      });
+      const errors = v.problems.filter((p) => p.severity === "error");
+      if (!v.ok) {
+        return {
+          summary: `검수 거부 — 저장된 값이 현재 규칙을 통과하지 못합니다(${errors.length}건: ${errors.map((p) => p.code).join(", ")}). 아무것도 바뀌지 않았습니다`,
+          data: { key, reviewed: [], validation: v },
+        };
+      }
+      for (const e of entries) deps.repo.putTranslation(project, keyRow.id, e.locale, e.value, "reviewed");
+      return {
+        summary: `검수 완료 — ${key} [${entries.map((e) => e.locale).join(", ")}] → reviewed`,
+        data: {
+          key,
+          reviewed: entries.map((e) => ({ locale: e.locale, state: "reviewed", alreadyReviewed: e.alreadyReviewed })),
+          validation: v,
+        },
+      };
+    },
+  },
+  {
+    name: "publish_release",
+    title: "릴리스 publish (쓰기 — maintainer 이상)",
+    description:
+      "릴리스를 게시한다: 버전 범위 충돌 검증 → 카탈로그로 스냅샷·델타 산출물 생성 → manifest 재게시. " +
+      "**현장의 앱이 즉시 새 카탈로그를 받는 쓰기 조작이다** — 게시 전 validate_translation으로 값이 온전한지, " +
+      "resolve_preview로 매칭이 의도대로인지 먼저 확인할 것. " +
+      "관리 API의 `POST /projects/{p}/releases/{r}/publish`와 같은 경로를 돌므로 잡 기록·지표·실시간 알림도 동일하다. " +
+      "다른 published 릴리스와 버전 범위가 겹치면 409로 거부된다(자동 상한 닫힘이 불가능한 겹침). " +
+      "maintainer 이상(manage_release) 토큰에서만 목록에 나타난다 — 역할 상한을 viewer·translator로 발급한 토큰에는 이 도구가 없다.",
+    capability: "manage_release",
+    inputSchema: {
+      type: "object",
+      required: ["project", "release"],
+      properties: {
+        project: { type: "string", description: "프로젝트 id" },
+        release: { type: "string", description: "게시할 릴리스 id. draft면 published로 전이된다." },
+      },
+    },
+    run: (deps, args, principal) => {
+      const project = requireString(args, "project");
+      const release = requireString(args, "release");
+      const r = publishReleaseJob(deps, project, release, principal.actor);
+      return {
+        summary: `게시 완료 — ${release} (base ${r.base.slice(0, 12)}…, overlay ${r.overlay.slice(0, 12)}…, job ${r.jobId})`,
+        data: { jobId: r.jobId, releaseId: r.releaseId, base: r.base, overlay: r.overlay, manifest: r.manifest },
+      };
+    },
+  },
 ];
+
+/** 필수 문자열 인자. 없으면 400 — 스키마를 무시한 호출이 500 `internal`로 새지 않게 한다. */
+function requireString(args: any, name: string): string {
+  const v = args?.[name];
+  if (typeof v !== "string" || v === "") throw new BadRequestError(`${name} 필요`);
+  return v;
+}
 
 // ── JSON-RPC 2.0 ────────────────────────────────────────────────────────────
 
@@ -193,7 +294,7 @@ export function handleMcpMessage(deps: McpDeps, principal: Principal, msg: any):
       try {
         // 프로젝트 스코프는 도구 인자에서 온다 — 관리 API 라우트의 :p와 같은 축이다.
         authorize(principal, tool.capability, typeof args.project === "string" ? args.project : undefined);
-        const { summary, data } = tool.run(deps, args);
+        const { summary, data } = tool.run(deps, args, principal);
         return ok(id, toolResult(summary, data));
       } catch (e) {
         const err = e as HttpError & AuthError;

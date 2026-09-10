@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { randomUUID, randomBytes } from "node:crypto";
 import type { Repo } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
-import { publishRelease, rollbackRelease, RangeConflictError, NotFoundError } from "../pipeline/publish.ts";
+import { publishReleaseJob, rollbackRelease, RangeConflictError, NotFoundError } from "../pipeline/publish.ts";
 import { buildDelta, buildSnapshot } from "../../../src/builder/builder.ts";
 import { authenticate, authorize, AuthError, tokenHash, ROLES, SURFACES, type Capability, type PrincipalResolver, type Principal, type Role, type Surface } from "../auth/rbac.ts";
 import { signature } from "../../../src/core/placeholder.ts";
@@ -434,23 +434,10 @@ const routes: Route[] = [
     return { status: 200, body: { added } };
   }),
 
-  // publish — Maintainer+ (202 잡 / 409 충돌)
+  // publish — Maintainer+ (202 잡 / 409 충돌). 잡·지표·알림까지 publishReleaseJob이 감싼다(MCP 도구와 공유).
   route("POST", "/projects/:p/releases/:r/publish", "manage_release", ({ params, repo, store, principal, metrics, notifier }) => {
-    const jobId = randomUUID();
-    repo.createJob(jobId, params.p!, "publish");
-    const started = performance.now();
-    try {
-      const result = publishRelease(repo, store, params.p!, params.r!, principal!.actor);
-      repo.finishJob(jobId, "done", { base: result.base, overlay: result.overlay });
-      metrics.inc(METRIC.publishTotal, { result: "success" });
-      metrics.observe(METRIC.publishDuration, (performance.now() - started) / 1000);
-      notifier.emit(params.p!); // 실시간 푸시 신호(manifest 변경)
-      return { status: 202, body: { jobId } };
-    } catch (e) {
-      repo.finishJob(jobId, "failed", { error: (e as Error).message });
-      metrics.inc(METRIC.publishTotal, { result: e instanceof RangeConflictError ? "conflict" : "error" });
-      throw e;
-    }
+    const { jobId } = publishReleaseJob({ repo, store, metrics, notifier }, params.p!, params.r!, principal!.actor);
+    return { status: 202, body: { jobId } };
   }),
 
   // 릴리스 상태·범위 변경 — Maintainer+
@@ -779,7 +766,7 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
         const body = await readBody(req);
         const batch = Array.isArray(body);
         const out = (batch ? body : [body])
-          .map((m) => handleMcpMessage({ repo: deps.repo, store: deps.store }, principal, m))
+          .map((m) => handleMcpMessage({ repo: deps.repo, store: deps.store, metrics, notifier }, principal, m))
           .filter((r) => r !== null);
         if (out.length === 0) { res.writeHead(202).end(); return; } // 알림만 온 경우
         return send(200, batch ? out : out[0]);

@@ -2,6 +2,7 @@
  * 산출물 빌더 파이프라인 (7.4) + publish/롤백(8.1/8.2/8.3).
  * DB(SoT) → 스냅샷/델타/manifest. **M0 참조 빌더를 그대로 재사용** → 골든 벡터로 검증된 결정성 공유.
  */
+import { randomUUID } from "node:crypto";
 import {
   buildSnapshot, buildDelta, compileManifest,
   publishWithAutoClose, assertNoConflicts, RangeConflictError,
@@ -10,6 +11,8 @@ import {
 import type { Manifest } from "../../../src/core/types.ts";
 import type { Repo, ReleaseRow } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
+import { type Metrics, METRIC } from "../observability/metrics.ts";
+import type { Notifier } from "../observability/notifier.ts";
 
 export { RangeConflictError };
 export class NotFoundError extends Error {
@@ -110,6 +113,38 @@ export function publishRelease(repo: Repo, store: ArtifactStore, projectId: stri
 
   const updated = repo.getRelease(projectId, releaseId)!;
   return { releaseId, base: updated.base!, overlay: updated.overlay!, manifest };
+}
+
+export interface PublishJobDeps {
+  readonly repo: Repo;
+  readonly store: ArtifactStore;
+  readonly metrics: Metrics;
+  readonly notifier: Notifier;
+}
+
+/**
+ * publish를 잡 기록·메트릭·실시간 알림으로 감싼 **단일 진입점**. 관리 API 라우트와 MCP
+ * `publish_release` 도구가 둘 다 이 함수를 부른다 — 표면마다 잡/메트릭 처리를 따로 쓰면
+ * 어느 한쪽으로 게시된 publish가 대시보드 잡 목록·지표에서 빠지는 순간이 생긴다.
+ */
+export function publishReleaseJob(
+  deps: PublishJobDeps, projectId: string, releaseId: string, actor: string,
+): PublishResult & { readonly jobId: string } {
+  const jobId = randomUUID();
+  deps.repo.createJob(jobId, projectId, "publish");
+  const started = performance.now();
+  try {
+    const result = publishRelease(deps.repo, deps.store, projectId, releaseId, actor);
+    deps.repo.finishJob(jobId, "done", { base: result.base, overlay: result.overlay });
+    deps.metrics.inc(METRIC.publishTotal, { result: "success" });
+    deps.metrics.observe(METRIC.publishDuration, (performance.now() - started) / 1000);
+    deps.notifier.emit(projectId); // 실시간 푸시 신호(manifest 변경)
+    return { ...result, jobId };
+  } catch (e) {
+    deps.repo.finishJob(jobId, "failed", { error: (e as Error).message });
+    deps.metrics.inc(METRIC.publishTotal, { result: e instanceof RangeConflictError ? "conflict" : "error" });
+    throw e;
+  }
 }
 
 /**

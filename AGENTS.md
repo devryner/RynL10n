@@ -253,8 +253,9 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
 
 ### MCP 도구 표면 (`POST /mcp`, `backend/src/mcp/`)
 
-관리 플레인에 JSON-RPC 2.0(Streamable HTTP)로 붙은 **에이전트용 표면**. 읽기 전용 도구 2종.
-끄려면 `createManagementServer({ serveMcp: false })`. 상세는 `backend/README.md`.
+관리 플레인에 JSON-RPC 2.0(Streamable HTTP)로 붙은 **에이전트용 표면**. 읽기 도구 2종 +
+쓰기 도구 2종(`review_translation`·`publish_release`). 끄려면
+`createManagementServer({ serveMcp: false })`. 상세는 `backend/README.md`.
 
 **인증은 새 축을 만들지 않는다** — 기존 Bearer + RBAC 4역할 + 프로젝트 스코프 그대로다. 도구마다
 라우트와 같은 capability를 달고, `tools/list`는 **호출자가 쓸 수 없는 도구를 아예 뺀다**(모델에게
@@ -278,11 +279,23 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
   `refresh()`·`resolveValue()`의 **조기 반환 지점과 1:1** — 분기가 늘면 진단도 늘어야 한다.
   매칭 축 3종 중 최소 하나 필수(없으면 늘 bundle-only라 400), `bundleBase` 생략 시 "방금 빌드한 앱"을
   가정하되 `bundle.assumed`로 **밝힌다**(안 밝히면 "정상"이라 답하는데 앱은 스테일 번들로 깨져 있다).
+- **`review_translation`** (edit_translation — translator 이상) — 저장된 번역을 draft → reviewed로
+  전이. **값은 바꾸지 않는다**(편집 그리드의 검수 토글과 같은 축). 전이 전에 저장값을
+  `validateTranslation`(단일 원천 검증기)으로 재검사해, 검증을 거치지 않은 경로로 들어온 값이 검수
+  딱지를 달고 통과하지 못하게 한다 — 하나라도 걸리면 아무것도 쓰지 않고 문제 목록을 정상 결과로 돌려준다.
+- **`publish_release`** (manage_release — maintainer 이상) — 릴리스 게시. **관리 API 라우트와 같은
+  `publishReleaseJob`(`pipeline/publish.ts`)을 돈다**: 잡 기록·publish 지표·실시간 알림이 표면과
+  무관하게 남는다. HTTP의 202+잡 폴링과 달리 동기라 `{jobId, base, overlay, manifest}`를 그대로
+  돌려주고, 범위 충돌은 `isError` 결과의 409다(릴리스는 draft로 남는다). 감사 actor는 principal —
+  그래서 도구 `run`이 principal을 받는다.
 
 **토큰은 `surface: "mcp"`로 발급하는 것을 권한다.** 그 평문이 에이전트 설정 파일에 놓이므로,
 새더라도 `POST /mcp` 외의 관리 API로는 못 간다(403). 역할 상한(`maxRole`)까지 걸면 표면 안에서도
-할 수 있는 일이 줄어든다. 둘 다 **발급 시점에만** 정해지고 이후 불변이라 바꾸려면 재발급한다.
-기본값이 곧 기존 동작이라 이미 발급된 토큰은 업그레이드해도 그대로 산다.
+할 수 있는 일이 줄어든다 — `tools/list`가 capability로 걸러지므로 **상한이 곧 도구 목록**이다:
+`maxRole: "viewer"`면 read 도구 둘, `translator`면 review_translation까지, publish까지
+맡길 에이전트에만 상한 없이(또는 maintainer 상한으로) 발급한다. 둘 다 **발급 시점에만** 정해지고
+이후 불변이라 바꾸려면 재발급한다. 기본값이 곧 기존 동작이라 이미 발급된 토큰은 업그레이드해도
+그대로 산다.
 
 **Origin 가드**: MCP 클라이언트는 Origin을 보내지 않으므로, Origin이 붙어 있다는 것 자체가
 브라우저에서 왔다는 신호다 — `RYNL10N_MCP_ALLOWED_ORIGINS`(기본 빈 목록 = 전부 거부)에 없으면
