@@ -687,8 +687,11 @@ stateless(세션 없음) · 서버→클라이언트 스트림 없음(`GET /mcp`
 - **`publish_release`** (2026-09-11, manage_release — maintainer 이상) — 릴리스 게시. **관리 API
   라우트와 같은 `publishReleaseJob`(`pipeline/publish.ts`)을 돈다**: 잡 기록·publish 지표·실시간
   알림이 어느 표면으로 게시하든 동일하게 남는다(라우트의 인라인 잡 처리를 이 함수로 추출했다).
-  HTTP의 202+잡 폴링과 달리 동기라 `{jobId, base, overlay, manifest}`를 그대로 돌려주고, 범위
-  충돌은 `isError` 결과의 409다(릴리스는 draft로 남는다). 감사 actor는 principal — 그래서 도구
+  HTTP의 202+잡 폴링과 달리 동기라 `{jobId, base, overlay, manifest, droppedKeys}`를 그대로 돌려주고, 범위
+  충돌은 `isError` 결과의 409다(릴리스는 draft로 남는다). 나갈 번역이 0개인 릴리스는 422
+  (2026-09-11, `EmptyReleaseError` — 관리 API·MCP 공통으로 `publishRelease`가 충돌 검사 뒤·자동 상한 닫힘
+  쓰기 앞에서 거부). 직전 게시본의 키가 빠진 것은 막지 않고 `droppedKeys`로 알린다 — 재게시에서는 생길 수
+  없어 신규 릴리스에서만 잡히는데, 새 앱 버전에서 걷어낸 키와 실수를 서버가 가를 수 없다. 감사 actor는 principal — 그래서 도구
   `run`이 세 번째 인자로 principal을 받는다.
 
 ### 열지 않은 것 (의도적)

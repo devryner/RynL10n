@@ -69,7 +69,7 @@ export class Metrics {
 
 /** 서버 표준 지표 이름(9.3). */
 export const METRIC = {
-  publishTotal: "rynl10n_publish_total", // labels: result=success|conflict|error
+  publishTotal: "rynl10n_publish_total", // labels: result=success|conflict|empty|error
   publishDuration: "rynl10n_publish_duration_seconds",
   apiRequests: "rynl10n_api_requests_total", // labels: method, route, status
   apiDuration: "rynl10n_api_request_duration_seconds",

@@ -285,8 +285,10 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
   딱지를 달고 통과하지 못하게 한다 — 하나라도 걸리면 아무것도 쓰지 않고 문제 목록을 정상 결과로 돌려준다.
 - **`publish_release`** (manage_release — maintainer 이상) — 릴리스 게시. **관리 API 라우트와 같은
   `publishReleaseJob`(`pipeline/publish.ts`)을 돈다**: 잡 기록·publish 지표·실시간 알림이 표면과
-  무관하게 남는다. HTTP의 202+잡 폴링과 달리 동기라 `{jobId, base, overlay, manifest}`를 그대로
-  돌려주고, 범위 충돌은 `isError` 결과의 409다(릴리스는 draft로 남는다). 감사 actor는 principal —
+  무관하게 남는다. HTTP의 202+잡 폴링과 달리 동기라 `{jobId, base, overlay, manifest, droppedKeys}`를 그대로
+  돌려주고, 범위 충돌은 `isError` 결과의 409, 나갈 번역이 0개인 릴리스는 422다(둘 다 쓰기 전 거부라
+  릴리스는 draft로 남는다). 직전 게시본의 키가 빠진 것은 막지 않고 `droppedKeys`로 알린다 — 새 앱
+  버전에서 걷어낸 키와 실수를 서버가 가를 수 없다. 감사 actor는 principal —
   그래서 도구 `run`이 principal을 받는다.
 
 **토큰은 `surface: "mcp"`로 발급하는 것을 권한다.** 그 평문이 에이전트 설정 파일에 놓이므로,
@@ -331,7 +333,8 @@ Origin 정책을 보여주는 **안내 화면**이지 조작 화면이 아니다
   고르기만 해서는 쓰지 않는다 · **키 축 백포트** — 키 한 건을 여러 릴리스에 한 번에, 207 부분 실패는
   실패한 릴리스 id까지 표면화) · 릴리스(생성·상태 전이·publish·롤백·릴리스 축 백포트 ·
   **출시 전 변경사항 + 카탈로그/스냅샷 읽기** — 실제 publish와 같은 delta 규칙으로 마지막 게시본 대비
-  추가·수정·삭제와 이전/게시 후 값을 보여주며, 현재 DB 스냅샷 JSON도 열람 가능(viewer 포함)) ·
+  추가·수정·삭제와 이전/게시 후 값을 보여주며(빈 릴리스는 게시 단추 대신 이유를, 빠진 키는 이름을 보여 준다),
+  현재 DB 스냅샷 JSON도 열람 가능(viewer 포함)) ·
   배포(manifest·이력·health·export·rebuild) · **관측성**(`GET /projects/{p}/telemetry` 익명 집계 —
   4종 이벤트 요약 + 릴리스 × 앱 버전군 표. 거부율의 분모는 **적용 + 거부**라야 카나리 판정(8.4)의
   `releases/{r}/health`와 같은 것을 본다).

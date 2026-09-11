@@ -1336,13 +1336,37 @@ test("닫으면 릴리스 탭으로 돌아가고 다시 읽지 않는다", async
   assert.equal(calls.length, before, "이미 가진 상태로 되돌아갈 뿐 서버를 다시 부르지 않는다");
 });
 
-test("빈 카탈로그는 publish 하면 무엇이 나가는지 알려준다", async () => {
+test("빈 카탈로그는 게시 단추를 내지 않고 이유를 말한다 — 서버가 422로 거절한다", async () => {
   const table = catalogTable();
   table["GET /projects/shop/releases/R1/keys"] = { keys: [] };
   table["GET /projects/shop/releases/R1/snapshot"] = { ...SNAPSHOT, locales: {} };
+  table["GET /projects/shop/releases/R1/changes"] = { ...RELEASE_CHANGES, target: { ...RELEASE_CHANGES.target, entries: 0 } };
   const { byId } = await openCatalog(table);
 
-  assert.match(byId.app!.textContent, /빈 카탈로그가 나갑니다/);
+  assert.match(byId.app!.textContent, /게시할 수 없습니다/);
+  assert.match(byId.app!.textContent, /키를 먼저 담으세요/, "키가 없으면 키를 담으라고 말한다");
+  assert.doesNotMatch(byId.app!.textContent, /키 \d+개가 빠집니다/, "빈 릴리스는 빠진 키에도 걸리지만 더 구체적인 이유 하나만 말한다");
+  assert.equal(btn(byId.app, "이 변경사항 게시"), undefined, "서버가 거절할 게시는 누를 자리를 만들지 않는다");
+});
+
+test("키는 담겼는데 번역이 없으면 고칠 자리가 다르다 — 다른 이유를 말한다", async () => {
+  const table = catalogTable();
+  table["GET /projects/shop/releases/R1/snapshot"] = { ...SNAPSHOT, locales: {} };
+  table["GET /projects/shop/releases/R1/changes"] = { ...RELEASE_CHANGES, target: { ...RELEASE_CHANGES.target, entries: 0 } };
+  const { byId } = await openCatalog(table);
+
+  assert.match(byId.app!.textContent, /키 2개가 담겼지만 지원 로케일 번역이 하나도 없습니다/);
+});
+
+test("직전 게시본의 키가 빠지면 이름을 보여 주되 게시는 막지 않는다", async () => {
+  const { byId } = await openCatalog(); // RELEASE_CHANGES에는 checkout.old 삭제가 있다
+
+  assert.match(byId.app!.textContent, /직전 게시본 R1에 있던 키 1개가 빠집니다/);
+  assert.ok(
+    tags(byId.app, "span").some((n) => n.className === "badge mono" && n.textContent === "checkout.old"),
+    "무엇을 담아야 하는지 이름으로 보여 준다",
+  );
+  assert.ok(btn(byId.app, "이 변경사항 게시"), "새 앱 버전에서 걷어낸 키일 수 있어 게시는 열어 둔다");
 });
 
 test("카탈로그 읽기는 viewer에게도 열려 있다 (read 권한 축)", async () => {

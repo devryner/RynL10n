@@ -135,6 +135,15 @@ test("겹치는 범위 publish는 409", async () => {
   assert.equal(pub.body.error.code, "range_conflict");
 });
 
+test("나갈 번역이 없는 릴리스 publish는 422 empty_release — draft로 남는다", async () => {
+  await api("POST", "/projects/shop/releases", { token: TOK.maint, body: { id: "R80", name: "hollow", versionMatch: { strategy: "exact-label", value: "hollow" } } });
+  const pub = await api("POST", "/projects/shop/releases/R80/publish", { token: TOK.maint });
+  assert.equal(pub.status, 422);
+  assert.equal(pub.body.error.code, "empty_release");
+  const list = await api("GET", "/projects/shop/releases", { token: TOK.maint });
+  assert.equal(list.body.releases.find((r: any) => r.id === "R80").state, "draft");
+});
+
 test("없는 릴리스 PATCH는 404", async () => {
   const r = await api("PATCH", "/projects/shop/releases/NOPE", { token: TOK.maint, body: { state: "archived" } });
   assert.equal(r.status, 404);
