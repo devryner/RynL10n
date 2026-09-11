@@ -89,6 +89,7 @@ async function run(label, fn) {
 const EXPLAIN = {
   signature_mismatch: "422 — 플레이스홀더 서명 불일치",
   range_conflict: "409 — 앱 버전 범위 충돌",
+  empty_release: "422 — 나갈 번역이 없는 릴리스",
   conflict: "409 — 현재 상태와 충돌",
   forbidden: "403 — 권한 부족",
   not_found: "404 — 대상을 찾을 수 없음",
@@ -1458,6 +1459,11 @@ async function openReleaseCatalog(r) {
 
   const keys = catalog.keys ?? [];
   const locales = Object.keys(snapshot.locales ?? {});
+  // 게시 전 판정 둘 — 서버 publishRelease와 같은 기준이다. 빈 릴리스는 서버가 422로 거절하므로 게시
+  // 단추를 내지 않는다. 빠진 키는 서버도 막지 않으므로(새 앱 버전에서 걷어낸 키일 수 있다) 이름만 보여 준다.
+  const emptyRelease = diff.target.entries === 0;
+  const droppedKeys = [...new Set(diff.changes.filter((c) => c.type === "deleted").map((c) => c.key))].sort();
+  const DROPPED_SHOWN = 20;
   const search = el("input", { type: "search", placeholder: "키 또는 로케일 검색", "aria-label": "변경사항 검색" });
   const filter = el("select", { "aria-label": "변경 유형 필터" },
     el("option", { value: "", text: `전체 ${diff.summary.total}` }),
@@ -1521,6 +1527,21 @@ async function openReleaseCatalog(r) {
         el("div", { class: "diff-stat deleted" }, el("span", { text: "삭제" }), el("b", { text: diff.summary.deleted })),
         el("div", { class: "diff-stat total" }, el("span", { text: "전체 변경" }), el("b", { text: diff.summary.total })),
       ),
+      // 빈 릴리스는 빠진 키에도 다 걸린다 — 더 구체적인 쪽 하나만 말해 고칠 자리를 하나로 가리킨다.
+      emptyRelease
+        ? el("div", { class: "release-check-note bad" },
+          el("b", { text: "게시할 수 없습니다 — 나갈 번역이 0개입니다" }),
+          el("span", { text: keys.length
+            ? `키 ${keys.length}개가 담겼지만 지원 로케일 번역이 하나도 없습니다. 게시하면 이 버전대 앱의 번역이 전부 사라지므로 서버가 거절합니다.`
+            : "릴리스에 담긴 키가 없습니다. 게시하면 이 버전대 앱의 번역이 전부 사라지므로 서버가 거절합니다 — 키를 먼저 담으세요." }))
+        : droppedKeys.length
+          ? el("div", { class: "release-check-note warn" },
+            el("b", { text: `직전 게시본 ${diff.baseline?.releaseId ?? ""}에 있던 키 ${droppedKeys.length}개가 빠집니다` }),
+            el("span", { text: "이 버전대 앱이 아직 이 키를 쓴다면 화면에 ⟪key⟫가 뜹니다. 새 앱 버전에서 걷어낸 키라면 그대로 게시해도 됩니다." }),
+            el("div", { class: "row" },
+              ...droppedKeys.slice(0, DROPPED_SHOWN).map((n) => el("span", { class: "badge mono", text: n })),
+              droppedKeys.length > DROPPED_SHOWN ? el("span", { class: "small muted", text: `외 ${droppedKeys.length - DROPPED_SHOWN}개` }) : null))
+          : null,
       el("div", { class: "row filters release-diff-tools" }, search, filter),
       el("div", { class: "tablewrap release-diff-table" },
         el("table", {},
@@ -1541,7 +1562,7 @@ async function openReleaseCatalog(r) {
         (r.base ? ` · 게시된 base ${r.base}` : " · 미게시") }),
       keys.length
         ? el("div", { class: "row catalog-keys" }, ...keys.map((n) => el("span", { class: "badge mono", text: n })))
-        : el("p", { class: "muted", text: "포함된 키가 없습니다 — 이대로 publish 하면 빈 카탈로그가 나갑니다." }),
+        : el("p", { class: "muted", text: "포함된 키가 없습니다 — 빈 카탈로그는 게시할 수 없습니다." }),
       el("details", { class: "snapshot-details" },
         el("summary", { text: "스냅샷 JSON 보기" }),
         el("p", { class: "small muted", text: "빌드 플러그인이 fetch 해 앱에 굽는 것과 같은 JSON (6.3)" }),
@@ -1549,7 +1570,7 @@ async function openReleaseCatalog(r) {
       ),
     ),
     el("div", { class: "row end", style: "margin-top:10px" },
-      can("manage_release") ? el("button", { class: "primary", text: "이 변경사항 게시", onClick: () => publishReleaseFromUi(r) }) : null,
+      can("manage_release") && !emptyRelease ? el("button", { class: "primary", text: "이 변경사항 게시", onClick: () => publishReleaseFromUi(r) }) : null,
       el("button", { text: "닫기", onClick: () => renderProject() })),
   );
   document.querySelector("main").replaceChildren(panel);

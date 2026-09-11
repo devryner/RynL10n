@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { openDatabase } from "../src/db/schema.ts";
 import { Repo } from "../src/db/repo.ts";
 import { MemoryArtifactStore } from "../src/storage/store.ts";
-import { publishRelease, rollbackRelease, RangeConflictError } from "../src/pipeline/publish.ts";
+import { publishRelease, rollbackRelease, RangeConflictError, EmptyReleaseError } from "../src/pipeline/publish.ts";
 import { RynL10nClient } from "../../src/client/client.ts";
 import type { Snapshot } from "../../src/core/types.ts";
 
@@ -30,6 +30,7 @@ test("파이프라인: publish → SDK 소비 → 편집·델타 → 롤백 (7.4
   const r1 = publishRelease(repo, store, "shop", "R42", "pm@shop");
   assert.match(r1.base, /^[0-9a-f]{16}$/);
   assert.equal(r1.base, r1.overlay); // 최초는 base==overlay
+  assert.deepEqual(r1.droppedKeys, []); // 첫 게시는 비교 기준이 없다
   const manifest1 = store.readManifest("shop")!;
   assert.equal(manifest1.releases[0]!.id, "R42");
   assert.equal(manifest1.releases[0]!.state, "published");
@@ -46,6 +47,7 @@ test("파이프라인: publish → SDK 소비 → 편집·델타 → 롤백 (7.4
   repo.putTranslation("shop", seed_pay(repo), "ja", "支払い", "reviewed");
   const r2 = publishRelease(repo, store, "shop", "R42", "pm@shop");
   assert.notEqual(r2.overlay, r2.base); // 델타 생김
+  assert.deepEqual(r2.droppedKeys, []); // 재게시는 값만 바뀌었다
   client.refresh(store.readManifest("shop")!);
   assert.equal(client.t("pay.button", {}, "ja"), "支払い"); // OTA 반영
 
@@ -70,7 +72,9 @@ test("버전 격리: 신규 릴리스 publish → 자동 상한 닫힘 + superse
   repo.putTranslation("shop", badge, "en", "NEW", "reviewed");
   repo.addReleaseKey("shop", "R50", home);
   repo.addReleaseKey("shop", "R50", badge);
-  publishRelease(repo, store, "shop", "R50", "pm");
+  const r50Published = publishRelease(repo, store, "shop", "R50", "pm");
+  // R50은 R42에 있던 pay.button을 담지 않았다 — 새 버전에서 걷어낸 키일 수 있으므로 막지 않고 알린다.
+  assert.deepEqual(r50Published.droppedKeys, ["pay.button"]);
 
   // R42는 상한 자동 닫힘 + superseded
   const r42 = repo.getRelease("shop", "R42")!;
@@ -105,6 +109,30 @@ test("겹치는 범위 publish는 409 (RangeConflictError)", () => {
   const home = repo.getKeyByName("shop", "home.title")!.id;
   repo.addReleaseKey("shop", "R70", home);
   assert.throws(() => publishRelease(repo, store, "shop", "R70", "pm"), RangeConflictError);
+});
+
+test("빈 릴리스는 쓰기 전에 422 — 이전 릴리스의 범위도 줄이지 않는다", () => {
+  const { repo, store } = seed();
+  publishRelease(repo, store, "shop", "R42", "pm"); // '>=3.2.0' 열린 상한
+  const manifestBefore = JSON.stringify(store.readManifest("shop"));
+
+  // R50 '>=3.3.0' — 범위는 자동 닫힘으로 분리되지만 담긴 키가 없다.
+  repo.createRelease("shop", "R50", "v3.3", { strategy: "semver-range", value: ">=3.3.0" }, "draft");
+  assert.throws(() => publishRelease(repo, store, "shop", "R50", "pm"),
+    (e: unknown) => e instanceof EmptyReleaseError && e.status === 422 && e.reason === "noKeys");
+
+  // 거절된 publish가 R42 상한만 닫아 놓고 끝나면 3.3.0 이상 앱은 매칭 릴리스를 잃고 번들로 떨어진다.
+  const r42 = repo.getRelease("shop", "R42")!;
+  assert.equal(r42.versionMatch.value, ">=3.2.0");
+  assert.equal(r42.state, "published");
+  assert.equal(repo.getRelease("shop", "R50")!.state, "draft");
+  assert.equal(JSON.stringify(store.readManifest("shop")), manifestBefore);
+
+  // 키는 담았지만 번역이 없으면 고칠 자리가 다르다.
+  const badge = repo.upsertKey("shop", "home.newBadge", "", false);
+  repo.addReleaseKey("shop", "R50", badge);
+  assert.throws(() => publishRelease(repo, store, "shop", "R50", "pm"),
+    (e: unknown) => e instanceof EmptyReleaseError && e.reason === "noTranslations");
 });
 
 test("롤백 보존 창: 21회 publish 후 이력 20개로 유지 (8.3)", () => {

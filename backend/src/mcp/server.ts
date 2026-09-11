@@ -199,6 +199,9 @@ export const MCP_TOOLS: readonly McpTool[] = [
       "resolve_preview로 매칭이 의도대로인지 먼저 확인할 것. " +
       "관리 API의 `POST /projects/{p}/releases/{r}/publish`와 같은 경로를 돌므로 잡 기록·지표·실시간 알림도 동일하다. " +
       "다른 published 릴리스와 버전 범위가 겹치면 409로 거부된다(자동 상한 닫힘이 불가능한 겹침). " +
+      "나갈 번역이 하나도 없는 릴리스(키를 안 담았거나 담은 키에 번역이 없음)는 422로 거부된다 — 그 버전대 앱의 번역이 전부 사라지기 때문이다. " +
+      "직전 게시본에 있던 키가 이번 카탈로그에 없으면 **막지 않고** 결과의 droppedKeys로 알린다 — 새 앱 버전에서 걷어낸 키일 수도 있어서다. " +
+      "의도한 제거가 아니면 그 키를 릴리스에 담아 다시 게시할 것. " +
       "maintainer 이상(manage_release) 토큰에서만 목록에 나타난다 — 역할 상한을 viewer·translator로 발급한 토큰에는 이 도구가 없다.",
     capability: "manage_release",
     inputSchema: {
@@ -213,9 +216,12 @@ export const MCP_TOOLS: readonly McpTool[] = [
       const project = requireString(args, "project");
       const release = requireString(args, "release");
       const r = publishReleaseJob(deps, project, release, principal.actor);
+      const dropped = r.droppedKeys.length
+        ? ` — 경고: 직전 게시본에 있던 키 ${r.droppedKeys.length}개가 이번 카탈로그에 없습니다(${r.droppedKeys.slice(0, 10).join(", ")}${r.droppedKeys.length > 10 ? " …" : ""}). 의도한 제거가 아니면 키를 담아 다시 게시하세요`
+        : "";
       return {
-        summary: `게시 완료 — ${release} (base ${r.base.slice(0, 12)}…, overlay ${r.overlay.slice(0, 12)}…, job ${r.jobId})`,
-        data: { jobId: r.jobId, releaseId: r.releaseId, base: r.base, overlay: r.overlay, manifest: r.manifest },
+        summary: `게시 완료 — ${release} (base ${r.base.slice(0, 12)}…, overlay ${r.overlay.slice(0, 12)}…, job ${r.jobId})${dropped}`,
+        data: { jobId: r.jobId, releaseId: r.releaseId, base: r.base, overlay: r.overlay, manifest: r.manifest, droppedKeys: r.droppedKeys },
       };
     },
   },

@@ -90,7 +90,7 @@ export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없
 | `POST /projects/{p}/translations/import` | Translator+ | 200 `{createdKeys,updatedKeys,translations}` | 400 형식·로케일 · **422** 서명/복수형 불일치 |
 | `POST /projects/{p}/releases` | Maintainer+ | 201 | 400 |
 | `POST /projects/{p}/releases/{r}/keys` | Maintainer+ | 200 | 404 |
-| `POST /projects/{p}/releases/{r}/publish` | Maintainer+ | **202** {jobId} | **409** 범위 충돌 |
+| `POST /projects/{p}/releases/{r}/publish` | Maintainer+ | **202** {jobId} | **409** 범위 충돌 · **422** 나갈 번역 없음(`empty_release`) |
 | `PATCH /projects/{p}/releases/{r}` | Maintainer+ | 200 | 404 |
 | `POST /projects/{p}/releases/{r}/rollback` | Maintainer+ | 200 | 404 |
 | `POST /projects/{p}/translations/{key}/backport` | Maintainer+ | 200 · **207** 부분 | 404 |
@@ -132,8 +132,14 @@ export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없
 
 ## 배포 파이프라인 (7.4 / 8.1–8.3)
 
-publish 시: ① 버전 범위 충돌·자동 상한 닫힘 검증(쓰기 전, 409) → ② 카탈로그 → 스냅샷/델타
-산출물 생성(빌더 재사용, 결정적) → ③ 서빙 릴리스로 manifest 재게시 + 이력 기록.
+publish 시: ① 버전 범위 충돌·자동 상한 닫힘 검증(쓰기 전, 409) → ② 나갈 번역이 0개면 거부(쓰기 전,
+422 `empty_release`) → ③ 카탈로그 → 스냅샷/델타 산출물 생성(빌더 재사용, 결정적) → ④ 서빙 릴리스로
+manifest 재게시 + 이력 기록.
+**빈 릴리스는 막고, 빠진 키는 알리기만 한다.** SDK는 매칭된 릴리스의 스냅샷으로 번들을 통째로
+갈아끼우므로 빈 스냅샷은 그 버전대 앱의 번역을 전부 지운다 — 게시해서 얻는 것이 없다. 반면 직전
+게시본에 있던 키가 빠진 것은 서버가 가를 수 없다: 재게시에서는 생길 수 없고(릴리스에서 키를 빼거나
+번역·로케일을 지우는 경로가 없다) 신규 릴리스에서만 생기는데, 실수일 수도 새 앱 버전에서 걷어낸 키일
+수도 있다. 그래서 `PublishResult.droppedKeys`로 돌려주고, MCP 결과와 대시보드 변경사항 화면이 이름을 보여 준다.
 **롤백** = overlay 포인터를 이전 target으로 되돌리고 재게시(산출물 불변, 즉시·무손실).
 **보존 창** = 최근 20개 published manifest(8.3).
 
@@ -249,10 +255,12 @@ rebinding에서는 Host도 공격자 도메인이라 Origin과 일치한다. 가
   둘 다 `publishReleaseJob`(pipeline/publish.ts)을 부른다. 잡 기록·publish 지표·실시간 알림이
   표면과 무관하게 남는다 — 표면마다 따로 감싸면 MCP로 게시한 publish가 대시보드 잡 목록과
   지표에서 빠진다.
-- 응답은 `{jobId, releaseId, base, overlay, manifest}` — HTTP의 202+잡 폴링과 달리 동기라
+- 응답은 `{jobId, releaseId, base, overlay, manifest, droppedKeys}` — HTTP의 202+잡 폴링과 달리 동기라
   결과를 그대로 돌려준다(에이전트가 잡을 폴링할 이유가 없다).
 - 버전 범위 충돌(자동 상한 닫힘이 불가능한 겹침)은 `isError` 결과의 409로 온다 — 대화는 안
   끊기고, 릴리스는 draft로 남는다.
+- 나갈 번역이 0개인 릴리스는 `isError` 결과의 422다(쓰기 전 거부 — 이전 릴리스의 상한도 닫지 않는다).
+  직전 게시본에 있던 키가 빠진 것은 막지 않고 `droppedKeys`와 요약 문장의 경고로 알린다.
 - 감사 로그의 actor는 토큰의 principal이다 — 쓰기 도구가 "누가"를 잃으면 안 되므로 `run`이
   principal을 받는다.
 - 게시 전 확인은 read 도구 둘이 맡는다: 값이 온전한지는 `validate_translation`, 매칭이

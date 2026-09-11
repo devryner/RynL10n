@@ -34,12 +34,16 @@ before(async () => {
   repo.addReleaseKey("shop", "R42", greet);
   publishRelease(repo, store, "shop", "R42", "pm");
 
-  // publish_release 도구 검증용 draft 둘: 겹치지 않는 exact-label(성공 경로)과
-  // R42의 열린 범위 안에서 시작하는 semver(409 충돌 경로).
+  // publish_release 도구 검증용 draft 넷: 겹치지 않는 exact-label(성공 경로),
+  // R42의 열린 범위 안에서 시작하는 semver(409 충돌 경로), 키 없는 hollow(422 빈 릴리스 경로),
+  // beta보다 늦게 만들어 beta의 pay.button을 담지 않은 gamma(droppedKeys 경고 경로).
   repo.createRelease("shop", "beta", "beta", { strategy: "exact-label", value: "beta" }, "draft");
   repo.addReleaseKey("shop", "beta", pay);
   repo.createRelease("shop", "R50", "v3.0", { strategy: "semver-range", value: ">=3.0.0" }, "draft");
   repo.addReleaseKey("shop", "R50", pay);
+  repo.createRelease("shop", "hollow", "hollow", { strategy: "exact-label", value: "hollow" }, "draft");
+  repo.createRelease("shop", "gamma", "gamma", { strategy: "exact-label", value: "gamma" }, "draft");
+  repo.addReleaseKey("shop", "gamma", greet);
 
   // review_translation 검증용: 서명이 확정된 키에 서명 위반 draft를 직접 심는다(검증을 거치지
   // 않는 경로로 들어온 레거시 값 시뮬레이션 — 검수가 이런 값을 걸러내야 한다).
@@ -190,6 +194,7 @@ test("publish_release: draft를 게시하고 잡 id·포인터를 돌려준다 �
   const out = r.body.result.structuredContent;
   assert.equal(out.releaseId, "beta");
   assert.equal(out.base, out.overlay); // 최초 publish: base=overlay
+  assert.deepEqual(out.droppedKeys, []); // exact-label 첫 게시 — 비교 기준이 없다
   assert.ok(out.manifest.releases.some((rec: any) => rec.id === "beta"));
 
   // 관리 API 라우트와 같은 publishReleaseJob을 돌았다는 물증: 릴리스 전이 + 잡 기록.
@@ -205,6 +210,22 @@ test("publish_release: 버전 범위 충돌은 isError 409 — 릴리스는 draf
   assert.equal(r.body.result.isError, true);
   assert.equal(r.body.result.structuredContent.error.status, 409);
   assert.equal(repo.getRelease("shop", "R50")!.state, "draft");
+});
+
+test("publish_release: 나갈 번역이 없는 릴리스는 isError 422 — 게시하지 않는다", async () => {
+  const r = await call("publish_release", { project: "shop", release: "hollow" }, TOK.maint);
+  assert.equal(r.body.result.isError, true);
+  assert.equal(r.body.result.structuredContent.error.status, 422);
+  assert.equal(repo.getRelease("shop", "hollow")!.state, "draft");
+});
+
+test("publish_release: 직전 게시본의 키가 빠지면 막지 않고 droppedKeys로 알린다", async () => {
+  // gamma는 먼저 게시된 beta(같은 exact-label 전략)에 있던 pay.button을 담지 않았다.
+  const r = await call("publish_release", { project: "shop", release: "gamma" }, TOK.maint);
+  assert.equal(r.body.result.isError, false);
+  assert.deepEqual(r.body.result.structuredContent.droppedKeys, ["pay.button"]);
+  assert.match(r.body.result.content[0].text, /경고: 직전 게시본에 있던 키 1개/);
+  assert.equal(repo.getRelease("shop", "gamma")!.state, "published");
 });
 
 test("알 수 없는 메서드는 -32601", async () => {
