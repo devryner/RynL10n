@@ -1413,7 +1413,7 @@ test("MCP 화면: 도구 목록은 서버가 준 것이고, 엔드포인트·설
   assert.ok(!calls.some((c) => c.path === "/mcp"), "대시보드는 MCP 전송 엔드포인트를 직접 부르지 않는다");
 });
 
-test("MCP 화면: 허용 Origin이 비어 있으면 그것이 안전 기본값임을 설명한다", async () => {
+test("MCP 화면: 허용 Origin이 비어 있으면 기본 차단 정책을 설명한다", async () => {
   const { byId, store } = installDom();
   store["rynl10n.token"] = "t";
   installFetch(projectTable());
@@ -1421,7 +1421,7 @@ test("MCP 화면: 허용 Origin이 비어 있으면 그것이 안전 기본값�
   tags(byId.app, "button").find((b) => b.textContent === "MCP")!.fire("click");
   await settle();
 
-  assert.match(byId.app!.textContent, /안전 기본값/);
+  assert.match(byId.app!.textContent, /기본 설정에서는 Origin 헤더가 있는 요청을 차단합니다/);
   assert.match(byId.app!.textContent, /RYNL10N_MCP_ALLOWED_ORIGINS/, "바꾸는 방법을 알려줘야 한다");
 });
 
@@ -1491,7 +1491,7 @@ test("MCP 화면: 표면을 '전체 API'로 바꾸면 CI 빌드 플러그인 쪽
   table["GET /users"] = MCP_USERS;
   const { byId } = await openMcpScreen(table);
 
-  assert.match(byId.app!.textContent, /POST \/mcp 로만 붙습니다/, "MCP 전용 안내가 먼저 보인다");
+  assert.match(byId.app!.textContent, /MCP 연결에만 사용할 수 있습니다/, "MCP 전용 안내가 먼저 보인다");
   const surfaceSel = tags(byId.app, "select").find((x) => x.attrs["aria-label"] === "토큰 표면")!;
   surfaceSel.value = "all";
   surfaceSel.fire("change");
@@ -1572,7 +1572,7 @@ test("MCP 화면: admin이 아니면 발급 폼도 GET /users 도 없다", async
 
   assert.equal(btn(byId.app, "발급"), undefined, "쓰기 표면을 열지 않는다");
   assert.ok(!calls.some((c) => c.path === "/users"), "admin 전용 라우트를 부르지 않는다(403 소음 방지)");
-  assert.match(byId.app!.textContent, /프로젝트 목록 → 사용자 관리/, "발급 자리는 여전히 알려준다");
+  assert.match(byId.app!.textContent, /관리자에게 토큰 발급을 요청하세요/, "관리자 권한이 없는 사용자의 다음 행동을 안내한다");
 });
 
 test("MCP가 꺼진 배포에서는 메뉴가 없다", async () => {

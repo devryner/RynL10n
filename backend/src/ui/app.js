@@ -736,8 +736,8 @@ async function openMcp() {
  * 넣으면 403이고, 그 실패는 다음 빌드 로그에서야 보인다.
  */
 const SURFACE_HINTS = {
-  mcp: "MCP 전용 — 에이전트가 POST /mcp 로만 붙습니다. 평문이 새더라도 다른 관리 API로는 못 갑니다(403).",
-  all: "전체 API — CI 빌드 플러그인처럼 관리 API(스냅샷 fetch)를 부르는 쪽에 필요합니다. 넓은 만큼 역할 상한을 함께 거세요.",
+  mcp: "MCP 연결에만 사용할 수 있습니다. 에이전트용 토큰은 이 옵션을 선택하세요.",
+  all: "CI 빌드 플러그인에서 번역 스냅샷을 가져올 때 선택하세요. 필요한 작업에 맞게 역할 상한도 설정하세요.",
 };
 
 /**
@@ -752,11 +752,11 @@ function mcpTokenPanel() {
   const users = state.users.filter((u) => !u.disabled);
   if (!users.length) {
     return el("div", { class: "panel" },
-      el("h2", {}, "토큰 발급", el("span", { class: "hint", text: "에이전트·CI가 이 인스턴스에 붙을 자격" })),
+      el("h2", {}, "토큰 발급", el("span", { class: "hint", text: "에이전트나 CI 연결에 사용할 토큰을 발급합니다" })),
       el("p", { class: "muted" },
-        "발급할 수 있는 활성 사용자가 없습니다 — ",
+        "토큰을 발급할 활성 사용자가 없습니다. ",
         el("button", { class: "link", text: "사용자 관리", onClick: () => openProjects() }),
-        " 에서 에이전트·CI용 사용자를 먼저 만드세요(최소 권한이면 viewer)."),
+        "에서 에이전트·CI용 사용자를 먼저 만드세요. 읽기만 필요하면 viewer 역할을 선택하세요."),
     );
   }
 
@@ -813,11 +813,11 @@ function mcpTokenPanel() {
   };
 
   return el("div", { class: "panel" },
-    el("h2", {}, "토큰 발급", el("span", { class: "hint", text: "평문은 발급 직후 한 번만 보입니다" })),
+    el("h2", {}, "토큰 발급", el("span", { class: "hint", text: "토큰은 발급 직후 복사해 보관하세요" })),
     el("div", { class: "row" },
       el("label", { class: "field" }, "사용자", userSel),
       el("label", { class: "field grow" }, "라벨", labelIn),
-      el("label", { class: "field" }, "표면", surfaceSel),
+      el("label", { class: "field" }, "사용 범위", surfaceSel),
       el("label", { class: "field" }, "역할 상한", ceilingSel),
       el("button", { class: "primary", text: "발급", onClick: issue }),
     ),
@@ -856,29 +856,29 @@ function renderMcp() {
 
   shell(
     el("div", { class: "panel" },
-      el("h2", {}, "MCP 도구 표면",
-        el("span", { class: "hint", text: "에이전트가 이 인스턴스에 붙는 자리 — 읽기 전용 도구" })),
+      el("h2", {}, "MCP 연결 안내",
+        el("span", { class: "hint", text: "AI 에이전트를 연결해 번역을 검사·검수하고 릴리스를 게시하세요" })),
       el("div", { class: "row" },
         el("label", { class: "field grow" }, "엔드포인트",
           el("input", { value: endpoint, readonly: true, class: "grow mono" })),
         el("button", { class: "tiny", text: "복사", onClick: copy(endpoint) }),
       ),
       el("p", { class: "muted small" },
-        "인증은 관리 API와 같은 축입니다 — 같은 Bearer 토큰, 같은 역할·프로젝트 스코프. ",
-        el("b", {}, "토큰은 'MCP 전용'으로 발급하세요"),
-        admin ? " (아래 '토큰 발급')." : " (프로젝트 목록 → 사용자 관리).",
-        " 그 평문은 에이전트 설정 파일에 놓이므로, 새더라도 이 표면 밖으로는 못 갑니다."),
+        "연결에는 Bearer 토큰이 필요하며, 토큰에 부여된 역할과 프로젝트 접근 범위가 적용됩니다. ",
+        el("b", {}, "에이전트용 토큰은 ‘MCP 전용’으로 발급하세요."),
+        admin ? " 아래 ‘토큰 발급’에서 만들 수 있습니다." : " 관리자에게 토큰 발급을 요청하세요.",
+        " MCP 전용 토큰은 다른 관리 API에 사용할 수 없습니다."),
     ),
 
     admin ? mcpTokenPanel() : null,
     issued ? issuedTokenNotice() : null,
 
     el("div", { class: "panel" },
-      el("h2", {}, "붙이는 설정", el("span", {
+      el("h2", {}, "에이전트 연결 설정", el("span", {
         class: "hint",
-        text: inline ? "방금 발급한 평문이 들어 있습니다 — 지금만 볼 수 있습니다"
-          : issued ? "방금 발급한 것은 전체 API 토큰입니다 — 위 카드에서 복사해 CI 시크릿에 넣으세요"
-          : "클라이언트 설정 파일에 그대로",
+        text: inline ? "방금 발급한 토큰이 포함되어 있습니다. 화면을 떠나기 전에 설정을 복사하세요."
+          : issued ? "전체 API 토큰을 발급했습니다. 위 카드에서 복사해 CI 시크릿에 넣으세요. 에이전트 연결에는 MCP 전용 토큰을 발급해 사용하세요."
+          : "아래 예시의 <발급한 토큰>을 실제 토큰으로 바꿔 에이전트의 MCP 설정에 추가하세요.",
       })),
       el("pre", { class: "json", text: snippet }),
       el("div", { class: "row" },
@@ -887,7 +887,7 @@ function renderMcp() {
 
     el("div", { class: "panel" },
       el("h2", {}, "사용 가능한 도구",
-        el("span", { class: "hint", text: "지금 이 토큰의 권한으로 보이는 것 — 서버가 준 목록입니다" })),
+        el("span", { class: "hint", text: "현재 대시보드 로그인 토큰으로 사용할 수 있는 도구입니다. 연결용 토큰의 권한에 따라 목록이 달라질 수 있습니다." })),
       state.mcpTools.length
         ? el("div", { class: "tablewrap" }, el("table", {},
             el("thead", {}, el("tr", {},
@@ -898,21 +898,20 @@ function renderMcp() {
               el("td", {}, el("span", { class: "badge", text: t.capability })),
             ))),
           ))
-        : el("p", { class: "muted", text: "이 토큰의 권한으로 쓸 수 있는 도구가 없습니다." }),
+        : el("p", { class: "muted", text: "현재 로그인 토큰으로 사용할 수 있는 도구가 없습니다." }),
     ),
 
     el("div", { class: "panel" },
-      el("h2", {}, "Origin 정책", el("span", { class: "hint", text: "브라우저에서 오는 요청만 대상입니다" })),
+      el("h2", {}, "브라우저 접근 허용 설정", el("span", { class: "hint", text: "요청 출처를 나타내는 Origin 헤더가 있는 MCP 요청에 적용됩니다" })),
       origins.length
         ? el("div", { class: "row" }, ...origins.map((o) => el("span", { class: "badge", text: o })))
         : el("p", { class: "muted small" },
-            "허용 목록이 비어 있습니다 — Origin이 붙은 요청은 전부 거부합니다. ",
-            el("b", {}, "이것이 안전 기본값입니다"),
-            ": MCP 클라이언트는 브라우저가 아니라 Origin을 보내지 않으므로 정상 사용을 막지 않고, 로컬에 띄운 서버를 웹 페이지가 부르는 경로만 끊습니다."),
+            "현재 브라우저 접근을 허용한 주소가 없습니다. ",
+            el("b", {}, "기본 설정에서는 Origin 헤더가 있는 요청을 차단합니다."),
+            " Origin 헤더를 보내지 않는 MCP 클라이언트는 연결할 수 있습니다."),
       el("p", { class: "muted small" },
-        "바꾸려면 서버 환경변수 ", el("code", { text: "RYNL10N_MCP_ALLOWED_ORIGINS" }), " (쉼표 구분). ",
-        "이 화면이 도구 목록을 관리 API에서 받아 오는 것도 같은 이유입니다 — 대시보드도 브라우저라서 ",
-        el("code", { text: "POST /mcp" }), " 를 직접 부르지 못합니다."),
+        "브라우저 접근을 허용하려면 서버 환경변수 ", el("code", { text: "RYNL10N_MCP_ALLOWED_ORIGINS" }), "에 허용할 출처 주소를 쉼표로 구분해 입력하세요.",
+        " 출처 주소는 프로토콜과 호스트, 필요한 경우 포트까지 포함합니다(예: https://example.com)."),
     ),
   );
 }
