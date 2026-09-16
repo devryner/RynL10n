@@ -181,8 +181,8 @@ reporter.start(client);                    // 기본 5분 주기
 ## 검증
 
 ```bash
-cd sdks/flutter && dart pub get && dart test   # 골든 10 + 시나리오 5 + 앱 적용 경로 19 + http 어댑터 6
-                                               # + 폴링·푸시·텔레메트리 8 = 48 tests
+cd sdks/flutter && dart pub get && dart test   # 골든 11 + 시나리오 5 + 앱 적용 경로 19 + http 어댑터 6
+                                               # + 폴링·푸시·텔레메트리 8 + 로케일 축 5 = 54 tests
 ```
 
 ## M4 기능

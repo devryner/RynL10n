@@ -8,7 +8,7 @@
 ```bash
 npm run backend            # 대시보드 + 관리 API :8787 · 배포 플레인 :8788 (node:sqlite 내장, 외부 의존성 0)
                            # → 브라우저로 http://localhost:8787 접속, 토큰으로 로그인
-npm run test:backend       # node --test — 파이프라인 + API 통합 + 대시보드 + 사용자 관리 (210 tests)
+npm run test:backend       # node --test — 파이프라인 + API 통합 + 대시보드 + 사용자 관리 (233 tests)
 npm run typecheck:backend  # tsc --noEmit
 docker compose up          # 단일 노드 셀프호스트 (9.1)
 ```

@@ -388,14 +388,17 @@ RYNL10N_ENDPOINT=http://localhost:8788 RYNL10N_PROJECT=myapp \
 ## 8. 검증 범위 (정직하게)
 
 - **검증됨**: SwiftPM 경로 전체(플러그인 bake → 번들 로드 → 실서버 대상 manifest·스냅샷·델타 수신 →
-  오버레이 적용). `swift test` **49개 통과**(2026-08-21 재실행) — Golden 8 · RemoteDelivery 12
+  오버레이 적용). `swift test` **51개 통과**(2026-09-17 재실행) — Golden 9 · RemoteDelivery 12
   (캐싱·ETag·오프라인 폴백) · PushTelemetry 10(폴링·SSE·집계 전송) · Locale 5(로케일 축) ·
-  Scenario 4 · M4 4 · Convert 3 · Bake 2 · Observable 1.
+  Scenario 4 · M4 5 · Convert 3 · Bake 2 · Observable 1. 빌드 경고 0(2026-09-10 — 플러그인이
+  폐기된 `PackagePlugin.Path` 대신 `URL` API를 쓴다. `Target.directoryURL`은 tools 6.1부터라
+  구체 타입으로 받는다 — tools-version을 올리면 소비자의 최소 Xcode가 따라 오르기 때문이다).
 - **검증됨**: **패키지 게시.** 태그 `v0.1.0`으로 원격 참조가 성립한다(2026-08-26). 2026-08-27에
   저장소 밖 빈 SwiftPM 패키지에서 `.package(url:…, from: "0.1.0")`으로 해석·빌드하고 `t()`
   왕복까지 확인했다(`Package.resolved`가 태그 `0.1.0`을 고정). 미러 저장소는 폐기됐다 — SPM이
   루트 매니페스트만 인식하므로 **루트 `Package.swift`**가 소스를 `path:`로 가리킨다(2절).
-- **미검증**: **Xcode 앱 타깃(`.xcodeproj`)에서의 실제 빌드.** 플러그인에 `XcodeBuildToolPlugin`
-  구현을 추가했고(Xcode 타깃은 이 프로토콜이 없으면 플러그인이 붙지 않는다) 3-b의 절차는 그에 맞춰
-  썼지만, 이 저장소에 Xcode 프로젝트가 없어 실제 앱 빌드로는 확인하지 못했다. 위젯 렌더·리소스 병합도
-  마찬가지다. 처음 붙일 때 빌드 로그에 `[rynl10n] bake 완료`가 찍히는지부터 확인할 것.
+- **검증됨**: **Xcode 앱 타깃(`.xcodeproj`)에서의 bake.** 2026-09-10에 실제 앱(RynDevice)을 로컬 패키지로
+  잡아 **Build Phases → Run Build Tool Plug-ins** 경로로 붙여 bake까지 확인했다(R16·433키, 3-b의 절차
+  그대로). Xcode 타깃은 `XcodeBuildToolPlugin` 구현이 없으면 플러그인이 아예 붙지 않는다.
+- **미검증**: **위젯 렌더·리소스 병합.** 이 저장소에 Xcode 프로젝트가 없어 화면까지는 확인하지 못했다.
+  처음 붙일 때 빌드 로그에 `[rynl10n] bake 완료`가 찍히는지부터 확인할 것.

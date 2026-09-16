@@ -5,7 +5,7 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 521개 전부 통과(TS 참조 75 · 백엔드 210 · mcp-stdio 38 · Web 33 · iOS 50 · Android 61 · Flutter 54 —
+테스트 549개 전부 통과(TS 참조 78 · 백엔드 233 · mcp-stdio 38 · Web 33 · iOS 51 · Android 62 · Flutter 54 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
 iOS는 실제 백엔드 대상 왕복 확인. 2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후
@@ -15,6 +15,10 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
 2026-08-28 **ICU 인자 이름 경계 수정** — 골든 벡터가 바뀌므로 5개 컴포넌트 전부 재실행.
 같은 날 **stdio MCP 서버**의 첫 도구 — `src/`·`fixtures/`·`sdks/` 무변경이라 TS·백엔드·mcp-stdio만 재실행).
 2026-09-01 **출시 전 변경사항 뷰** — 관리 API·대시보드만 변경돼 백엔드 210개 전부 재실행.
+2026-09-10 **로컬 CI 전환**(아래 `ci-local.sh`)과 **iOS 빌드 경고 17건 제거**(플러그인이 폐기된
+`PackagePlugin.Path` 대신 `URL` API를 쓴다 — 소비 앱 빌드 로그에 경고가 찍히고 있었다).
+2026-09-11 **MCP 쓰기 도구 2종**(`review_translation`·`publish_release`),
+2026-09-12 **publish 빈 릴리스 가드**(422 `empty_release`)로 백엔드 210 → 233.
 2026-09-16 **`release_applied` 텔레메트리 이벤트** — 델타가 없는 릴리스(첫 게시·base 롤백)와 rollout 밖
 기기는 `overlay_applied`가 영영 0이라 "안 쓰인다"와 "알릴 방법이 없다"가 구별되지 않았다. `src/`와 4개 SDK가
 같이 바뀌므로 5개 컴포넌트 전부 재실행(골든 벡터는 텔레메트리를 담지 않아 재생성 불필요).
@@ -33,9 +37,11 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
   - `./tools/ci-local.sh [reference|web|ios|android|flutter]` — **로컬 CI**. 2026-09-10 부터 `ci.yml` 은
     push·PR 에서 돌지 않는다(Actions 한도 절약). **PR·푸시 전에 이것이 평상시 유일한 게이트다.**
     `workflow_call` 은 남아 있어 태그 게시(`release.yml`) 때만 Actions 에서 전 컴포넌트가 다시 돈다.
-    로컬 도구 버전이 CI 고정값(Node 24.x·Java 21·Dart 3.5)과 다를 수 있다.
+    로컬 도구 버전이 CI 고정값(Node 24.x·Java 21·Dart 3.5)과 다를 수 있다 — **macOS 26 에서는
+    `android` 단계가 Kotlin 2.1.0 컴파일러의 `IllegalArgumentException: 26.0.1` 로 죽는다**(코드 문제가
+    아니라 툴체인 문제. `HANDOVER.md` 의 "열려 있는 항목" 참조).
   - `npm run smoke:consumer` — **소비자 스모크**(`tools/consumer-smoke/`). 네 채널의 **게시본**을
-    저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 466개는 전부 소스를
+    저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 549개는 전부 소스를
     보므로 게시본에만 있는 실패(패키징 누락·`exports` 경로·POM 스코프·태그가 가리키는 커밋)를 볼
     자리가 여기뿐이다. CI 아님 — **태그를 민 직후 로컬 1회**. 케이스는 `run.ts`의 `CHECKS` 한 곳에
     있고 네 언어가 같은 `checks.json`을 읽는다(골든 벡터와 같은 원리). 전제는 하나 — 소비자 쪽에
@@ -130,7 +136,14 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
 /{project}/releases/{r}/delta-{base}-{target}.json    # immutable
 ```
 
-관리 API는 REST + JSON, 리소스는 데이터 모델 엔티티에 1:1(`projects`/`keys`/`translations`/`releases`/`locales`). 에러 코드 규약: 422(플레이스홀더 서명 불일치), 409(버전 범위 충돌·동시 편집), 202(비동기 잡).
+관리 API는 REST + JSON, 리소스는 데이터 모델 엔티티에 1:1(`projects`/`keys`/`translations`/`releases`/`locales`). 에러 코드 규약: 422(플레이스홀더 서명 불일치·`empty_release`), 409(버전 범위 충돌·동시 편집), 202(비동기 잡).
+**publish는 나갈 번역이 0개인 릴리스를 쓰기 전에 422로 막는다**(2026-09-12, `pipeline/publish.ts`의
+`EmptyReleaseError`) — 빈 스냅샷을 게시하면 SDK가 번들을 통째로 갈아끼워 그 버전대 앱의 번역이 전부
+사라진다(`⟪key⟫`). 범위 충돌 검사 뒤·자동 상한 닫힘 쓰기 앞에 있어 **관리 API·MCP·화면이 한 곳에서**
+막히고, 거절된 publish가 이전 릴리스의 상한만 닫아 놓고 끝나지 않는다. 키를 안 담은 경우와 담은 키에
+번역이 없는 경우는 고칠 자리가 달라 나눠 말한다. 반대로 **직전 게시본에 있던 키가 빠진 것은 막지 않고
+`droppedKeys`로 알리기만 한다** — 실수와 새 앱 버전에서 걷어낸 키를 서버가 가를 수 없다.
+publish 지표에는 `result="empty"`가 따로 있다(입력 거절이 오류율에 섞이지 않게).
 서버를 직접 띄우지 않고 소비자 서버에 붙이려면 `createManagementHandler`를 export해 마운트한다.
 `DELETE /projects/{p}`는 admin 전용이고, 프로젝트 산출물을 지울 때 **스토리지 경로 순회 가드**를 통과해야 한다.
 `POST /projects/import`(admin)는 **덮어쓰지 않는다** — 이미 있는 id는 409, export 형식이 아니면 400,
@@ -308,7 +321,12 @@ SDK가 읽지 못해 조건부 요청이 영영 성립하지 않는다. `If-None
 Origin과 일치한다).
 
 **대시보드 진입점**: 사이드바 **인스턴스 › MCP**(켜져 있을 때만). 엔드포인트·설정 스니펫·도구 목록·
-Origin 정책을 보여주는 **안내 화면**이지 조작 화면이 아니다. 도구 목록은 `GET /mcp/tools`에서 오는데,
+Origin 정책을 보여주고, **admin이면 토큰 발급·폐기까지 이 화면에서 끝난다**(2026-09-11 — 붙이는 자리와
+발급하는 자리가 떨어져 있었다). 발급은 사용자 관리와 **같은 `POST /users/{id}/tokens` 한 라우트**라
+규칙이 두 벌이 되지 않고, 표면 기본값은 `mcp`다. 평문은 1회 노출이며 **표면이 `mcp`일 때만** 설정
+스니펫의 `Authorization`에 꽂힌다 — `all` 토큰은 CI 시크릿용이라 에이전트 설정에 나타나면 안 된다.
+**대시보드가 MCP 표면을 대신 호출하지는 않는다**(여는 것은 관리 API 조작뿐 — 배포 플레인을 링크로만
+노출하는 것과 같은 성격이다). 도구 목록은 `GET /mcp/tools`에서 오는데,
 이건 관리 API 라우트지 전송이 아니다 — 대시보드도 브라우저라 `POST /mcp`를 부르면 자기 Origin이
 붙어 가드에 걸린다. 하드코딩하면 서버와 어긋나므로 같은 `MCP_TOOLS`를 관리 API로 한 번 더 낸다.
 
@@ -339,7 +357,11 @@ Origin 정책을 보여주는 **안내 화면**이지 조작 화면이 아니다
   추가·수정·삭제와 이전/게시 후 값을 보여주며(빈 릴리스는 게시 단추 대신 이유를, 빠진 키는 이름을 보여 준다),
   현재 DB 스냅샷 JSON도 열람 가능(viewer 포함)) ·
   배포(manifest·이력·health·export·rebuild) · **관측성**(`GET /projects/{p}/telemetry` 익명 집계 —
-  4종 이벤트 요약 + 릴리스 × 앱 버전군 표. 거부율의 분모는 **적용 + 거부**라야 카나리 판정(8.4)의
+  5종 이벤트 요약(2026-09-16에 `release_applied`가 붙었다 — 델타가 없는 릴리스·rollout 밖 기기는
+  `overlay_applied`가 영영 0이라 "안 쓰인다"와 "알릴 방법이 없다"가 같아 보였고, 그 상태로 무사용
+  릴리스를 보관 후보로 올리면 그 버전대 앱의 원격 갱신이 끊긴다. **`overlay_applied`의 뜻은 건드리지
+  않았다** — 건전성 비율의 분모라 오버레이를 받은 적 없는 기기를 섞으면 거부율이 건강해 보인다) +
+  릴리스 × 앱 버전군 표. 거부율의 분모는 **적용 + 거부**라야 카나리 판정(8.4)의
   `releases/{r}/health`와 같은 것을 본다).
   프로젝트 목록에는 admin 전용 **삭제**(ID 타이핑 확인 + 409 표면화)와 **가져오기**(export JSON →
   미리보기 → 복원, 중복 ID는 409로 덮어쓰기 차단), **사용자 관리**(7.3 — 생성·역할 4종·프로젝트 스코프·
@@ -372,7 +394,9 @@ Origin 정책을 보여주는 **안내 화면**이지 조작 화면이 아니다
 
 - **카나리 실제 활성화(rollout<100)**: 8.4 프라이버시 법무 승인 대기. 코드 완비, **안전 기본값 rollout 100 고정**
   (rollout을 쓰는 API 라우트는 없다 — 값을 담을 수 있는 유일한 경로가 import의 백업 복원이고, 거기서 0~100 정수로 검증한다). 버킷 판정은 기기 로컬 익명 `installId`(UUID v4, 서버 미전송) 기반 `hash(installId + releaseId) mod 100 < rollout%`.
-- **실제 앱 통합**: Xcode 앱 타깃·AGP 앱 모듈에서의 위젯 렌더·리소스 병합(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는 앱 모듈.
+- **실제 앱 통합**: **Xcode 앱 타깃의 플러그인 경로는 2026-09-10에 실증됐다** — 실제 앱(RynDevice)을
+  로컬 패키지로 잡아 `XcodeBuildToolPlugin` 경로로 bake까지 확인(R16·433키). 남은 것은 **위젯 렌더·리소스
+  병합**과 **AGP 앱 모듈** 쪽이다(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는 앱 모듈.
 - **SDK 패키지 게시(6.5)**: 채널·좌표(Android=`com.devryner.rynl10n:android` · Web=`@rynl10n/web` · Flutter=`rynl10n` · iOS=SwiftPM, 버전 lockstep `0.1.0`)도 매니페스트도 확정이고 **릴리스 CI**도 들어왔으나(`.github/workflows/` — `ci.yml`이 곧 릴리스 게이트, `release.yml`이 태그 `v*`에서 4채널 동시 퍼블리시 + lockstep 검사) **4채널 전부 게시 완료**(`v0.1.0`, 2026-08-26 — npm `@rynl10n/web` · pub.dev `rynl10n` · Maven `com.devryner.rynl10n:android` · SwiftPM 태그). lockstep `0.1.0`이 네 레지스트리에서 실물로 성립한다.
   **npm·pub.dev는 첫 버전을 CI로 못 올린다** — 자동 게시(Trusted Publisher / Automated publishing) 등록이
   패키지 존재를 전제하는데 같은 버전 재게시는 거부되기 때문. 그래서 `v0.1.0` 태그 하나로 4채널이 끝나지 않는다.

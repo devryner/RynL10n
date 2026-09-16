@@ -97,8 +97,9 @@ rynl10n-bake --fetch "$API/projects/myapp/releases/R1/snapshot" --token "$TOKEN"
 | 탭 | 할 수 있는 일 |
 | --- | --- |
 | 번역 | 키 추가, **키 설명(번역자용 맥락) 작성**, 로케일별 값 인라인 편집, `draft`↔`reviewed` 상태 전환, 지원 로케일 추가, **검색·필터**(키 이름·설명·번역 값 검색 + 로케일·미번역만·상태 3축), **키 백포트**(한 키를 여러 릴리스에 한 번에) |
-| 릴리스 | 릴리스 생성(매칭 전략 3종 — semver-range·integer-range·exact-label), 릴리스에 키 추가, **카탈로그·스냅샷 보기**, publish, 롤백, 보관 |
+| 릴리스 | 릴리스 생성(매칭 전략 3종 — semver-range·integer-range·exact-label), 릴리스에 키 추가, **카탈로그·스냅샷 보기**, **출시 전 변경사항 보기**, publish, 롤백, 보관 |
 | 배포 | 현재 manifest·산출물 링크, 게시 이력, 배포 건전성, 산출물 재생성, 전체 export |
+| 관측성 | 익명 집계 텔레메트리 요약(이벤트 5종 — 적용·오버레이 적용·포맷 가드 거부·미해석 키·델타 실패), 릴리스 × 앱 버전군 표 |
 
 프로젝트 목록 화면에서는 프로젝트 생성·삭제와 **export 파일 가져오기(import)** 를 할 수 있습니다(Admin).
 
@@ -109,6 +110,8 @@ rynl10n-bake --fetch "$API/projects/myapp/releases/R1/snapshot" --token "$TOKEN"
 - **번역 JSON 가져오기** — 번역 탭에서 현재 프로젝트에 키·번역만 일괄 upsert합니다(Translator+). 같은 키·로케일은 갱신하고 파일에 없는 값은 유지합니다. 등록되지 않은 로케일, 중복 키·로케일, 잘못된 복수형, 플레이스홀더 서명 불일치는 쓰기 전에 거절하며 전체 파일을 한 트랜잭션으로 반영합니다.
 - **백포트** — 같은 일을 두 방향에서 합니다. 번역 탭의 **키 백포트**는 키 하나를 여러 릴리스에 넣고(급한 수정 한 건을 살아 있는 릴리스들에 태울 때), 릴리스 탭의 **키 추가**는 릴리스 하나에 여러 키를 넣습니다. 일부 릴리스에만 반영되면 어떤 릴리스가 실패했는지 그대로 알려줍니다. 실제 배포는 각 릴리스를 publish 할 때입니다.
 - **카탈로그·스냅샷 보기** — 릴리스에 지금 어떤 키가 들어 있는지와, 그 릴리스를 게시하면 앱이 받게 될 스냅샷 JSON을 그 자리에서 확인합니다. 게시된 산출물이 아니라 DB에서 다시 빌드한 현재 상태라, 아직 publish 하지 않은 릴리스도 미리 볼 수 있습니다(Viewer 이상).
+- **출시 전 변경사항** — publish를 누르기 전에, 마지막 게시본 대비 무엇이 추가·수정·삭제되는지와 이전/게시 후 값을 실제 배포와 같은 규칙으로 보여줍니다. 나갈 번역이 하나도 없는 릴리스는 게시 단추 대신 이유가 나오고(그대로 게시하면 그 버전대 앱의 번역이 전부 사라집니다), 직전 게시본에 있다가 빠진 키는 이름을 알려줍니다.
+- **에이전트 연결(MCP)** — 사이드바 **인스턴스 › MCP**에서 엔드포인트·설정 스니펫·쓸 수 있는 도구 목록을 확인하고, Admin이면 **전용 토큰 발급·폐기**까지 이 화면에서 끝냅니다. 토큰은 발급 시점에 표면(`mcp`/`all`)과 역할 상한으로 좁혀지며, 상한이 곧 그 토큰에 보이는 도구 목록입니다.
 - **실시간 반영** — publish·롤백이 일어나면 SSE 신호를 받아 화면이 자동 갱신됩니다(데이터는 정적 경로로만 이동).
 - **플레인 분리 유지** — 대시보드는 관리 플레인만 호출하고, 배포 플레인은 산출물 링크로만 노출합니다.
 - 헤드리스로 돌리려면 `createManagementServer({ serveDashboard: false })`.
@@ -152,6 +155,8 @@ curl -X POST $API/projects/myapp/releases -H "$AUTH" -H "$JSON" \
 # → {"id":"R1","state":"draft"}
 
 # 5. publish — 스냅샷·manifest 생성 + 배포 플레인 게시 (202 + jobId)
+#    나갈 번역이 하나도 없으면 쓰기 전에 422(empty_release) — 빈 스냅샷을 게시하면
+#    그 버전대 앱의 번역이 전부 사라지기 때문입니다. 릴리스는 draft로 남습니다.
 curl -X POST $API/projects/myapp/releases/R1/publish -H "$AUTH"
 
 # 6. 배포 플레인에서 확인 — SDK가 읽는 경로 그대로 (정적 파일, 인증 없음)
@@ -187,9 +192,10 @@ curl -X POST $API/projects/myapp/releases/R1/rollback -H "$AUTH" -H "$JSON" \
 
 ```
 src/                  결정적 코어 참조 구현 (TypeScript, 런타임 의존성 0)
-backend/              관리 백엔드 (REST API + 산출물 빌더)
+backend/              관리 백엔드 (REST API + 산출물 빌더 + 에이전트용 MCP 표면)
 backend/src/ui/       대시보드 (어드민 앱 — 빌드 스텝 없는 바닐라 HTML/CSS/JS)
 sdks/                 ios · android · web · flutter SDK
+mcp-stdio/            앱 개발자용 stdio MCP 서버 (소비자 앱 저장소에서 돈다 · 미게시)
 fixtures/golden/      크로스언어 계약 골든 벡터
 examples/             SPM 플러그인 소비 예제 등
 docker-compose.yml    단일 노드 셀프호스트
@@ -202,12 +208,18 @@ Node ≥ 23.6 (네이티브 타입 스트리핑 — 빌드 스텝 없음). 코�
 ```bash
 npm test                 # 코어 참조 구현 테스트
 npm run test:backend     # 관리 백엔드 테스트
+npm run test:mcp-stdio   # 앱 개발자용 stdio MCP 서버 테스트
 npm run gen:golden       # 골든 벡터 재생성 (스키마/알고리즘 변경 시)
 swift test               # sdks/ios
 gradle test              # sdks/android
 node --test "test/*.test.ts"   # sdks/web
 dart test                # sdks/flutter
+
+./tools/ci-local.sh      # 위 전부를 한 번에 — PR·푸시 전 게이트
 ```
+
+GitHub Actions는 태그 게시(`release.yml`)와 수동 실행에서만 돕니다. **평상시 검증은
+`./tools/ci-local.sh`** 이고, 컴포넌트를 지정해 부분 실행할 수 있습니다(`./tools/ci-local.sh reference web`).
 
 ## 라이선스
 

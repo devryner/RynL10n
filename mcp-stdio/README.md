@@ -105,7 +105,7 @@ SDK와 같은 문제를 풀어야 한다 — 이 서버는 `../src/builder`를 �
 ## 테스트
 
 ```bash
-npm run test:mcp-stdio       # 37개
+npm run test:mcp-stdio       # 38개
 npm run typecheck:mcp-stdio
 ```
 
