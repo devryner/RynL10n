@@ -81,6 +81,9 @@ public final class RynL10nClient: @unchecked Sendable {
 
     /// 배포 건전성 익명 집계 카운트(9.3).
     public struct TelemetryCounts: Sendable, Equatable {
+        /// 이 릴리스가 앱에 적용됐다(6.4). `overlayApplied`와 달리 delta 유무와 무관하다 —
+        /// 오버레이가 없는 릴리스도, rollout 밖이라 base만 받은 기기도 여기에 잡힌다.
+        public var releaseApplied = 0
         public var overlayApplied = 0, formatGuardRejected = 0, keyUnresolved = 0, deltaFailed = 0
     }
     private func bump(_ kp: WritableKeyPath<TelemetryCounts, Int>) {
@@ -97,6 +100,7 @@ public final class RynL10nClient: @unchecked Sendable {
     /// 실제보다 건강해 보인다.
     public func mergeTelemetry(_ counts: TelemetryCounts) {
         lock.lock(); defer { lock.unlock() }
+        tel.releaseApplied += counts.releaseApplied
         tel.overlayApplied += counts.overlayApplied
         tel.formatGuardRejected += counts.formatGuardRejected
         tel.keyUnresolved += counts.keyUnresolved
@@ -174,6 +178,9 @@ public final class RynL10nClient: @unchecked Sendable {
         self.overlayTarget = overlayTarget
         let toNotify = listeners
         lock.unlock()
+        // 릴리스가 정해진 채 실제로 바뀌었으면 "이 릴리스를 쓰기 시작했다"이다 — 델타 적용 경로가
+        // 아니어도(스냅샷만 갈아끼움, 오버레이 없음, rollout 밖) 전부 이 자리를 지난다.
+        if changed, releaseId != nil { bump(\.releaseApplied) }
         if changed, let releaseId, let overlayTarget {
             let info = UpdateInfo(release: releaseId, overlayTarget: overlayTarget)
             for l in toNotify { l(info) }

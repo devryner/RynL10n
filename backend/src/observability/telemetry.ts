@@ -1,14 +1,14 @@
 /**
  * 텔레메트리 수집 — 기획서 9.3.
  * 옵트인·익명·집계만. 스키마: {projectId, releaseId, event, count, appVersionBucket}.
- * event ∈ {overlay_applied, format_guard_rejected, key_unresolved, delta_failed}.
+ * event ∈ {release_applied, overlay_applied, format_guard_rejected, key_unresolved, delta_failed}.
  * **프라이버시 가드**: 정의된 5개 키 외의 필드가 있으면 거부(번역 값·키명·기기 식별자 유입 차단).
  * 배포 건전성(카나리 8.4)의 임계 입력이 이 집계다.
  */
 import type { Repo } from "../db/repo.ts";
 import { Metrics, METRIC } from "./metrics.ts";
 
-export const TELEMETRY_EVENTS = ["overlay_applied", "format_guard_rejected", "key_unresolved", "delta_failed"] as const;
+export const TELEMETRY_EVENTS = ["release_applied", "overlay_applied", "format_guard_rejected", "key_unresolved", "delta_failed"] as const;
 export type TelemetryEvent = (typeof TELEMETRY_EVENTS)[number];
 
 const ALLOWED_KEYS = new Set(["projectId", "releaseId", "event", "count", "appVersionBucket"]);
@@ -59,7 +59,12 @@ export function ingest(repo: Repo, metrics: Metrics, batch: unknown): { accepted
   return { accepted, rejected };
 }
 
-/** 배포 건전성 지표(8.4 자동 중단 입력). 포맷 가드 거부율·미해결율·델타 실패율. */
+/**
+ * 배포 건전성 지표(8.4 자동 중단 입력). 포맷 가드 거부율·미해결율·델타 실패율.
+ *
+ * 분모는 그대로 `overlay_applied`다. `release_applied`는 오버레이 없이 적용된 경우까지 세므로,
+ * 섞으면 오버레이를 받은 적 없는 기기가 거부율의 분모로 들어가 비율이 실제보다 건강해 보인다.
+ */
 export function releaseHealth(repo: Repo, projectId: string, releaseId: string) {
   const byEvent = repo.telemetryByEvent(projectId, releaseId);
   const applied = byEvent.overlay_applied ?? 0;

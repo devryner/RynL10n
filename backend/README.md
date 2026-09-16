@@ -149,7 +149,9 @@ manifest 재게시 + 이력 기록.
   `rynl10n_api_requests_total` · `rynl10n_telemetry_events_total{event}`. 구조화 JSON 로그(stdout).
 - `POST /projects/{p}/telemetry` — 옵트인·익명·집계 수집(인증 없음). **정의된 5개 필드 외 유입은 거부**(프라이버시 가드).
 - `GET /projects/{p}/telemetry` — Viewer+ 익명 집계 열람. 릴리스·앱 버전군·이벤트별 누적 카운트만 반환.
-  이벤트 ∈ {overlay_applied, format_guard_rejected, key_unresolved, delta_failed}.
+  이벤트 ∈ {release_applied, overlay_applied, format_guard_rejected, key_unresolved, delta_failed}.
+  `release_applied`는 델타 유무와 무관하게 "그 릴리스를 쓰기 시작했다"를 센다 — 한 번만 게시해
+  오버레이가 없는 릴리스는 이것 말고는 사용 신호가 없다(건전성 비율의 분모에는 넣지 않는다).
 - `GET /projects/{p}/releases/{r}/health` — 카나리 판정(8.4) 입력: 포맷 가드 거부율·미해결율·델타 실패율.
 
 ## 데이터 이식성 · 재해 복구 (9.2 / 9.4, M3)

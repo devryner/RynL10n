@@ -52,6 +52,7 @@ List<TelemetryEvent> telemetryEvents(
   required String bucket,
 }) {
   final pairs = <String, int>{
+    'release_applied': counts.releaseApplied,
     'overlay_applied': counts.overlayApplied,
     'format_guard_rejected': counts.formatGuardRejected,
     'key_unresolved': counts.keyUnresolved,

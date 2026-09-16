@@ -192,8 +192,8 @@ tasks.named("preBuild").configure { dependsOn(":rynl10nBake") }
 ## 코어 파리티 (4개 언어)
 
 TS·Swift·Kotlin·Dart 모두 동일 골든 벡터로 다음을 검증: JCS·해시·resolve·매칭·**정수 버전 매칭
-(integer-range)**·**카나리 버킷팅(8.4)**·**텔레메트리 카운터(9.3, overlay_applied/format_guard_rejected/
-key_unresolved/delta_failed)**. 클라이언트 `installId`(카나리)·`telemetry` 옵션 4개 언어 공통.
+(integer-range)**·**카나리 버킷팅(8.4)**·**텔레메트리 카운터(9.3, release_applied/overlay_applied/
+format_guard_rejected/key_unresolved/delta_failed)**. 클라이언트 `installId`(카나리)·`telemetry` 옵션 4개 언어 공통.
 
 ## 반응형 바인딩 (6.2)
 

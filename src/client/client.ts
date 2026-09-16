@@ -57,6 +57,13 @@ export interface ClientConfig {
 
 /** 배포 건전성 익명 집계 카운트(9.3). 카나리 판정(8.4) 입력. */
 export interface TelemetryCounts {
+  /**
+   * 이 릴리스가 앱에 적용됐다(6.4). `overlay_applied`와 달리 **delta 유무와 무관하다** — 한 번만
+   * 게시해 오버레이가 없는 릴리스도, 카나리 rollout 밖이라 base만 받은 기기도 여기에 잡힌다.
+   * 그런 릴리스는 overlay_applied가 영영 0이라, 서버가 "아무도 안 쓴다"와 "쓴다고 말할 방법이
+   * 없다"를 구별할 수 없었다.
+   */
+  release_applied: number;
   overlay_applied: number;
   format_guard_rejected: number;
   key_unresolved: number;
@@ -81,7 +88,7 @@ export class RynL10nClient {
   private overlayTarget: string | undefined;
   private readonly listeners = new Set<UpdateListener>();
 
-  private tel: TelemetryCounts = { overlay_applied: 0, format_guard_rejected: 0, key_unresolved: 0, delta_failed: 0 };
+  private tel: TelemetryCounts = { release_applied: 0, overlay_applied: 0, format_guard_rejected: 0, key_unresolved: 0, delta_failed: 0 };
 
   constructor(config: ClientConfig) {
     this.config = config;
@@ -96,7 +103,7 @@ export class RynL10nClient {
   /** 누적된 익명 텔레메트리 카운트를 반환하고 리셋(옵트인 리포터가 배치 전송, 9.3). */
   drainTelemetry(): TelemetryCounts {
     const snapshot = { ...this.tel };
-    this.tel = { overlay_applied: 0, format_guard_rejected: 0, key_unresolved: 0, delta_failed: 0 };
+    this.tel = { release_applied: 0, overlay_applied: 0, format_guard_rejected: 0, key_unresolved: 0, delta_failed: 0 };
     return snapshot;
   }
 
@@ -185,6 +192,9 @@ export class RynL10nClient {
     this.activeBundle = bundle;
     this.overlay = overlay;
     this.overlayTarget = overlayTarget;
+    // 릴리스가 정해진 채 실제로 바뀌었으면 "이 릴리스를 쓰기 시작했다"이다 — 델타 적용 경로가
+    // 아니어도(스냅샷만 갈아끼움, 오버레이 없음, rollout 밖) 전부 이 자리를 지난다.
+    if (changed && releaseId !== undefined) this.bump("release_applied");
     if (changed && releaseId !== undefined && overlayTarget !== undefined) {
       for (const l of this.listeners) l({ release: releaseId, overlayTarget });
     }

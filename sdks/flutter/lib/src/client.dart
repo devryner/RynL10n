@@ -21,6 +21,9 @@ class InMemoryDeliveryStore implements DeliveryStore {
 }
 
 class TelemetryCounts {
+  /// 이 릴리스가 앱에 적용됐다(6.4). [overlayApplied]와 달리 delta 유무와 무관하다 —
+  /// 오버레이가 없는 릴리스도, rollout 밖이라 base만 받은 기기도 여기에 잡힌다.
+  int releaseApplied = 0;
   int overlayApplied = 0, formatGuardRejected = 0, keyUnresolved = 0, deltaFailed = 0;
 }
 
@@ -69,6 +72,7 @@ class RynL10nClient {
   void _bump(String event) {
     if (telemetry != 'aggregate') return;
     switch (event) {
+      case 'release_applied': _tel.releaseApplied++; break;
       case 'overlay_applied': _tel.overlayApplied++; break;
       case 'format_guard_rejected': _tel.formatGuardRejected++; break;
       case 'key_unresolved': _tel.keyUnresolved++; break;
@@ -78,11 +82,12 @@ class RynL10nClient {
 
   TelemetryCounts drainTelemetry() {
     final s = TelemetryCounts()
+      ..releaseApplied = _tel.releaseApplied
       ..overlayApplied = _tel.overlayApplied
       ..formatGuardRejected = _tel.formatGuardRejected
       ..keyUnresolved = _tel.keyUnresolved
       ..deltaFailed = _tel.deltaFailed;
-    _tel.overlayApplied = _tel.formatGuardRejected = _tel.keyUnresolved = _tel.deltaFailed = 0;
+    _tel.releaseApplied = _tel.overlayApplied = _tel.formatGuardRejected = _tel.keyUnresolved = _tel.deltaFailed = 0;
     return s;
   }
 
@@ -90,6 +95,7 @@ class RynL10nClient {
   /// 드레인 이후 새로 쌓인 카운트에 **더한다** — 실패 구간이 사라지면 카나리 판정(8.4)이
   /// 실제보다 건강해 보인다.
   void mergeTelemetry(TelemetryCounts counts) {
+    _tel.releaseApplied += counts.releaseApplied;
     _tel.overlayApplied += counts.overlayApplied;
     _tel.formatGuardRejected += counts.formatGuardRejected;
     _tel.keyUnresolved += counts.keyUnresolved;
@@ -145,6 +151,9 @@ class RynL10nClient {
     _activeBundle = b;
     _overlay = o;
     _overlayTarget = overlayTarget;
+    // 릴리스가 정해진 채 실제로 바뀌었으면 "이 릴리스를 쓰기 시작했다"이다 — 델타 적용 경로가
+    // 아니어도(스냅샷만 갈아끼움, 오버레이 없음, rollout 밖) 전부 이 자리를 지난다.
+    if (changed && releaseId != null) _bump('release_applied');
     if (changed && releaseId != null && overlayTarget != null) {
       for (final l in List.of(_listeners)) l(UpdateInfo(releaseId, overlayTarget));
     }

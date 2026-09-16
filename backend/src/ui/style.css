@@ -465,7 +465,7 @@ pre.json {
   min-width: 0; padding: 14px 16px; background: var(--panel); border: 1px solid var(--border);
   border-top: 3px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-card);
 }
-.signal-card.overlay_applied { border-top-color: var(--accent); }
+.signal-card.release_applied, .signal-card.overlay_applied { border-top-color: var(--accent); }
 .signal-card.format_guard_rejected, .signal-card.key_unresolved, .signal-card.delta_failed { border-top-color: var(--warn); }
 .signal-label { color: var(--muted); font-size: 11.5px; font-weight: 600; }
 .signal-value {

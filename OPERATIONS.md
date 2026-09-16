@@ -195,8 +195,10 @@ gradle rynl10nBake -Psource=vendored-snapshot.json -Pout=./out
 
 - **Prometheus**: `GET /metrics` — publish 성공/충돌/실패 카운트·소요시간, API 요청·지연, 텔레메트리 이벤트.
 - **구조화 로그**: stdout JSON 라인(5xx 등). 기존 로그 파이프라인에 그대로 물림.
-- **텔레메트리(옵트인·익명·집계)**: SDK `telemetry: 'aggregate'` → 4개 이벤트(overlay_applied /
-  format_guard_rejected / key_unresolved / delta_failed) 카운트만 리포트. 값·키명·기기 식별자 없음.
+- **텔레메트리(옵트인·익명·집계)**: SDK `telemetry: 'aggregate'` → 5개 이벤트(release_applied /
+  overlay_applied / format_guard_rejected / key_unresolved / delta_failed) 카운트만 리포트.
+  값·키명·기기 식별자 없음. `release_applied`는 오버레이 없이 적용된 경우까지 세므로 "이 릴리스가
+  아직 쓰이나"에 답한다(거부율의 분모는 그대로 overlay_applied다).
   ```bash
   POST /projects/{p}/telemetry   # 정의된 5개 필드 외 유입은 거부(프라이버시 가드)
   GET  /projects/{p}/releases/{r}/health   # 카나리 판정(8.4) 입력: 포맷 가드 거부율 등

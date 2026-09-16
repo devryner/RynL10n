@@ -134,16 +134,22 @@ class PushTelemetryTest {
 
         assertEquals(1, plane.posted.size)
         val batch = Json.parseToJsonElement(plane.posted[0]) as JsonArray
-        assertEquals(1, batch.size, "0인 이벤트는 보내지 않는다")
-        val event = batch[0].jsonObject
+        // R42는 overlay == base라 delta가 없다. 그래도 릴리스를 쓰고 있다는 사실은 올라간다.
         assertEquals(
-            setOf("projectId", "releaseId", "event", "count", "appVersionBucket"), event.keys,
-            "서버의 프라이버시 가드가 거부하는 필드가 하나라도 있으면 배치 전체가 버려진다",
+            setOf("key_unresolved", "release_applied"),
+            batch.map { it.jsonObject["event"]!!.jsonPrimitive.content }.toSet(),
+            "0인 이벤트는 보내지 않는다",
         )
-        assertEquals("key_unresolved", event["event"]!!.jsonPrimitive.content)
-        assertEquals("R42", event["releaseId"]!!.jsonPrimitive.content)
-        assertEquals(1, event["count"]!!.jsonPrimitive.content.toInt())
-        assertEquals("1.2", event["appVersionBucket"]!!.jsonPrimitive.content, "개별 빌드가 아니라 버전군이어야 익명이다")
+        for (entry in batch) {
+            val event = entry.jsonObject
+            assertEquals(
+                setOf("projectId", "releaseId", "event", "count", "appVersionBucket"), event.keys,
+                "서버의 프라이버시 가드가 거부하는 필드가 하나라도 있으면 배치 전체가 버려진다",
+            )
+            assertEquals("R42", event["releaseId"]!!.jsonPrimitive.content)
+            assertEquals(1, event["count"]!!.jsonPrimitive.content.toInt())
+            assertEquals("1.2", event["appVersionBucket"]!!.jsonPrimitive.content, "개별 빌드가 아니라 버전군이어야 익명이다")
+        }
         assertFalse(plane.posted[0].contains("missing.key"), "키 이름은 실리지 않는다")
 
         assertEquals(TelemetryCounts(), client.drainTelemetry(), "성공하면 카운트는 비워진다")

@@ -53,9 +53,11 @@ test("텔레메트리: 유효 이벤트 집계 + PII 필드 거부(프라이버�
   const ok = await api("POST", "/projects/shop/telemetry", { body: [
     { projectId: "shop", releaseId: "R1", event: "overlay_applied", count: 90, appVersionBucket: "1.0" },
     { projectId: "shop", releaseId: "R1", event: "format_guard_rejected", count: 10, appVersionBucket: "1.0" },
+    // 오버레이 없이 적용된 경우까지 세는 신호(9.3). 델타가 없는 릴리스는 이것만 올라온다.
+    { projectId: "shop", releaseId: "R1", event: "release_applied", count: 500, appVersionBucket: "1.0" },
   ] });
   assert.equal(ok.status, 200);
-  assert.equal(ok.body.accepted, 2);
+  assert.equal(ok.body.accepted, 3);
 
   // 정의되지 않은 필드(예: 기기 식별자) → 거부
   const pii = await api("POST", "/projects/shop/telemetry", { body: [
@@ -68,6 +70,9 @@ test("텔레메트리: 유효 이벤트 집계 + PII 필드 거부(프라이버�
   const health = await api("GET", "/projects/shop/releases/R1/health", { token: ADMIN });
   assert.equal(health.status, 200);
   assert.ok(Math.abs(health.body.formatGuardRejectedRate - 0.1) < 1e-9); // 10/(90+10)
+  // release_applied 500건은 분모에 섞이지 않는다 — 섞이면 오버레이를 받은 적 없는 기기가
+  // 거부율을 희석해 8.4 자동 중단이 위험을 못 본다.
+  assert.equal(health.body.applied, 90);
 });
 
 test("GET /projects/{p}/telemetry: Viewer+가 릴리스·버전군별 익명 집계를 열람", async () => {
@@ -84,6 +89,7 @@ test("GET /projects/{p}/telemetry: Viewer+가 릴리스·버전군별 익명 집
   assert.deepEqual(listed.body.telemetry, [
     { releaseId: "R1", event: "format_guard_rejected", appVersionBucket: "1.0", count: 10 },
     { releaseId: "R1", event: "overlay_applied", appVersionBucket: "1.0", count: 90 },
+    { releaseId: "R1", event: "release_applied", appVersionBucket: "1.0", count: 500 },
     { releaseId: "R1", event: "delta_failed", appVersionBucket: "1.1", count: 2 },
     { releaseId: "R1", event: "overlay_applied", appVersionBucket: "1.1", count: 7 },
   ]);
