@@ -452,6 +452,7 @@ test("관측성 탭은 익명 집계를 요약하고 릴리스·앱 버전군별
     { releaseId: "R1", appVersionBucket: "1.0", event: "key_unresolved", count: 5 },
     { releaseId: "R1", appVersionBucket: "1.0", event: "delta_failed", count: 2 },
     { releaseId: "R1", appVersionBucket: "1.1", event: "overlay_applied", count: 25 },
+    { releaseId: "R1", appVersionBucket: "1.1", event: "release_applied", count: 40 },
   ] };
   const calls = installFetch(table);
   await loadApp();
@@ -464,6 +465,8 @@ test("관측성 탭은 익명 집계를 요약하고 릴리스·앱 버전군별
   assert.match(text, /익명 운영 신호/);
   assert.match(text, /번역 원문, 키 이름, 기기 식별자는 저장하지 않습니다/);
   assert.match(text, /125/, "전체 오버레이 적용 횟수를 합산한다");
+  assert.match(text, /릴리스 적용/, "델타 없이 적용된 경우까지 세는 신호도 보여준다");
+  assert.match(text, /40/, "release_applied 합계");
   assert.match(text, /7\.41%/, "포맷 가드 거부율은 guard \/ \(applied \+ guard\)");
   assert.match(text, /1\.57%/, "델타 실패율은 failed \/ \(applied \+ failed\)");
   assert.match(text, /1\.0/);

@@ -153,14 +153,16 @@ final class PushTelemetryTests: XCTestCase {
         let bodies = StubURLProtocol.registry.postedBodies("/projects/demo/telemetry")
         XCTAssertEqual(bodies.count, 1)
         let batch = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(bodies[0].utf8)) as? [[String: Any]])
-        XCTAssertEqual(batch.count, 1, "0인 이벤트는 보내지 않는다")
-        let event = batch[0]
-        XCTAssertEqual(Set(event.keys), ["projectId", "releaseId", "event", "count", "appVersionBucket"],
-                       "서버의 프라이버시 가드가 거부하는 필드가 하나라도 있으면 배치 전체가 버려진다")
-        XCTAssertEqual(event["event"] as? String, "key_unresolved")
-        XCTAssertEqual(event["count"] as? Int, 1)
-        XCTAssertEqual(event["releaseId"] as? String, "R42")
-        XCTAssertEqual(event["appVersionBucket"] as? String, "1.2", "개별 빌드가 아니라 버전군이어야 익명이다")
+        // R42는 overlay == base라 delta가 없다. 그래도 릴리스를 쓰고 있다는 사실은 올라간다.
+        XCTAssertEqual(Set(batch.compactMap { $0["event"] as? String }), ["key_unresolved", "release_applied"],
+                       "0인 이벤트는 보내지 않는다")
+        for event in batch {
+            XCTAssertEqual(Set(event.keys), ["projectId", "releaseId", "event", "count", "appVersionBucket"],
+                           "서버의 프라이버시 가드가 거부하는 필드가 하나라도 있으면 배치 전체가 버려진다")
+            XCTAssertEqual(event["count"] as? Int, 1)
+            XCTAssertEqual(event["releaseId"] as? String, "R42")
+            XCTAssertEqual(event["appVersionBucket"] as? String, "1.2", "개별 빌드가 아니라 버전군이어야 익명이다")
+        }
         // 키 이름("missing.key")·번역 값은 어디에도 실리지 않는다.
         XCTAssertFalse(bodies[0].contains("missing.key"))
 

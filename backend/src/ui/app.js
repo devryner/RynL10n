@@ -1716,6 +1716,7 @@ function tabDelivery() {
 // ── 탭: 관측성 ──────────────────────────────────────────────────────────────
 
 const TELEMETRY_EVENTS = [
+  ["release_applied", "릴리스 적용"],
   ["overlay_applied", "오버레이 적용"],
   ["format_guard_rejected", "포맷 가드 거부"],
   ["key_unresolved", "미해결 키"],
@@ -1746,6 +1747,7 @@ function tabTelemetry() {
   const unresolved = totals.key_unresolved;
   const delta = totals.delta_failed;
   const cards = [
+    ["release_applied", "릴리스 적용", number.format(totals.release_applied), "이 릴리스를 쓰기 시작한 횟수(오버레이 없어도 잡힌다)"],
     ["overlay_applied", "오버레이 적용", number.format(applied), "원격 오버레이가 적용된 횟수"],
     ["format_guard_rejected", "포맷 가드 거부율", rate(guard, applied + guard), `${number.format(guard)}건 거부`],
     ["key_unresolved", "미해결 키 비율", rate(unresolved, applied + guard), `${number.format(unresolved)}건 미해결`],
@@ -1792,7 +1794,7 @@ function tabTelemetry() {
                   release ? el("div", {}, el("span", { class: `badge ${release.state}`, text: release.state })) : null),
                 el("td", { class: "mono", text: row.appVersionBucket || "미지정" }),
                 ...TELEMETRY_EVENTS.map(([event]) => el("td", {
-                  class: `telemetry-count ${event === "overlay_applied" ? "good" : "risk"}`,
+                  class: `telemetry-count ${event === "overlay_applied" || event === "release_applied" ? "good" : "risk"}`,
                   text: number.format(row.counts[event]),
                 })),
               );

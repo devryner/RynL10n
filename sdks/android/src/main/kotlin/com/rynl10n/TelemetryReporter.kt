@@ -129,6 +129,7 @@ class TelemetryReporter @JvmOverloads constructor(
         /** 카운트 → 서버 이벤트 배치. 0인 이벤트는 보내지 않는다(빈 행으로 집계를 부풀리지 않기 위해). */
         fun events(counts: TelemetryCounts, projectId: String, releaseId: String, bucket: String): List<TelemetryEvent> =
             listOf(
+                "release_applied" to counts.releaseApplied,
                 "overlay_applied" to counts.overlayApplied,
                 "format_guard_rejected" to counts.formatGuardRejected,
                 "key_unresolved" to counts.keyUnresolved,

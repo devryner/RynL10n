@@ -312,6 +312,7 @@ reporter.start(client, every: 300)                          // ② 5분마다 �
 
 | 이벤트 | 언제 | 읽는 법 |
 | --- | --- | --- |
+| `release_applied` | 그 릴리스가 적용됨(오버레이 없어도, rollout 밖이어도) | "아직 쓰이나" 판정 |
 | `overlay_applied` | 원격 오버레이가 실제로 적용됨 | 카나리 분모 |
 | `format_guard_rejected` | 플레이스홀더 서명 불일치로 그 키만 번들 fallback | 올라가면 배포 중단 신호 |
 | `key_unresolved` | 어느 계층에서도 못 찾음(`⟪key⟫` 표면화) | 카탈로그 누락 |
@@ -379,7 +380,7 @@ RYNL10N_ENDPOINT=http://localhost:8788 RYNL10N_PROJECT=myapp \
 | 값이 안 바뀜 (서버는 바뀜) | manifest ETag 캐시 | manifest는 짧은 TTL. 즉시 확인하려면 `remote.clearCache()` |
 
 `RynL10nClient(telemetry: "aggregate")`로 켜면 `drainTelemetry()`가 익명 집계 카운트
-(`overlayApplied` / `formatGuardRejected` / `keyUnresolved` / `deltaFailed`)를 돌려준다.
+(`releaseApplied` / `overlayApplied` / `formatGuardRejected` / `keyUnresolved` / `deltaFailed`)를 돌려준다.
 값·키명·기기 식별자는 포함되지 않는다.
 
 ---

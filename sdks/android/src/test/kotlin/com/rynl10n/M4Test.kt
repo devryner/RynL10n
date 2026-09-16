@@ -3,6 +3,7 @@ package com.rynl10n
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -62,6 +63,28 @@ class M4Test {
         c1.t("missing.key")
         val tel = c1.drainTelemetry()
         assertEquals(1, tel.overlayApplied)
+        assertEquals(1, tel.releaseApplied)
         assertEquals(1, tel.keyUnresolved)
+
+        // rollout 밖이라 오버레이를 못 받은 기기도 그 릴리스의 base를 쓰고 있다.
+        val tel0 = c0.drainTelemetry()
+        assertEquals(1, tel0.releaseApplied)
+        assertEquals(0, tel0.overlayApplied)
+    }
+
+    /**
+     * 한 번만 게시한 릴리스(overlay == base)에는 delta가 없어 overlayApplied가 영영 0이다.
+     * 그 침묵을 "안 쓰인다"로 읽으면 쓰이는 릴리스를 보관 후보로 올리게 된다.
+     */
+    @Test fun deltaLessReleaseStillReportsApplied() {
+        val bundle = Snapshot(1, "R1", "b0", "en", mapOf("en" to mapOf("greet" to TranslationValue.Text("old"))))
+        val manifest = Manifest(1, "p", "en", "T", listOf(
+            ManifestRelease("R1", ReleaseState.PUBLISHED, VersionMatch("semver-range", ">=1.0.0"), "b0", "b0", 100, "releases/R1/snapshot-b0.json", null)))
+        val c = RynL10nClient(bundle, InMemoryDeliveryStore(), Matching.ClientContext(appVersion = "1.0.0"), telemetry = "aggregate")
+        assertTrue(c.refresh(manifest))
+
+        val tel = c.drainTelemetry()
+        assertEquals(1, tel.releaseApplied)
+        assertEquals(0, tel.overlayApplied)
     }
 }

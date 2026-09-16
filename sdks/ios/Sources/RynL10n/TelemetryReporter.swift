@@ -106,6 +106,7 @@ public final class TelemetryReporter: @unchecked Sendable {
     static func events(_ counts: RynL10nClient.TelemetryCounts,
                        projectId: String, releaseId: String, bucket: String) -> [Event] {
         let pairs: [(String, Int)] = [
+            ("release_applied", counts.releaseApplied),
             ("overlay_applied", counts.overlayApplied),
             ("format_guard_rejected", counts.formatGuardRejected),
             ("key_unresolved", counts.keyUnresolved),

@@ -199,14 +199,17 @@ void main() {
     expect(posted, hasLength(1));
 
     final batch = jsonDecode(posted.first) as List;
-    expect(batch, hasLength(1), reason: '0인 이벤트는 보내지 않는다');
-    final event = batch.first as Map;
-    expect(event.keys.toSet(), {'projectId', 'releaseId', 'event', 'count', 'appVersionBucket'},
-        reason: '서버의 프라이버시 가드가 거부하는 필드가 하나라도 있으면 배치 전체가 버려진다');
-    expect(event['event'], 'key_unresolved');
-    expect(event['releaseId'], 'R42');
-    expect(event['count'], 1);
-    expect(event['appVersionBucket'], '1.2', reason: '개별 빌드가 아니라 버전군이어야 익명이다');
+    // R42는 overlay == base라 delta가 없다. 그래도 릴리스를 쓰고 있다는 사실은 올라간다.
+    expect(batch.map((e) => (e as Map)['event']).toSet(), {'key_unresolved', 'release_applied'},
+        reason: '0인 이벤트는 보내지 않는다');
+    for (final entry in batch) {
+      final event = entry as Map;
+      expect(event.keys.toSet(), {'projectId', 'releaseId', 'event', 'count', 'appVersionBucket'},
+          reason: '서버의 프라이버시 가드가 거부하는 필드가 하나라도 있으면 배치 전체가 버려진다');
+      expect(event['releaseId'], 'R42');
+      expect(event['count'], 1);
+      expect(event['appVersionBucket'], '1.2', reason: '개별 빌드가 아니라 버전군이어야 익명이다');
+    }
     expect(posted.first.contains('missing.key'), isFalse, reason: '키 이름은 실리지 않는다');
 
     expect(client.drainTelemetry().keyUnresolved, 0, reason: '성공하면 카운트는 비워진다');

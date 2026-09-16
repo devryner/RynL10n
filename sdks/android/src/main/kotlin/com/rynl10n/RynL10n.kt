@@ -28,6 +28,11 @@ data class ClientStatus(val selection: String, val releaseId: String?, val activ
  */
 /** 배포 건전성 익명 집계 카운트(9.3). */
 data class TelemetryCounts(
+    /**
+     * 이 릴리스가 앱에 적용됐다(6.4). [overlayApplied]와 달리 delta 유무와 무관하다 —
+     * 오버레이가 없는 릴리스도, rollout 밖이라 base만 받은 기기도 여기에 잡힌다.
+     */
+    var releaseApplied: Int = 0,
     var overlayApplied: Int = 0, var formatGuardRejected: Int = 0,
     var keyUnresolved: Int = 0, var deltaFailed: Int = 0,
 )
@@ -64,6 +69,7 @@ class RynL10nClient(
         if (telemetry != "aggregate") return
         lock.withLock {
             when (event) {
+                "release_applied" -> tel.releaseApplied++
                 "overlay_applied" -> tel.overlayApplied++
                 "format_guard_rejected" -> tel.formatGuardRejected++
                 "key_unresolved" -> tel.keyUnresolved++
@@ -83,6 +89,7 @@ class RynL10nClient(
      * 실제보다 건강해 보인다.
      */
     fun mergeTelemetry(counts: TelemetryCounts) = lock.withLock {
+        tel.releaseApplied += counts.releaseApplied
         tel.overlayApplied += counts.overlayApplied
         tel.formatGuardRejected += counts.formatGuardRejected
         tel.keyUnresolved += counts.keyUnresolved
@@ -152,6 +159,9 @@ class RynL10nClient(
             this.overlayTarget = overlayTarget
             changed to listeners.toList()
         }
+        // 릴리스가 정해진 채 실제로 바뀌었으면 "이 릴리스를 쓰기 시작했다"이다 — 델타 적용 경로가
+        // 아니어도(스냅샷만 갈아끼움, 오버레이 없음, rollout 밖) 전부 이 자리를 지난다.
+        if (changed && releaseId != null) bump("release_applied")
         if (changed && releaseId != null && overlayTarget != null) {
             val info = UpdateInfo(releaseId, overlayTarget)
             toNotify.forEach { it(info) }

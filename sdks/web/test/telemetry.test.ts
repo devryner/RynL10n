@@ -57,18 +57,20 @@ test("텔레메트리: 익명 집계만 5개 필드로 올린다 (9.3 프라이�
   assert.equal(sent[0]!.url, "https://admin.test/projects/demo/telemetry");
 
   const batch = JSON.parse(sent[0]!.body) as Record<string, unknown>[];
-  assert.equal(batch.length, 1, "0인 이벤트는 보내지 않는다");
-  assert.deepEqual(
-    Object.keys(batch[0]!).sort(),
-    ["appVersionBucket", "count", "event", "projectId", "releaseId"],
-    "서버가 미정의 필드를 거부하므로 배치 전체가 버려진다",
-  );
-  assert.equal(batch[0]!["event"], "key_unresolved");
-  assert.equal(batch[0]!["releaseId"], "R42");
-  assert.equal(batch[0]!["appVersionBucket"], "1.2", "개별 빌드가 아니라 버전군이어야 익명이다");
+  // R42는 overlay === base라 delta가 없다. 그래도 릴리스를 쓰고 있다는 사실은 올라간다.
+  assert.deepEqual(batch.map((e) => e["event"]).sort(), ["key_unresolved", "release_applied"], "0인 이벤트는 보내지 않는다");
+  for (const event of batch) {
+    assert.deepEqual(
+      Object.keys(event).sort(),
+      ["appVersionBucket", "count", "event", "projectId", "releaseId"],
+      "서버가 미정의 필드를 거부하므로 배치 전체가 버려진다",
+    );
+    assert.equal(event["releaseId"], "R42");
+    assert.equal(event["appVersionBucket"], "1.2", "개별 빌드가 아니라 버전군이어야 익명이다");
+  }
   assert.ok(!sent[0]!.body.includes("missing.key"), "키 이름은 실리지 않는다");
 
-  assert.deepEqual(client.drainTelemetry(), { overlay_applied: 0, format_guard_rejected: 0, key_unresolved: 0, delta_failed: 0 });
+  assert.deepEqual(client.drainTelemetry(), { release_applied: 0, overlay_applied: 0, format_guard_rejected: 0, key_unresolved: 0, delta_failed: 0 });
 });
 
 test("텔레메트리: 전송 실패·5xx면 카운트를 되돌린다", async () => {
@@ -156,7 +158,12 @@ test("텔레메트리: 실제 관리 서버가 배치를 수용해 집계에 반
   assert.equal(await sdk.flushTelemetry(), true);
 
   const rows = repo.listTelemetry("shop");
-  assert.deepEqual(rows, [{ releaseId: "R1", event: "key_unresolved", appVersionBucket: "2.4", count: 2 }]);
+  // R1은 방금 처음 게시돼 overlay === base다 — delta가 없어 overlay_applied는 영원히 0이다.
+  // 그래도 이 앱이 R1을 쓰고 있다는 사실이 서버에 남아야 "안 쓰인다"와 구별된다.
+  assert.deepEqual(rows, [
+    { releaseId: "R1", event: "key_unresolved", appVersionBucket: "2.4", count: 2 },
+    { releaseId: "R1", event: "release_applied", appVersionBucket: "2.4", count: 1 },
+  ]);
 
   const health = (await (await api("GET", "/projects/shop/releases/R1/health")).json()) as { keyUnresolvedRate: number };
   assert.ok(health.keyUnresolvedRate > 0, "카나리 판정(8.4)이 같은 집계를 본다");
