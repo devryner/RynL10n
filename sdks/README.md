@@ -70,7 +70,10 @@ let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallbac
   Compose 런타임은 `compileOnly`라 Compose를 쓰지 않는 앱에 딸려 들어가지 않는다.
 - 빌드·테스트: `cd sdks/android && ./gradlew test` (62개: 골든 9 + 시나리오 4 + **배포 플레인 10** + **번들 로더 8** + **폴링·푸시·텔레메트리 9** + **로케일 축 4** + bake CLI 7 + M4 5 + 변환 3 + bake 2 + 상태 1) ·
   `./gradlew :library:assembleRelease` (AAR) · `./gradlew :library:publishToMavenLocal`.
-- 툴체인: AGP 8.7.3 / Gradle 8.11.1(wrapper) / Kotlin 2.1.0 / minSdk 26.
+- 툴체인: AGP 8.7.3 / Gradle 8.11.1(wrapper) / Kotlin 2.1.20 / minSdk 26.
+  **Kotlin 2.1.20이 하한**이다 — 2.1.0 컴파일러는 macOS 26에서 OS 버전을 파싱하다 죽는다
+  (`IllegalArgumentException: 26.0.1`). 버전은 루트 `build.gradle.kts` 한 곳에서만 선언하고
+  `:library`는 클래스로더를 공유해 상속한다.
 
 ## Web (`sdks/web`, TypeScript)
 

@@ -5,7 +5,7 @@
 // 넣는다 — 배포되는 것은 이 AAR 하나뿐이고, 루트는 bake CLI와 골든 벡터 검증을 Android SDK 없이
 // 돌리기 위해 JVM으로 남는다.
 plugins {
-    // 툴체인: AGP 8.7.3 / Gradle 8.11.1 / Kotlin 2.1.0 / JDK 21(툴체인 17).
+    // 툴체인: AGP 8.7.3 / Gradle 8.11.1 / Kotlin 2.1.20 / JDK 21(툴체인 17).
     // AGP 9는 쓸 수 없다 — Kotlin 컴파일을 내장하면서 KGP가 빌드 classpath에 있는 것 자체와
     // 충돌하는데, 루트 모듈이 kotlin("jvm")을 쓰는 이 저장소 구조가 정확히 그 상태다.
     // 플러그인 버전은 루트에서 선언한다(클래스로더 공유 — 루트 build.gradle.kts 주석 참조).

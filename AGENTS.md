@@ -37,9 +37,11 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
   - `./tools/ci-local.sh [reference|web|ios|android|flutter]` — **로컬 CI**. 2026-09-10 부터 `ci.yml` 은
     push·PR 에서 돌지 않는다(Actions 한도 절약). **PR·푸시 전에 이것이 평상시 유일한 게이트다.**
     `workflow_call` 은 남아 있어 태그 게시(`release.yml`) 때만 Actions 에서 전 컴포넌트가 다시 돈다.
-    로컬 도구 버전이 CI 고정값(Node 24.x·Java 21·Dart 3.5)과 다를 수 있다 — **macOS 26 에서는
-    `android` 단계가 Kotlin 2.1.0 컴파일러의 `IllegalArgumentException: 26.0.1` 로 죽는다**(코드 문제가
-    아니라 툴체인 문제. `HANDOVER.md` 의 "열려 있는 항목" 참조).
+    로컬 도구 버전이 CI 고정값(Node 24.x·Java 21·Dart 3.5)과 다를 수 있다.
+    **Kotlin 은 2.1.20 이 하한이다**(2026-09-17) — 2.1.0 컴파일러는 macOS 26 에서 OS 버전을 파싱하다
+    `IllegalArgumentException: 26.0.1` 로 죽어 `android` 단계가 통째로 돌지 않았다. 버전은 루트
+    `sdks/android/build.gradle.kts` 한 곳에서만 선언하고 `:library` 는 클래스로더를 공유해 상속한다 —
+    한쪽만 올리면 KGP 와 AGP 가 어긋난다.
   - `npm run smoke:consumer` — **소비자 스모크**(`tools/consumer-smoke/`). 네 채널의 **게시본**을
     저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 549개는 전부 소스를
     보므로 게시본에만 있는 실패(패키징 누락·`exports` 경로·POM 스코프·태그가 가리키는 커밋)를 볼

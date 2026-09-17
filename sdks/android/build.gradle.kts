@@ -4,14 +4,14 @@
 // Android SDK 없이 돌린다. :library가 이 모듈의 src/main/kotlin을 그대로 컴파일해 AAR에 넣는다.
 // 코어 알고리즘은 M0 TS 참조 구현과 골든 벡터(fixtures/golden)로 정합성 검증.
 plugins {
-    kotlin("jvm") version "2.1.0"
-    kotlin("plugin.serialization") version "2.1.0"
+    kotlin("jvm") version "2.1.20"
+    kotlin("plugin.serialization") version "2.1.20"
     // :library(AAR)가 쓰는 AGP를 여기서 선언만 해 둔다(적용은 하지 않음).
     // 루트에서 선언해야 KGP와 AGP가 같은 buildscript 클래스로더에 올라간다 —
     // 서브프로젝트에서만 버전을 지정하면 KGP가 AGP 클래스를 보지 못해 적용 단계에서 깨진다.
     id("com.android.library") version "8.7.3" apply false
     // Compose 어댑터(:library의 Compose.kt) 컴파일용. Kotlin 2.x부터 Compose 컴파일러는 KGP에 속한다.
-    kotlin("plugin.compose") version "2.1.0" apply false
+    kotlin("plugin.compose") version "2.1.20" apply false
 }
 
 repositories { mavenCentral() }

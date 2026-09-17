@@ -942,13 +942,11 @@ Pattern_White_Space도 아닌 문자 1개 이상**이라 비ASCII를 허용하�
   패키지로 잡아 `XcodeBuildToolPlugin` 경로로 bake까지 확인했다(R16·433키, `d3c096c`). 남은 것은 **위젯
   렌더·리소스 병합**과 **AGP 앱 모듈** 쪽이다(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는
   앱 모듈.
-- **macOS 26에서는 `ci-local.sh android`가 돌지 않는다**(2026-09-17 확인, 미수정). `:compileKotlin`이
-  `Internal compiler error` → `java.lang.IllegalArgumentException: 26.0.1`로 죽는다. 26.0.1은 **OS 버전**이고,
-  Kotlin 2.1.0 컴파일러가 두 자리 major의 macOS 버전을 파싱하지 못한다 — 저장소 코드가 아니라 툴체인
-  문제다(JDK 21·Gradle 9.5.1에서 재현). 평상시 게이트가 로컬 CI 하나뿐이라 **이 기계에서는 Android만
-  검증 구멍이 된다**. 고치는 방향은 Kotlin 2.1.20+로 올리는 것인데, 루트 JVM 모듈과 `:library`(AGP)가
-  같은 플러그인 버전을 공유하므로 AAR 빌드까지 한 묶음으로 확인해야 한다. 그때까지 Android 변경은
-  다른 기계나 `workflow_dispatch`(`ci.yml`)로 돌린다.
+- ~~**macOS 26에서는 `ci-local.sh android`가 돌지 않는다**~~ — **2026-09-17 해결(Kotlin 2.1.20)**.
+  `:compileKotlin`이 `Internal compiler error` → `java.lang.IllegalArgumentException: 26.0.1`로 죽었다.
+  26.0.1은 **OS 버전**이고, Kotlin 2.1.0 컴파일러가 두 자리 major의 macOS 버전을 파싱하지 못한다 —
+  저장소 코드가 아니라 툴체인 문제였다. 평상시 게이트가 로컬 CI 하나뿐이라 그동안 **Android만 검증
+  구멍**이었다. 자세한 내용은 아래 커밋 지도의 "Kotlin 2.1.20" 항목.
 - ~~**SDK 패키지 게시**~~ — **완료(2026-08-26)**. 4채널 전부 `0.1.0` 게시됨(위 "SDK 배포 채널" 절).
   **소비자 스모크도 끝났다(2026-08-27)** — 저장소 밖 빈 프로젝트에서 실 좌표로만 설치해 `t()`까지
   굴렸다(같은 절의 "소비자 스모크").
@@ -1099,6 +1097,15 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
   네 SDK가 같은 자리에서 같은 판정을 한다. **`overlay_applied`의 뜻은 건드리지 않았다** — 건전성
   비율(8.4)의 분모라 오버레이를 받은 적 없는 기기를 섞으면 거부율이 건강해 보이고 자동 중단이 위험을
   놓친다. 그래서 카운터를 하나 더 두고 `releaseHealth`는 그대로 뒀다.
+
+- **Kotlin 2.1.20**(2026-09-17) — macOS 26에서 `ci-local.sh android`가 **한 단계도 돌지 않았다.**
+  `:compileKotlin`이 `Internal compiler error`로 죽는데 속을 열면 `IllegalArgumentException: 26.0.1` —
+  저장소 코드가 아니라 **컴파일러가 두 자리 major의 OS 버전을 파싱하지 못한 것**이다. 평상시 게이트가
+  로컬 CI 하나뿐이라(2026-09-10 전환) 그동안 Android만 검증 구멍이었다. 버전은 **루트
+  `sdks/android/build.gradle.kts` 한 곳**에서만 선언한다 — `:library`(AGP)는 KGP와 같은 buildscript
+  클래스로더를 써야 하므로 서브프로젝트에서 따로 올리면 어긋난다. 확인은 세 개 다 돌렸다:
+  `./gradlew test` **62개 통과**(수치는 그대로 — 툴체인만 바뀌었다) · `:library:assembleRelease`(AAR) ·
+  `:library:publishToMavenLocal`(태그 릴리스가 타는 경로).
 
 각 컴포넌트의 상세는 해당 디렉토리의 README(`sdks/README.md`, `sdks/*/README.md`, `backend/README.md`)와
 `OPERATIONS.md` 참조.
