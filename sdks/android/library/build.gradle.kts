@@ -22,7 +22,7 @@ repositories {
     mavenCentral()
 }
 
-val rynl10nVersion = "0.1.0" // lockstep — ios·web·flutter와 항상 동일(6.5)
+val rynl10nVersion = "0.2.0" // lockstep — ios·web·flutter와 항상 동일(6.5)
 
 android {
     namespace = "com.rynl10n"

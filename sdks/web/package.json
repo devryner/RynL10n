@@ -1,6 +1,6 @@
 {
   "name": "@rynl10n/web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "앱 업데이트·심사 없이 번역을 배포하는 오픈소스 원격 로컬라이제이션 SDK (Web) — 빌드타임 번들 + 런타임 원격 오버레이 2계층",
   "license": "Apache-2.0",
