@@ -9,8 +9,10 @@ Web(JS/TS) SDK. **프레임워크 무관 코어 + fetch/ETag 폴링 + 영속 캐
 npm install @rynl10n/web
 ```
 
-> **npm에 게시돼 있다 — `0.1.0`**(2026-08-26 · 4개 SDK lockstep 6.5). `dist-tags.latest = 0.1.0`.
-> 2026-08-27에 빈 프로젝트에서 레지스트리 설치 → `t()` 왕복 + `.d.ts` 타입 해석까지 확인했다.
+> **npm에 게시돼 있다 — `0.2.0`**(2026-09-17 · 4개 SDK lockstep 6.5). `dist-tags.latest = 0.2.0`.
+> 빈 프로젝트에서 레지스트리 설치 → `t()` 왕복 + `.d.ts` 타입 해석까지 확인했다(0.2.0 재확인).
+> **0.2.0부터 provenance가 붙는다** — GitHub Actions의 OIDC(Trusted Publisher)로 게시하기 때문이고,
+> 로컬 수동 게시였던 0.1.0에는 영구히 없다.
 
 받는 것은 **컴파일된 `.js` + `.d.ts`**다. 저장소 개발은 여전히 빌드 스텝이 0이지만(Node 네이티브
 타입 스트리핑으로 `.ts`를 그대로 실행) **게시본은 트랜스파일해야 한다** — Node는 `node_modules`
@@ -23,7 +25,7 @@ SSR·스크립트·테스트에서는 하드 에러가 난다. 빌드는 `prepac
 
 ```jsonc
 // 앱 package.json
-"dependencies": { "@rynl10n/web": "^0.1.0" }
+"dependencies": { "@rynl10n/web": "^0.2.0" }
 ```
 
 코어를 함께 고치는 중이라면 경로 의존도 그대로 동작한다 — `prepack`이 게시 빌드를 돌리므로

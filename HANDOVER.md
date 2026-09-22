@@ -153,32 +153,38 @@ LICENSE · NOTICE      Apache-2.0
 > **런타임 의존성 0 원칙**: 참조·백엔드·iOS는 외부 런타임 의존성 없음(Node 내장 sqlite/crypto, CryptoKit).
 > Android=kotlinx(serialization·coroutines), Flutter=crypto·unorm_dart(NFC), 백엔드 devDep=typescript.
 
-## SDK 배포 채널 (기획서 6.5) — **4채널 전부 게시 완료 `v0.1.0` (2026-08-26)**
+## SDK 배포 채널 (기획서 6.5) — **`v0.2.0` 게시 완료 (2026-09-17) · 첫 진짜 원커맨드 릴리스**
 
-버전은 **4개 SDK lockstep**(현재 `0.1.0`). 채널·좌표는 확정돼 각 매니페스트에 박혀 있고
-게시 자동화도 `.github/workflows/`에 들어와 있다(`ci.yml`·`release.yml` — 아래 "릴리스 CI").
-**2026-08-26 태그 `v0.1.0`으로 4채널 배포를 마쳤다.** lockstep `0.1.0`이 네 레지스트리에서
-실물로 성립한다 — "버전 번호가 곧 어느 조합이 정합인가의 답"이라는 계약이 이제 검증 가능하다.
+버전은 **4개 SDK lockstep**(현재 `0.2.0`). 채널·좌표는 확정돼 각 매니페스트에 박혀 있고
+게시 자동화는 `.github/workflows/`에 있다(`ci.yml`·`release.yml` — 아래 "릴리스 CI").
+
+**`v0.2.0`은 태그 하나가 네 채널을 전부 게시한 첫 릴리스다.** `v0.1.0`에서는 npm·pub.dev가
+부트스트랩 때문에 로컬 수동으로 올라갔고 태그 릴리스에서는 멱등 가드가 그 둘을 건너뛰었다 —
+그래서 **OIDC 인증 경로는 0.2.0에서 처음 실제로 돌았고, 성공했다**(아래 "두 레지스트리의 부트스트랩"의
+미검증 항목 둘이 여기서 닫혔다).
 
 ```
-npm      @rynl10n/web@0.1.0             latest 0.1.0
-pub.dev  rynl10n 0.1.0                  latest 0.1.0
-Maven    com.devryner.rynl10n:android   0.1.0 (aar·sources·javadoc·pom·module + .asc 5종)
-SwiftPM  v0.1.0 (19de314a)              원격 resolve 검증 완료
+npm      @rynl10n/web@0.2.0             latest 0.2.0 · provenance 첨부(OIDC 게시의 증거)
+pub.dev  rynl10n 0.2.0                  latest 0.2.0
+Maven    com.devryner.rynl10n:android   0.2.0 (repo1에서 POM 확인 — 승격까지 자동으로 끝났다)
+SwiftPM  v0.2.0 (c212fae)               원격 resolve 검증 완료
 ```
 
-npm·pub.dev의 0.1.0은 태그 이전에 **로컬 수동으로** 먼저 올라갔다(아래 "두 레지스트리의
-부트스트랩"). 태그 릴리스에서는 멱등 가드가 그 둘을 건너뛰고 Maven을 게시했으며, SPM은 태그 자체가
-배포였다. 그 결과 한 태그로 네 채널이 정렬됐다.
+게시 후 `npm run smoke:consumer`로 받는 쪽까지 확인했다 — **4채널 24/24 통과**(채널당 6케이스).
+
+0.2.0에 담긴 것: ICU 인자 이름 경계(비ASCII 플레이스홀더 — 이것이 마이너를 올린 이유다) ·
+`release_applied` 텔레메트리 이벤트 · Android bake CLI `--descriptions` · iOS 플러그인 `URL` API
+전환. 소비자가 보는 변화는 `sdks/flutter/CHANGELOG.md`의 0.2.0 절에 정리돼 있다(lockstep이라
+네 SDK 공통이다).
 
 | SDK | 채널 | 좌표 | 매니페스트 | 게시 상태 | 지금 붙이는 법 |
 | --- | --- | --- | --- | --- | --- |
-| iOS | SwiftPM (git 태그) | **이 저장소** + 태그 `v*` | 루트 `Package.swift` — products 3종(library·`rynl10n-bake` CLI·build tool plugin), 소스는 `sdks/ios/`를 path로 | ✅ **`v0.1.0`** — 태그가 곧 배포 | `.package(url: "https://github.com/devryner/RynL10n", from: "0.1.0")` |
-| Android | Maven Central (AAR) | `com.devryner.rynl10n:android:0.1.0` | `sdks/android/library/build.gradle.kts` — `maven-publish` + release variant + sources/javadoc jar + POM(라이선스·SCM·developer) 완비 | ✅ **게시됨** `0.1.0` (산출물 5종 + `.asc` 서명) | `implementation("com.devryner.rynl10n:android:0.1.0")` |
-| Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.1.0`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | ✅ **게시됨** `0.1.0` (2026-08-26, 로컬 수동 — provenance 미첨부) | `npm i @rynl10n/web` |
-| Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.1.0`, `publish_to` 해제, `.pubignore` | ✅ **게시됨** `0.1.0` (2026-08-26, 로컬 수동) | `dart pub add rynl10n` |
+| iOS | SwiftPM (git 태그) | **이 저장소** + 태그 `v*` | 루트 `Package.swift` — products 3종(library·`rynl10n-bake` CLI·build tool plugin), 소스는 `sdks/ios/`를 path로 | ✅ **`v0.2.0`** — 태그가 곧 배포 | `.package(url: "https://github.com/devryner/RynL10n", from: "0.2.0")` |
+| Android | Maven Central (AAR) | `com.devryner.rynl10n:android:0.2.0` | `sdks/android/library/build.gradle.kts` — `maven-publish` + release variant + sources/javadoc jar + POM(라이선스·SCM·developer) 완비 | ✅ **게시됨** `0.2.0` (산출물 5종 + `.asc` 서명) | `implementation("com.devryner.rynl10n:android:0.2.0")` |
+| Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.2.0`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | ✅ **게시됨** `0.2.0` (2026-09-17, CI OIDC — **provenance 첨부**) | `npm i @rynl10n/web` |
+| Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.2.0`, `publish_to` 해제, `.pubignore` | ✅ **게시됨** `0.2.0` (2026-09-17, CI OIDC) | `dart pub add rynl10n` |
 
-### 소비자 스모크 — **네 채널 실 좌표로 설치해 `t()`까지 굴렸다 (2026-08-27)**
+### 소비자 스모크 — **네 채널 실 좌표로 설치해 `t()`까지 굴렸다 (0.1.0 2026-08-27 · 0.2.0 2026-09-17)**
 
 게시가 끝났다는 것과 **소비자가 실제로 받아 쓸 수 있다**는 것은 다른 명제다. 그 사이에는 게시본에만
 있는 실패가 산다 — 패키징에서 빠진 파일, `.d.ts` 경로가 어긋난 `exports`, POM이 못 끌고 오는 전이
@@ -189,10 +195,10 @@ npm·pub.dev의 0.1.0은 태그 이전에 **로컬 수동으로** 먼저 올라�
 
 | 채널 | 설치 방법 | 결과 |
 | --- | --- | --- |
-| npm | 빈 패키지에 `npm i @rynl10n/web@0.1.0` | 6/6 통과 + `tsc --strict --moduleResolution nodenext`로 `.d.ts` 해석 확인 |
-| pub.dev | 빈 패키지에 `rynl10n: ^0.1.0` → `dart pub get` | 6/6 통과 (전이 의존 14개 해석) |
-| Maven Central | AGP 소비자 모듈에 `implementation("com.devryner.rynl10n:android:0.1.0")` | 6/6 통과 (유닛 테스트) |
-| SwiftPM | 빈 패키지에 `.package(url:…/RynL10n, from: "0.1.0")` → `swift run` | 6/6 통과 (`Package.resolved`가 `0.1.0` 고정) |
+| npm | 빈 패키지에 `npm i @rynl10n/web@0.2.0` | 6/6 통과 + `tsc --strict --moduleResolution nodenext`로 `.d.ts` 해석 확인 |
+| pub.dev | 빈 패키지에 `rynl10n: ^0.2.0` → `dart pub get` | 6/6 통과 (전이 의존 14개 해석) |
+| Maven Central | AGP 소비자 모듈에 `implementation("com.devryner.rynl10n:android:0.2.0")` | 6/6 통과 (유닛 테스트) |
+| SwiftPM | 빈 패키지에 `.package(url:…/RynL10n, from: "0.2.0")` → `swift run` | 6/6 통과 (`Package.resolved`가 `0.2.0` 고정) |
 
 **소비자 저장소 선언에 `mavenLocal()`·`file:`·`path:`를 두지 않는 것이 이 검증의 전부다.** 하나라도
 남으면 로컬 산출물을 집어 레지스트리를 건드리지 않고 통과한다 — 검증한 것이 게시본이 아니게 된다.
@@ -343,19 +349,23 @@ npm과 pub.dev는 **자동 게시 설정을 패키지가 이미 존재할 때만
 push 하나뿐이어야 수동 트리거로 실수 게시가 나지 않는다. `dry_run` 실행은 `dart pub publish --dry-run`
 이라 인증을 타지 않으므로 영향 없다). pub 잡은 원래부터 OIDC라 `release.yml` 수정이 없었다.
 
-> **두 채널의 검증 수준이 다르다.** pub.dev는 설정이 서버에 저장된 것을 페이지 재로드로 확인했다.
+> **두 채널의 검증 수준이 달랐다.** pub.dev는 설정이 서버에 저장된 것을 페이지 재로드로 확인했다.
 > npm의 Trusted Publisher는 그런 확인을 못 했다 — `npm publish --dry-run`은 인증을 타지 않아
-> 로그아웃 상태에서도 통과하므로 `dry_run`으로 검증할 수 없고, `npm trust` CLI도 11.8.0에 없다.
-> **npm은 첫 OIDC 게시가 곧 첫 검증**이므로, `v0.2.0` 태그를 밀 때 npm 잡의 인증 실패 가능성을
-> 열어두고 봐야 한다.
+> 로그아웃 상태에서도 통과하므로 `dry_run`으로 검증할 수 없고, `npm trust` CLI도 없다(11.6.0 확인).
+>
+> **2026-09-17에 둘 다 닫혔다.** 태그 전에 npm 설정 화면을 직접 열어 4개 필드를 대조했고
+> (`devryner/RynL10n` · `release.yml` · Environment 비어 있음 · **Allow `npm publish` 체크됨** —
+> 마지막 항목이 꺼져 있으면 staged publish만 되고 워크플로의 `npm publish`는 인증에서 죽는다),
+> `v0.2.0` 게시가 실제로 성공했다. **게시본에 provenance가 붙어 있는 것이 OIDC 경로를 탔다는
+> 증거다** — 토큰 게시에는 붙지 않는다.
 
 > **pub.dev의 Manual publishing을 껐다(2026-08-26).** CLI에서 실수로 게시하는 것을 막으라는 pub.dev
-> 권고를 따른 것이다. 그 결과 **pub.dev 게시 경로는 GitHub Actions 하나뿐이다** — 그리고 그 경로는
-> 아직 한 번도 성공한 적이 없다(`v0.1.0`에서는 멱등 가드가 pub 잡을 건너뛰어 OIDC 인증이 실제로
-> 동작하는지 확인되지 않았다).
+> 권고를 따른 것이다. 그 결과 **pub.dev 게시 경로는 GitHub Actions 하나뿐**이고, `v0.1.0`에서는
+> 멱등 가드가 pub 잡을 건너뛰어 그 경로가 한 번도 돌지 않았다. **`v0.2.0`에서 처음 돌았고
+> 성공했다**(2026-09-17).
 >
-> **`v0.2.0`에서 pub 잡이 인증에 실패하면 그 자리에서 로컬로 우회할 수 없다.**
-> 복구 경로는 하나다 — pub.dev admin에서 Manual publishing을 다시 켜고 `dart pub publish`.
+> 그래도 이 제약 자체는 남는다 — **pub 잡이 인증에 실패하면 그 자리에서 로컬로 우회할 수 없다.**
+> 복구 경로는 하나다: pub.dev admin에서 Manual publishing을 다시 켜고 `dart pub publish`.
 > 릴리스 도중에 막혔을 때 이걸 기억하지 못하면 붙잡힌다.
 
 ### 멱등 가드 — **첫 게시가 워크플로 밖에서 일어났기 때문에 필요하다** (2026-08-26)
@@ -947,13 +957,14 @@ Pattern_White_Space도 아닌 문자 1개 이상**이라 비ASCII를 허용하�
   26.0.1은 **OS 버전**이고, Kotlin 2.1.0 컴파일러가 두 자리 major의 macOS 버전을 파싱하지 못한다 —
   저장소 코드가 아니라 툴체인 문제였다. 평상시 게이트가 로컬 CI 하나뿐이라 그동안 **Android만 검증
   구멍**이었다. 자세한 내용은 아래 커밋 지도의 "Kotlin 2.1.20" 항목.
-- ~~**SDK 패키지 게시**~~ — **완료(2026-08-26)**. 4채널 전부 `0.1.0` 게시됨(위 "SDK 배포 채널" 절).
-  **소비자 스모크도 끝났다(2026-08-27)** — 저장소 밖 빈 프로젝트에서 실 좌표로만 설치해 `t()`까지
-  굴렸다(같은 절의 "소비자 스모크").
-  다음 릴리스(`v0.2.0`)에서 처음 검증되는 것이 둘 남아 있다: **npm OIDC 인증**(0.1.0에서는 멱등 가드가
-  건너뛰어 인증 경로를 타지 않았다)과 **pub.dev 자동 게시**(같은 이유). 그때 npm 잡이 인증 실패할
-  가능성을 열어두고 봐야 한다. 게시가 끝나면 **`npm run smoke:consumer`로 받는 쪽을 확인한다**.
-  채널·좌표·남은 절차는 위 "SDK 배포 채널" 절.
+- ~~**SDK 패키지 게시**~~ — **완료. 파이프라인 전체가 닫혔다(2026-09-17 `v0.2.0`)**. 태그 하나가
+  네 채널을 게시한 첫 릴리스이고, 마지막까지 미검증이던 **npm OIDC 인증·pub.dev 자동 게시가 여기서
+  처음 돌아 성공했다**. 게시 후 `npm run smoke:consumer`로 받는 쪽도 4채널 24/24 확인.
+  **다음 릴리스의 절차는 이제 셋뿐이다**: ① 매니페스트 3곳 버전 올리기(`sdks/web/package.json` ·
+  `sdks/flutter/pubspec.yaml` · `sdks/android/library/build.gradle.kts`의 `rynl10nVersion` — iOS는
+  태그가 곧 버전이라 없다) ② `sdks/flutter/CHANGELOG.md`에 절 추가(**pub.dev는 게시 후 수정 불가**)
+  ③ 태그 push. 태그 전에 `workflow_dispatch`로 dry-run을 돌리면 lockstep 불일치를 미리 잡는다.
+  채널·좌표는 위 "SDK 배포 채널" 절.
 - **내용해시 번들이 쌓이면 로더가 스테일을 집을 수 있다**(2026-08-28 `lockfile_status`를 만들다 확인,
   미수정). `--stable-name` 없이 구우면 `snapshot-<base>.json`이 산출물 디렉토리에 누적되는데
   Android `BakedBundle.locate`는 **파일명 최소값**(`minByOrNull { it.name }` — 최신이 아니다)을,
@@ -1106,6 +1117,17 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
   클래스로더를 써야 하므로 서브프로젝트에서 따로 올리면 어긋난다. 확인은 세 개 다 돌렸다:
   `./gradlew test` **62개 통과**(수치는 그대로 — 툴체인만 바뀌었다) · `:library:assembleRelease`(AAR) ·
   `:library:publishToMavenLocal`(태그 릴리스가 타는 경로).
+
+- **v0.2.0 4채널 배포** `b423105`·`c212fae`(2026-09-17) — **태그 하나가 네 채널을 게시한 첫 릴리스.**
+  마이너를 올린 이유는 ICU 인자 이름 경계(`21d800f`)다 — 비ASCII 플레이스홀더가 있으면 화면 값과
+  bake 산출물이 달라지므로 소비자에게는 breaking 신호다. 태그 전에 걸린 것 둘:
+  **① npm 설정을 직접 확인했다** — 특히 `Allow npm publish` 체크. 꺼져 있으면 staged publish만 되고
+  워크플로의 `npm publish`가 인증에서 죽는데, dry-run으로는 절대 드러나지 않는 자리다.
+  **② CHANGELOG의 사실 오류를 태그 전에 잡았다**(`c212fae`) — "서버의 `keys.signature`와 어긋나면
+  번들로 물러나니 다시 저장하라"고 썼는데, 포맷 가드는 기기에서 오버레이·번들 값의 서명을 각각
+  계산할 뿐 서버 서명을 읽지 않는다(`resolve.ts:100`). **pub.dev CHANGELOG는 게시 후 수정 불가**라
+  태그를 먼저 밀었으면 틀린 설명이 영구히 남았다.
+  결과: 4채널 전부 `0.2.0` 실물 확인(npm은 provenance 첨부 — OIDC 경로의 증거) + 소비자 스모크 24/24.
 
 각 컴포넌트의 상세는 해당 디렉토리의 README(`sdks/README.md`, `sdks/*/README.md`, `backend/README.md`)와
 `OPERATIONS.md` 참조.

@@ -8,10 +8,10 @@ Flutter/Dart SDK. 순수 Dart 코어라 `dart test`로 검증 가능(Flutter 위
 ```yaml
 # 앱 pubspec.yaml
 dependencies:
-  rynl10n: ^0.1.0
+  rynl10n: ^0.2.0
 ```
 
-> **pub.dev에 게시돼 있다 — `rynl10n` `0.1.0`**(2026-08-26 · 4개 SDK lockstep 6.5). `dart pub add rynl10n`
+> **pub.dev에 게시돼 있다 — `rynl10n` `0.2.0`**(2026-09-17 · 4개 SDK lockstep 6.5). `dart pub add rynl10n`
 > 으로도 된다. 2026-08-27에 빈 프로젝트에서 `pub get` → `t()` 왕복까지 확인했다.
 
 코어를 함께 고치는 중이라면 경로 의존으로 참조한다. **패키지 tarball에는 `test/`가 없다**

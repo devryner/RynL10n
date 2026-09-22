@@ -60,11 +60,11 @@ curl http://localhost:8788/myapp/manifest.json    # SDK가 읽는 경로 그대�
 > 때문이고, 소스는 여전히 `sdks/ios/` 아래에 있다(타깃이 `path:`로 가리킨다). 그래서 패키지 이름은
 > 디렉토리가 아니라 **`RynL10n`**이다.
 
-정규 경로 — **태그 `v0.1.0`이 올라가 있어 원격 참조가 그대로 동작한다**(2026-08-26 ·
+정규 경로 — **태그 `v0.2.0`이 올라가 있어 원격 참조가 그대로 동작한다**(2026-09-17 ·
 4개 SDK lockstep 6.5 · **태그가 곧 SPM 배포**라 레지스트리 게시 절차가 없다):
 
 ```swift
-dependencies: [.package(url: "https://github.com/devryner/RynL10n", from: "0.1.0")],
+dependencies: [.package(url: "https://github.com/devryner/RynL10n", from: "0.2.0")],
 targets: [
     .target(name: "App", dependencies: [.product(name: "RynL10n", package: "RynL10n")])
 ]
@@ -393,9 +393,9 @@ RYNL10N_ENDPOINT=http://localhost:8788 RYNL10N_PROJECT=myapp \
   Scenario 4 · M4 5 · Convert 3 · Bake 2 · Observable 1. 빌드 경고 0(2026-09-10 — 플러그인이
   폐기된 `PackagePlugin.Path` 대신 `URL` API를 쓴다. `Target.directoryURL`은 tools 6.1부터라
   구체 타입으로 받는다 — tools-version을 올리면 소비자의 최소 Xcode가 따라 오르기 때문이다).
-- **검증됨**: **패키지 게시.** 태그 `v0.1.0`으로 원격 참조가 성립한다(2026-08-26). 2026-08-27에
-  저장소 밖 빈 SwiftPM 패키지에서 `.package(url:…, from: "0.1.0")`으로 해석·빌드하고 `t()`
-  왕복까지 확인했다(`Package.resolved`가 태그 `0.1.0`을 고정). 미러 저장소는 폐기됐다 — SPM이
+- **검증됨**: **패키지 게시.** 태그 `v0.2.0`으로 원격 참조가 성립한다(2026-09-17, 직전은 `v0.1.0`).
+  저장소 밖 빈 SwiftPM 패키지에서 `.package(url:…, from: "0.2.0")`으로 해석·빌드하고 `t()`
+  왕복까지 확인했다(`Package.resolved`가 태그 `0.2.0`을 고정). 미러 저장소는 폐기됐다 — SPM이
   루트 매니페스트만 인식하므로 **루트 `Package.swift`**가 소스를 `path:`로 가리킨다(2절).
 - **검증됨**: **Xcode 앱 타깃(`.xcodeproj`)에서의 bake.** 2026-09-10에 실제 앱(RynDevice)을 로컬 패키지로
   잡아 **Build Phases → Run Build Tool Plug-ins** 경로로 붙여 bake까지 확인했다(R16·433키, 3-b의 절차

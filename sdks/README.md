@@ -4,11 +4,18 @@ iOS(Swift/SPM)·Android(Kotlin/JVM)·**Web(TS)**·**Flutter(Dart)** 플랫폼 SD
 버전 격리 + 카나리 + 실시간 푸시**를 제공하며, 코어 알고리즘은 M0 TS 참조 구현과 **골든 벡터(`fixtures/golden`)로
 4개 언어 모두 바이트·해시·동작 단위 정합성**을 보장한다. (Web=`sdks/web`, Flutter=`sdks/flutter`.)
 
-## 배포 채널 — **매니페스트·릴리스 CI는 준비, 게시는 아직**
+## 배포 채널 — **4채널 전부 게시됨 `0.2.0` (2026-09-17)**
 
-버전은 4개 SDK **lockstep**(목표 `0.1.0`). 채널·좌표는 확정이고 각 매니페스트에 박혀 있으며
-태그 `v*`에서 4채널을 동시에 퍼블리시하는 `.github/workflows/release.yml`도 준비됐으나,
-**어느 레지스트리에도 올라가 있지 않다**(릴리스 태그 0개). 지금은 로컬 참조로 붙인다.
+버전은 4개 SDK **lockstep**(현재 `0.2.0`). 태그 `v*` 하나에서 `.github/workflows/release.yml`이
+4채널을 동시에 퍼블리시하고, 게시 후 `npm run smoke:consumer`가 저장소 밖 빈 프로젝트에서
+실 좌표로 설치해 `t()`까지 굴린다(0.2.0에서 4채널 24/24 통과).
+
+```
+iOS      .package(url: "https://github.com/devryner/RynL10n", from: "0.2.0")
+Android  implementation("com.devryner.rynl10n:android:0.2.0")
+Web      npm i @rynl10n/web
+Flutter  dart pub add rynl10n
+```
 
 | SDK | 채널 / 좌표 | 지금 붙이는 법 |
 | --- | --- | --- |

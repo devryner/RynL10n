@@ -22,6 +22,9 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
 2026-09-16 **`release_applied` 텔레메트리 이벤트** — 델타가 없는 릴리스(첫 게시·base 롤백)와 rollout 밖
 기기는 `overlay_applied`가 영영 0이라 "안 쓰인다"와 "알릴 방법이 없다"가 구별되지 않았다. `src/`와 4개 SDK가
 같이 바뀌므로 5개 컴포넌트 전부 재실행(골든 벡터는 텔레메트리를 담지 않아 재생성 불필요).
+2026-09-17 **`v0.2.0` 4채널 배포** — Kotlin 2.1.20(로컬 Android 게이트 복구) · 매니페스트 3곳 lockstep ·
+태그 push. **태그 하나가 네 채널을 게시한 첫 릴리스**이고 npm OIDC·pub.dev 자동 게시가 여기서 처음
+성공했다. 게시 후 소비자 스모크 4채널 24/24.
 남은 것은 실제 앱/외부 환경 의존 항목뿐(아래 "열려 있는 항목" 참조). 전체 지도는 `HANDOVER.md`.
 
 - **코어 스택**: TypeScript/Node ≥ 23.6 (네이티브 타입 스트리핑, 빌드 스텝 없음). 참조 구현·백엔드 모두
@@ -399,23 +402,22 @@ Origin 정책을 보여주고, **admin이면 토큰 발급·폐기까지 이 화
 - **실제 앱 통합**: **Xcode 앱 타깃의 플러그인 경로는 2026-09-10에 실증됐다** — 실제 앱(RynDevice)을
   로컬 패키지로 잡아 `XcodeBuildToolPlugin` 경로로 bake까지 확인(R16·433키). 남은 것은 **위젯 렌더·리소스
   병합**과 **AGP 앱 모듈** 쪽이다(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는 앱 모듈.
-- **SDK 패키지 게시(6.5)**: 채널·좌표(Android=`com.devryner.rynl10n:android` · Web=`@rynl10n/web` · Flutter=`rynl10n` · iOS=SwiftPM, 버전 lockstep `0.1.0`)도 매니페스트도 확정이고 **릴리스 CI**도 들어왔으나(`.github/workflows/` — `ci.yml`이 곧 릴리스 게이트, `release.yml`이 태그 `v*`에서 4채널 동시 퍼블리시 + lockstep 검사) **4채널 전부 게시 완료**(`v0.1.0`, 2026-08-26 — npm `@rynl10n/web` · pub.dev `rynl10n` · Maven `com.devryner.rynl10n:android` · SwiftPM 태그). lockstep `0.1.0`이 네 레지스트리에서 실물로 성립한다.
-  **npm·pub.dev는 첫 버전을 CI로 못 올린다** — 자동 게시(Trusted Publisher / Automated publishing) 등록이
-  패키지 존재를 전제하는데 같은 버전 재게시는 거부되기 때문. 그래서 `v0.1.0` 태그 하나로 4채널이 끝나지 않는다.
-  npm 잡은 **OIDC로 전환**했다(`NPM_TOKEN` 제거 — 2027-01부터 2FA 우회 토큰의 직접 게시가 폐지된다).
-  **Maven은 업로드 후 Portal 승격이 필요하다** — `release.yml`에 그 단계가 없어 태그를 밀어도 Central에
-  안 나타나는 상태였고, 2026-08-26에 승격 스텝(`publishing_type=automatic`)을 넣어 막았다. **iOS는 루트 `Package.swift`로 전환했다**(2026-08-26) — SPM이 루트 매니페스트만 인식하므로 매니페스트만
-  올리고 소스는 `sdks/ios/`를 `path:`로 가리킨다. 미러 저장소 안은 폐기(클론 전송량 205 KiB 실측 —
-  채택 근거가 무너졌다). **태그가 곧 SPM 배포**라 게시 잡도 시크릿도 없다.
-  npm·pub 잡에는 **멱등 가드**를 넣었다 — 첫 버전이 워크플로 밖에서 올라갔으므로, 이미 게시된 버전이면
-  건너뛴다. 덕분에 `v0.1.0` 태그로 4채널을 정렬할 수 있다. Web 게시본은 소스가 아니라 `prepack`의 **`tsc` 게시 빌드 산출물**(`.js`+`.d.ts`)로 나간다 — 소스 배포는 코어 상대경로 import·`node_modules` 타입 스트리핑 거부·`node:crypto` 때문에 성립하지 않는다. 붙이는 길은 이제 **실 좌표**다(`@rynl10n/web` · `rynl10n` · `com.devryner.rynl10n:android` · SPM 태그). 상세는 `HANDOVER.md`의 "SDK 배포 채널" 절.
-  **2026-08-25 `workflow_dispatch`로 `dry_run=true`를 실제로 돌려 4채널 전부 통과**(run 32825252411):
-  게이트 5종 + lockstep `0.1.0` · npm dry-run · pub.dev 경고 0건(35KB) · Maven `publishToMavenLocal` ·
-  subtree split 루트에 `Package.swift` 확인. 첫 실행은 Maven 잡이 죽었고(빈 시크릿이 서명을 켰다 — `dc4416f`),
-  **파이프라인은 태그를 받을 준비가 됐다 — 단 위 Maven 승격 갭은 예외다.** 그 밖에 남은 건 계정·소유 검증·키뿐이다.
-  **2026-08-27 받는 쪽까지 확인했다** — 네 채널 게시본을 저장소 밖 빈 프로젝트에서 실 좌표로 설치해
-  `t()`까지 6/6 통과(`npm run smoke:consumer`로 재현). 그 결과로 SDK README 4종의 "아직 게시되지
-  않았다 / 경로 의존으로 참조한다" 안내를 실 좌표로 교체했고, 루트 README에 4채널 좌표를 넣었다.
-  `v0.2.0`에서 처음 실행되는 것은 여전히 둘이다: npm OIDC 인증 · pub.dev 자동 게시(0.1.0에서는
-  멱등 가드가 건너뛰었다).
+- ~~**SDK 패키지 게시(6.5)**~~ — **닫혔다. `v0.2.0`(2026-09-17)이 태그 하나로 4채널을 게시한 첫 릴리스다**
+  (npm `@rynl10n/web` · pub.dev `rynl10n` · Maven `com.devryner.rynl10n:android` · SwiftPM 태그, lockstep `0.2.0`).
+  마지막까지 미검증이던 **npm OIDC 인증·pub.dev 자동 게시가 여기서 처음 돌아 성공**했고, 게시 후
+  `npm run smoke:consumer`로 받는 쪽까지 4채널 24/24 확인했다. npm 게시본에는 **provenance**가 붙는다
+  (OIDC 경로의 증거 — 로컬 수동이던 `0.1.0`에는 없다).
+  **다음 릴리스 절차는 셋뿐이다**: ① 매니페스트 3곳 버전(`sdks/web/package.json` ·
+  `sdks/flutter/pubspec.yaml` · `sdks/android/library/build.gradle.kts`의 `rynl10nVersion`. iOS는 태그가
+  곧 버전이라 없고, lockstep 검사도 이 셋만 본다) ② `sdks/flutter/CHANGELOG.md`에 절 추가
+  (**pub.dev는 게시 후 수정 불가** — 태그 전에 사실관계를 확인할 것) ③ 태그 push. 태그 전
+  `workflow_dispatch` dry-run이 lockstep 불일치를 미리 잡는다.
+  남아 있는 제약들(다음에 또 물릴 자리): **npm·pub.dev의 첫 버전은 CI로 못 올린다**(자동 게시 등록이
+  패키지 존재를 전제 — 새 패키지를 추가하면 다시 겪는다. 그래서 두 잡에 **멱등 가드**가 있다) ·
+  **Maven은 업로드 후 Portal 승격까지 해야 Central에 나타난다**(`publishing_type=automatic` 스텝) ·
+  **pub.dev는 Manual publishing을 꺼 둬서 CI가 유일한 경로**(실패 시 admin에서 다시 켜는 것이 유일한 우회) ·
+  Web 게시본은 소스가 아니라 `prepack`의 **`tsc` 게시 빌드 산출물**(`.js`+`.d.ts`)이다 — 소스 배포는
+  코어 상대경로 import·`node_modules` 타입 스트리핑 거부·`node:crypto` 때문에 성립하지 않는다 ·
+  iOS는 루트 `Package.swift`(SPM이 루트 매니페스트만 인식) + 소스는 `sdks/ios/`를 `path:`로.
+  상세는 `HANDOVER.md`의 "SDK 배포 채널" 절.
 - **프로덕션 토폴로지(M3+)**: Postgres·MinIO/S3·CDN·별도 빌더 워커·OIDC·Helm/K8s. 플레인 분리·API 계약·결정적 빌더는 그대로 유지.

@@ -39,11 +39,11 @@
 ```kotlin
 // 앱 모듈 build.gradle.kts
 dependencies {
-    implementation("com.devryner.rynl10n:android:0.1.0")
+    implementation("com.devryner.rynl10n:android:0.2.0")
 }
 ```
 
-> **Maven Central에 게시돼 있다 — `com.devryner.rynl10n:android:0.1.0`**(2026-08-26 · 4개 SDK
+> **Maven Central에 게시돼 있다 — `com.devryner.rynl10n:android:0.2.0`**(2026-09-17 · 4개 SDK
 > lockstep 6.5). `mavenCentral()` 외에 저장소 선언이 필요 없고, AAR과 함께 sources·javadoc jar,
 > `.asc` 서명, Gradle 모듈 메타데이터가 올라가 있다. 2026-08-27에 `mavenLocal()` 없는 소비자
 > 프로젝트에서 AGP 유닛 테스트로 `t()` 왕복까지 확인했다.
