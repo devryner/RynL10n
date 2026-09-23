@@ -78,9 +78,10 @@ let s = client.t("pay.button", locale: "ja") // 동기 — 항상 번들 fallbac
 - 빌드·테스트: `cd sdks/android && ./gradlew test` (62개: 골든 9 + 시나리오 4 + **배포 플레인 10** + **번들 로더 8** + **폴링·푸시·텔레메트리 9** + **로케일 축 4** + bake CLI 7 + M4 5 + 변환 3 + bake 2 + 상태 1) ·
   `./gradlew :library:assembleRelease` (AAR) · `./gradlew :library:publishToMavenLocal`.
 - 툴체인: AGP 8.7.3 / Gradle 8.11.1(wrapper) / Kotlin 2.1.20 / minSdk 26.
-  **Kotlin 2.1.20이 하한**이다 — 2.1.0 컴파일러는 macOS 26에서 OS 버전을 파싱하다 죽는다
-  (`IllegalArgumentException: 26.0.1`). 버전은 루트 `build.gradle.kts` 한 곳에서만 선언하고
-  `:library`는 클래스로더를 공유해 상속한다.
+  **빌드가 도는 JVM은 21로 고정돼 있다**(`gradle/gradle-daemon-jvm.properties`). Kotlin 컴파일러가
+  두 자리 major의 **Java** 버전을 아직 읽지 못해 JDK 26에서 `IllegalArgumentException: 26.0.1`로
+  죽는데(2.1.20·2.2.20도 같다), 고정해 두면 `JAVA_HOME`이 무엇이든 21로 돈다.
+  Kotlin 버전은 루트 `build.gradle.kts` 한 곳에서만 선언하고 `:library`는 클래스로더를 공유해 상속한다.
 
 ## Web (`sdks/web`, TypeScript)
 
