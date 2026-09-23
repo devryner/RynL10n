@@ -952,11 +952,24 @@ Pattern_White_Space도 아닌 문자 1개 이상**이라 비ASCII를 허용하�
   패키지로 잡아 `XcodeBuildToolPlugin` 경로로 bake까지 확인했다(R16·433키, `d3c096c`). 남은 것은 **위젯
   렌더·리소스 병합**과 **AGP 앱 모듈** 쪽이다(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는
   앱 모듈.
-- ~~**macOS 26에서는 `ci-local.sh android`가 돌지 않는다**~~ — **2026-09-17 해결(Kotlin 2.1.20)**.
-  `:compileKotlin`이 `Internal compiler error` → `java.lang.IllegalArgumentException: 26.0.1`로 죽었다.
-  26.0.1은 **OS 버전**이고, Kotlin 2.1.0 컴파일러가 두 자리 major의 macOS 버전을 파싱하지 못한다 —
-  저장소 코드가 아니라 툴체인 문제였다. 평상시 게이트가 로컬 CI 하나뿐이라 그동안 **Android만 검증
-  구멍**이었다. 자세한 내용은 아래 커밋 지도의 "Kotlin 2.1.20" 항목.
+- ~~**macOS 26에서는 `ci-local.sh android`가 돌지 않는다**~~ — **완료(2026-09-23)**. 2026-09-17에
+  Kotlin 2.1.20으로 해결했다고 적었으나 그것으로는 닫히지 않았다. 진단이 틀렸었다.
+  `26.0.1`은 **OS 버전이 아니라 JDK 버전**이다. 이 기계의 macOS는 26.6.2인데도 기본 JDK 21에서는
+  `ci-local.sh android`가 통과한다 — 죽는 것은 `JAVA_HOME`이 Homebrew OpenJDK 26을 가리킬 때뿐이다.
+  2.1.20으로 올린 뒤 확인한 "62개 통과"도 기본 JDK 21에서 돈 것이고, 그 환경에서는 2.1.0도 원래
+  통과했다. 바뀐 것이 없는 자리에서 확인한 셈이다.
+  죽는 자리는 Kotlin 컴파일러가 품은 IntelliJ `JavaVersion.parse`다. **실행 중인 JVM**의 버전을 읽다가
+  두 자리 major에서 깨진다(`JavaVersion.current()` → `isAtLeastJava9()` → `KotlinCoreEnvironment.<init>`).
+  읽는 대상이 OS가 아니라 Java라 macOS와 무관하고, 플러그인 버전으로도 닫히지 않는다 — 2.1.20과
+  2.2.20에서 같은 줄, 같은 예외를 확인했다.
+  그래서 올리는 대신 **빌드가 도는 JVM을 고정했다** — `sdks/android/gradle/gradle-daemon-jvm.properties`
+  (`toolchainVersion=21`). `JAVA_HOME`이 JDK 26이어도 Gradle이 데몬을 21로 띄워
+  `clean test :library:assembleRelease`가 통과한다. JDK 26과 기본 JDK 21 양쪽에서 **`clean` 후** 확인했다 —
+  앞선 확인이 전 과제 `UP-TO-DATE`라 컴파일러를 부르지도 않은 채 통과처럼 보인 적이 있어 일부러 강제했다.
+  기계의 기본 JDK가 바뀌어도 빌드는 우리가 고른 JVM에서 돈다 — CI 러너 이미지를 고정하는 것과 같은 이유다.
+  Kotlin 2.1.20 자체는 되돌리지 않는다(`v0.2.0`이 그 위에서 나갔고, 올린 것 자체는 해롭지 않다).
+  Java 26을 실제로 지원하는 것은 그때 Kotlin을 올리는 별도의 일이고, 루트 JVM 모듈과 `:library`(AGP)가
+  플러그인 버전을 공유하므로 AAR까지 한 묶음으로 확인해야 한다.
 - ~~**SDK 패키지 게시**~~ — **완료. 파이프라인 전체가 닫혔다(2026-09-17 `v0.2.0`)**. 태그 하나가
   네 채널을 게시한 첫 릴리스이고, 마지막까지 미검증이던 **npm OIDC 인증·pub.dev 자동 게시가 여기서
   처음 돌아 성공했다**. 게시 후 `npm run smoke:consumer`로 받는 쪽도 4채널 24/24 확인.
@@ -1109,13 +1122,14 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
   비율(8.4)의 분모라 오버레이를 받은 적 없는 기기를 섞으면 거부율이 건강해 보이고 자동 중단이 위험을
   놓친다. 그래서 카운터를 하나 더 두고 `releaseHealth`는 그대로 뒀다.
 
-- **Kotlin 2.1.20**(2026-09-17) — macOS 26에서 `ci-local.sh android`가 **한 단계도 돌지 않았다.**
-  `:compileKotlin`이 `Internal compiler error`로 죽는데 속을 열면 `IllegalArgumentException: 26.0.1` —
-  저장소 코드가 아니라 **컴파일러가 두 자리 major의 OS 버전을 파싱하지 못한 것**이다. 평상시 게이트가
-  로컬 CI 하나뿐이라(2026-09-10 전환) 그동안 Android만 검증 구멍이었다. 버전은 **루트
-  `sdks/android/build.gradle.kts` 한 곳**에서만 선언한다 — `:library`(AGP)는 KGP와 같은 buildscript
-  클래스로더를 써야 하므로 서브프로젝트에서 따로 올리면 어긋난다. 확인은 세 개 다 돌렸다:
-  `./gradlew test` **62개 통과**(수치는 그대로 — 툴체인만 바뀌었다) · `:library:assembleRelease`(AAR) ·
+- **Kotlin 2.1.20**(2026-09-17) — `:compileKotlin`이 `IllegalArgumentException: 26.0.1`로 죽던 것을
+  고치려고 올렸다. **그 목적은 달성되지 않았다**(2026-09-23 확인) — 원인이 OS 버전이 아니라 **JDK
+  버전**이라 플러그인 버전으로는 닫히지 않는다. 자세한 것은 위 "열려 있는 항목"의 해당 줄.
+  당시의 "62개 통과"는 기본 JDK 21에서 돈 것이고, 그 환경에서는 2.1.0도 원래 통과했다.
+  올린 것 자체는 해롭지 않아 되돌리지 않는다(`v0.2.0`이 이 위에서 나갔다). 이 항목에서 남는 지식은
+  **버전을 루트 `sdks/android/build.gradle.kts` 한 곳에서만 선언한다**는 것이다 — `:library`(AGP)는
+  KGP와 같은 buildscript 클래스로더를 써야 하므로 서브프로젝트에서 따로 올리면 어긋난다. 확인은
+  셋 다 돌렸다: `./gradlew test` **62개 통과** · `:library:assembleRelease`(AAR) ·
   `:library:publishToMavenLocal`(태그 릴리스가 타는 경로).
 
 - **v0.2.0 4채널 배포** `b423105`·`c212fae`(2026-09-17) — **태그 하나가 네 채널을 게시한 첫 릴리스.**

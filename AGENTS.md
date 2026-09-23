@@ -22,7 +22,7 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
 2026-09-16 **`release_applied` 텔레메트리 이벤트** — 델타가 없는 릴리스(첫 게시·base 롤백)와 rollout 밖
 기기는 `overlay_applied`가 영영 0이라 "안 쓰인다"와 "알릴 방법이 없다"가 구별되지 않았다. `src/`와 4개 SDK가
 같이 바뀌므로 5개 컴포넌트 전부 재실행(골든 벡터는 텔레메트리를 담지 않아 재생성 불필요).
-2026-09-17 **`v0.2.0` 4채널 배포** — Kotlin 2.1.20(로컬 Android 게이트 복구) · 매니페스트 3곳 lockstep ·
+2026-09-17 **`v0.2.0` 4채널 배포** — Kotlin 2.1.20 · 매니페스트 3곳 lockstep ·
 태그 push. **태그 하나가 네 채널을 게시한 첫 릴리스**이고 npm OIDC·pub.dev 자동 게시가 여기서 처음
 성공했다. 게시 후 소비자 스모크 4채널 24/24.
 남은 것은 실제 앱/외부 환경 의존 항목뿐(아래 "열려 있는 항목" 참조). 전체 지도는 `HANDOVER.md`.
@@ -34,15 +34,17 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
   - `npm run gen:golden` — 골든 벡터 재생성 → `fixtures/golden/*.json`
   - `npm run backend` / `npm run test:backend` / `npm run typecheck:backend` — 관리 백엔드
   - `npm run mcp:stdio` / `npm run test:mcp-stdio` / `npm run typecheck:mcp-stdio` — 앱 개발자용 stdio MCP 서버
-  - `swift test` (`sdks/ios`, Swift 6) · `gradle test` (`sdks/android`, Gradle 9/JDK 21) ·
+  - `swift test` (`sdks/ios`, Swift 6) · `./gradlew test` (`sdks/android`, Gradle 8.11 래퍼/JDK 21 고정) ·
     `node --test "test/*.test.ts"` (`sdks/web`) · `dart pub get && dart test` (`sdks/flutter`, Dart 3.5+)
   - `docker compose up` — 단일 노드 셀프호스트 (관리 API :8787 + 배포 플레인 :8788)
   - `./tools/ci-local.sh [reference|web|ios|android|flutter]` — **로컬 CI**. 2026-09-10 부터 `ci.yml` 은
     push·PR 에서 돌지 않는다(Actions 한도 절약). **PR·푸시 전에 이것이 평상시 유일한 게이트다.**
     `workflow_call` 은 남아 있어 태그 게시(`release.yml`) 때만 Actions 에서 전 컴포넌트가 다시 돈다.
-    로컬 도구 버전이 CI 고정값(Node 24.x·Java 21·Dart 3.5)과 다를 수 있다.
-    **Kotlin 은 2.1.20 이 하한이다**(2026-09-17) — 2.1.0 컴파일러는 macOS 26 에서 OS 버전을 파싱하다
-    `IllegalArgumentException: 26.0.1` 로 죽어 `android` 단계가 통째로 돌지 않았다. 버전은 루트
+    로컬 도구 버전이 CI 고정값(Node 24.x·Java 21·Dart 3.5)과 다를 수 있다 — 다만 `android` 단계가
+    도는 JVM 은 `sdks/android/gradle/gradle-daemon-jvm.properties` 로 21 에 고정돼 있다. `JAVA_HOME` 이
+    JDK 26 을 가리켜도 Gradle 이 데몬을 21 로 띄운다. Kotlin 컴파일러가 두 자리 major 의 **Java** 버전을
+    아직 읽지 못해 `IllegalArgumentException: 26.0.1` 로 죽기 때문이다 — 2.1.20·2.2.20 에서도 같아서
+    플러그인 버전으로는 닫히지 않는다(`HANDOVER.md` 의 해당 항목). Kotlin 버전은 루트
     `sdks/android/build.gradle.kts` 한 곳에서만 선언하고 `:library` 는 클래스로더를 공유해 상속한다 —
     한쪽만 올리면 KGP 와 AGP 가 어긋난다.
   - `npm run smoke:consumer` — **소비자 스모크**(`tools/consumer-smoke/`). 네 채널의 **게시본**을
