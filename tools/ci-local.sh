@@ -46,6 +46,32 @@ in_dir() { # in_dir <디렉터리> <명령...>
     (cd "$root/$dir" && "$@")
 }
 
+# Gradle 은 캐시가 살아 있으면 compileKotlin 을 UP-TO-DATE 로 건너뛴다. 그러면 컴파일러를 부르지도
+# 않은 채 BUILD SUCCESSFUL 이 나서, **툴체인이 깨진 날에도 초록이 뜬다.** 2026-09-23 에 실제로 겪었다 —
+# JDK 26 에서 죽는 것을 확인하려고 이 단계를 돌렸는데 전 과제가 캐시에서 나와 통과했고, `-q` 가
+# 요약줄까지 지워 단서조차 남지 않았다. 통과처럼 보이는 침묵이 가장 비싼 실패다.
+#
+# 그래서 둘을 한다: `clean` 으로 컴파일을 강제하고, 요약줄에 executed 가 있는지까지 확인한다.
+# 앞의 것이 지금의 수선이고 뒤의 것은 그것이 사라져도 거짓 초록이 나지 않게 하는 가드다.
+# 출력은 삼켜 두었다가 실패할 때만 보여 준다 — `-q` 로 지우는 것과 달리 근거는 남는다.
+android_gradle() { # android_gradle <gradle 인자...>
+    local out status
+    out="$(in_dir sdks/android ./gradlew "$@" 2>&1)"
+    status=$?
+    if [ $status -ne 0 ]; then
+        printf '%s\n' "$out" | tail -25 >&2
+        return 1
+    fi
+    # "48 actionable tasks: 43 executed, 5 up-to-date" ↔ "28 actionable tasks: 28 up-to-date"
+    case "$out" in
+        *"actionable tasks:"*" executed"*) return 0 ;;
+    esac
+    printf '%s\n' "$out" | tail -5 >&2
+    printf '  ✘ 한 과제도 실행되지 않았다 — 전부 캐시다. 컴파일러가 돌지 않았으므로 이 통과는\n' >&2
+    printf '    툴체인을 검증하지 못한다. clean 이 빠졌는지 확인하라.\n' >&2
+    return 1
+}
+
 npm_installed=""
 ensure_npm() {
     [ -n "$npm_installed" ] && return 0
@@ -90,8 +116,10 @@ run_ios() {
 
 run_android() {
     # 코어는 루트 JVM 모듈이라 Android SDK 없이 돈다.
-    step "Android SDK test"              in_dir sdks/android ./gradlew test -q                   || return 1
-    step "Android SDK AAR assembleRelease" in_dir sdks/android ./gradlew :library:assembleRelease -q || return 1
+    # clean 을 앞에 두는 이유는 android_gradle 주석에 있다 — 캐시가 살아 있으면 컴파일러를
+    # 부르지 않은 채 통과한다.
+    step "Android SDK test"                android_gradle clean test              || return 1
+    step "Android SDK AAR assembleRelease" android_gradle :library:assembleRelease || return 1
 }
 
 run_flutter() {
