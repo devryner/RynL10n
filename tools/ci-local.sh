@@ -22,6 +22,22 @@
 # 로컬 도구 버전이 CI 와 다를 수 있다 — CI 는 Node 24.x · Java 21 · Dart 3.5 로 고정했다.
 # 특히 Dart 는 새 버전의 분석기가 경고를 더 내서 analyze 결과가 달라질 수 있다.
 #
+# **캐시와 초록의 관계는 단계마다 다르다**(2026-09-26 확인).
+#   android  Gradle 은 `test` 과제째로 UP-TO-DATE 가 되어 **테스트도 컴파일도 돌지 않은 채** 통과했다.
+#            그래서 `clean` 을 앞에 두고 실행된 과제가 하나도 없으면 막는다(`android_gradle`).
+#   ios      `swift test` 는 증분 컴파일만 건너뛰고 **테스트 바이너리는 매번 실행한다** — 두 번 연속
+#            돌려 51 개가 그대로 도는 것을 확인했다. android 같은 침묵은 없다.
+#   flutter  `dart test`·`dart analyze` 도 같다 — 2 회차에도 54 개가 돌고 analyze 가 다시 돈다.
+#
+# 다만 ios·flutter 도 **컴파일 자체는 건너뛴다.** 테스트가 도니 코드 동작 신호는 남지만, 툴체인이
+# 깨진 것은 무언가 바뀌기 전까지 드러나지 않는다(Kotlin 이 JDK 26 을 못 읽던 건이 그랬다).
+# 둘의 클린 빌드는 Gradle 과 달리 비싸서 매번 돌리지 않는다 — **툴체인을 바꿨을 때 한 번** 클린으로
+# 돌리는 것이 그 사각을 닫는 자리다.
+#
+# 읽을 때 하나: `swift test` 끝에 붙는 `Test run with 0 tests in 0 suites passed` 는 새 swift-testing
+# 러너가 자기 소속 테스트를 0 개 찾았다는 뜻이다(이 저장소는 XCTest 만 쓴다). 근거가 없는 초록 한
+# 줄이므로 위의 `Executed 51 tests` 쪽을 봐야 한다.
+#
 # 맥 기본 bash(3.2)에서도 돌도록 bash 4 문법을 쓰지 않는다.
 
 set -uo pipefail
