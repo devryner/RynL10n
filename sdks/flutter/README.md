@@ -1,4 +1,4 @@
-# rynl10n (Flutter/Dart SDK, M4 α)
+# rynl10n (Flutter/Dart SDK)
 
 Flutter/Dart SDK. 순수 Dart 코어라 `dart test`로 검증 가능(Flutter 위젯 불요). 코어 알고리즘
 (JCS·resolve·매칭·카나리·정수 매칭)은 M0 TS 참조 구현과 **골든 벡터로 바이트·해시·동작 정합**.
@@ -12,7 +12,7 @@ dependencies:
 ```
 
 > **pub.dev에 게시돼 있다 — `rynl10n` `0.2.0`**(2026-09-17 · 4개 SDK lockstep 6.5). `dart pub add rynl10n`
-> 으로도 된다. 2026-08-27에 빈 프로젝트에서 `pub get` → `t()` 왕복까지 확인했다.
+> 으로도 된다. 빈 프로젝트에서 `pub get` → `t()` 왕복은 0.1.0 게시 직후(2026-08-27)에 확인했다.
 
 코어를 함께 고치는 중이라면 경로 의존으로 참조한다. **패키지 tarball에는 `test/`가 없다**
 (`.pubignore` — 테스트가 패키지 밖 `fixtures/golden/`을 읽어 tarball 안에서는 돌지 않는다):
@@ -26,16 +26,17 @@ dependencies:
 ## 사용
 
 ```dart
+import 'dart:convert';
 import 'package:rynl10n/rynl10n.dart';
 
 final client = RynL10nClient(
-  bundle: Snapshot.fromJson(jsonDecode(bakedSnapshotJson)), // 빌드타임 bake된 fallback
+  bundle: Snapshot.fromJson(jsonDecode(bakedSnapshotJson)), // 빌드타임 bake된 fallback(실제로는 아래 parseBakedSnapshot)
   store: myDeliveryStore,                                   // 배포 플레인(정적) 접근 — 아래 "앱 적용 경로"
   context: ClientContext(appVersion: '3.2.1'),             // 어느 릴리스를 받을지(4.3)
   locale: Localizations.localeOf(context).toLanguageTag(), // 그 안에서 어느 언어를 읽을지(3.1)
-  installId: localInstallId,                                // 카나리용(옵션)
+  installId: localInstallId,                                // 카나리 버킷용 — 없으면 rollout<100 릴리스를 받지 않는다
 );
-client.refresh(manifest);
+client.refresh(manifest);                                  // manifest는 보통 RemoteDeliveryStore.update()가 넘긴다
 final s = client.t('cart.title', locale: 'ja');            // 동기 — 항상 번들 fallback
 ```
 
@@ -43,10 +44,15 @@ final s = client.t('cart.title', locale: 'ja');            // 동기 — 항상 
   언어를 읽을지(3.1). `t()`에 로케일을 주면 그것이, 없으면 `locale`이, 그것도 없으면 번들 기본
   로케일이 쓰이며 어느 쪽이든 fallback 체인을 탄다. **코어는 플랫폼 API를 모르므로 기기 언어는 앱이
   넘긴다** — Flutter는 `Localizations.localeOf(context).toLanguageTag()`(위젯 밖이면
-  `PlatformDispatcher.instance.locale`), 순수 Dart는 `rynl10n_io.dart`의 `ioDeviceLocale()`
+  `PlatformDispatcher.instance.locale.toLanguageTag()`), 순수 Dart는 `rynl10n_io.dart`의 `ioDeviceLocale()`
   (`Platform.localeName`의 POSIX 형식 `ko_KR.UTF-8`을 BCP 47 `ko-KR`로 정규화해 준다).
 - 갱신 이벤트: `client.onCatalogUpdated((info) => ...)`. Flutter는 이를 `ValueNotifier<int>`로 감싸
   `ValueListenableBuilder`로 리빌드(어댑터는 위젯 레이어, 이 패키지는 위젯 의존성 없음).
+  단 **맞는 릴리스가 사라져 번들로 되돌아갈 때는 이 이벤트가 오지 않는다**(릴리스 id가 없어서).
+  되돌림까지 화면에 반영하려면 `update()`가 끝난 뒤에도 리빌드를 건다.
+- **`installId`가 없으면 카나리(rollout 100% 미만) 릴리스의 오버레이를 하나도 받지 않는다**(번들로
+  남고 `overlay_applied`도 세지 않는다). 부분 배포를 쓸 거라면 첫 실행에 익명 UUID를 만들어
+  `shared_preferences` 등에 저장해 두고 넘긴다. 서버로는 보내지 않는다.
 - NFC 정규화는 `package:unorm_dart`, SHA-256은 `package:crypto` — JCS 결정성이 타 플랫폼과 일치.
 
 ## 앱 적용 경로 (6.3 / 6.4)
@@ -55,7 +61,21 @@ final s = client.t('cart.title', locale: 'ja');            // 동기 — 항상 
 **번들 로더**와 **배포 플레인 HTTP 구현**. iOS·Android·Web과 같은 계약을 지키며 시나리오 테스트도
 1:1로 맞춰 두었다.
 
+**번들은 이 패키지가 굽지 않는다** — Dart용 bake CLI나 Flutter 빌드 훅은 없다. iOS
+(`swift run rynl10n-bake … --stable-name <out>`) 또는 Android(`./gradlew rynl10nBake … -PstableName=true
+-Pout=<out>`, JDK 21만 있으면 되고 Android SDK는 필요 없다) CLI로 앱의 `assets/`에 굽는다. 명령과 옵션은
+[Android 가이드](../android/README.md) §3을 따른다. `--stable-name`을 빼면 파일명이 `snapshot-<base>.json`이
+되어 아래 경로로 읽히지 않는다. 산출물은 자산으로 선언해야 번들에 실린다:
+
+```yaml
+# 앱 pubspec.yaml
+flutter:
+  assets:
+    - assets/rynl10n/
+```
+
 ```dart
+import 'dart:async';                         // unawaited
 import 'package:rynl10n/rynl10n.dart';
 import 'package:rynl10n/rynl10n_io.dart';   // dart:io 기본 어댑터
 
@@ -73,7 +93,9 @@ final store = RemoteDeliveryStore(
   cache: FileArtifactCache(await getApplicationCacheDirectory(), project: 'shop'),
 );
 final client = RynL10nClient(bundle: bundle, store: store, context: ClientContext(appVersion: '3.2.1'));
-await store.update(client);                  // 앱 시작 직후·포그라운드 복귀에 호출
+// 앱 시작 직후·포그라운드 복귀에 호출. 캐시가 없는 첫 실행이 오프라인이면 DeliveryException을
+// 던지므로 삼킨다(화면은 번들로 그대로 뜬다). runApp 전에 await하지 않는다.
+unawaited(store.update(client).catchError((_) => false));
 ```
 
 - **동기 조회 / 비동기 다운로드 분리**: `DeliveryStore`는 동기 인터페이스라 화면이 네트워크를 기다리지
@@ -106,10 +128,18 @@ final store = RemoteDeliveryStore(
   cache: CallbackArtifactCache(            // 웹은 파일 시스템이 없다
     read: (k) => web.window.localStorage.getItem('rynl10n:shop:$k'),
     write: (k, v) => web.window.localStorage.setItem('rynl10n:shop:$k', v),
-    clear: () => web.window.localStorage.clear(),
+    clear: () {                            // 이 프로젝트 키만 지운다 — localStorage.clear()는 오리진 전체를 지운다
+      final s = web.window.localStorage;
+      for (var i = s.length - 1; i >= 0; i--) {
+        final k = s.key(i);
+        if (k != null && k.startsWith('rynl10n:shop:')) s.removeItem(k);
+      }
+    },
   ),
 );
 ```
+
+`package:web`은 SDK가 끌고 오지 않는다 — 앱 `pubspec.yaml`에 `web`을 추가한다.
 
 `CallbackArtifactCache`는 코어에 있고 의존성이 없다 — SDK가 저장소 패키지를 고르지 않기 위한
 이음새라, 모바일에서 `shared_preferences`를 꽂는 데도 같은 클래스를 쓴다. 저장소가 던지는 실패
@@ -188,5 +218,5 @@ cd sdks/flutter && dart pub get && dart test   # 골든 11 + 시나리오 5 + �
 ## M4 기능
 
 - **정수 버전 매칭**: `ClientContext(buildNumber: 4210)` + `VersionMatch('integer-range', '>=42 <50')`.
-- **카나리(8.4)**: manifest `rollout<100`이면 `hash(installId+releaseId) mod 100 < rollout%`만 오버레이 수신.
-  안전 기본값 rollout 100(전체). installId=기기 로컬 익명 난수(서버 미전송).
+- **카나리(8.4)**: manifest `rollout<100`이면 `sha256('$installId:$releaseId')` 버킷(0..99) `< rollout`만 오버레이 수신.
+  안전 기본값 rollout 100(전체). installId=기기 로컬 익명 난수(서버 미전송). **installId를 넘기지 않으면 rollout<100 릴리스는 받지 않는다.**

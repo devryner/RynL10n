@@ -60,7 +60,13 @@ class MemoryArtifactCache implements ArtifactCache {
 /// final cache = CallbackArtifactCache(
 ///   read: (k) => web.window.localStorage.getItem('rynl10n:shop:$k'),
 ///   write: (k, v) => web.window.localStorage.setItem('rynl10n:shop:$k', v),
-///   clear: () => web.window.localStorage.clear(),
+///   clear: () {
+///     final s = web.window.localStorage;   // clear()는 오리진 전체를 지우니 이 프로젝트 키만
+///     for (var i = s.length - 1; i >= 0; i--) {
+///       final k = s.key(i);
+///       if (k != null && k.startsWith('rynl10n:shop:')) s.removeItem(k);
+///     }
+///   },
 /// );
 /// ```
 ///

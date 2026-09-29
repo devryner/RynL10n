@@ -4,7 +4,8 @@
 알고리즘·골든 벡터 등 SDK 내부는 [`../README.md`](../README.md), 서버 운영은
 [`../../OPERATIONS.md`](../../OPERATIONS.md)를 참조한다.
 
-**요구 사항**: minSdk 26 / JDK 17+ / Kotlin 2.1+.
+**요구 사항**: 앱은 minSdk 26 / JDK 17+ / Kotlin 2.1+. bake 태스크(§3)는 이 저장소의 루트 JVM 모듈에서
+돌기 때문에 **JDK 21이 설치돼 있어야 한다**(`jvmToolchain(21)`, 툴체인 자동 다운로드 없음).
 
 ---
 
@@ -62,33 +63,55 @@ Compose를 쓰지 않는 앱도 그대로 쓸 수 있다 — Compose 어댑터�
 
 ### 3-a. bake 태스크를 빌드 그래프에 물리기
 
-`rynl10nBake`는 이 저장소의 `sdks/android` 빌드가 제공하는 태스크다. 앱 저장소에서는 CI가
-스냅샷을 받아 `assets/`에 떨궈두는 형태가 가장 단순하다:
+`rynl10nBake`는 이 저장소의 `sdks/android` 빌드가 제공하는 태스크다. 앱 저장소에는 없으므로
+앱 CI가 이 저장소를 함께 받아 거기서 돌리고, 출력만 앱 모듈의 `assets/`로 보내는 형태가 가장 단순하다:
 
 ```bash
 # CI: 최신 릴리스 스냅샷을 받아 앱 모듈 assets로 bake
 #     서버가 죽어 있으면 --cache 의 마지막 성공본으로 진행한다(빌드가 서버에 종속되지 않음)
+APP="$PWD"                                   # 앱 저장소 루트
+git clone --depth 1 --branch v0.2.0 https://github.com/devryner/RynL10n.git /tmp/rynl10n
+cd /tmp/rynl10n/sdks/android
 ./gradlew rynl10nBake \
   -Pfetch="$API/projects/myapp/releases/R1/snapshot" -Ptoken="$TOKEN" \
-  -Pcache=.rynl10n-cache.json \
-  -Pout=<앱 모듈>/src/main/assets -PstableName=true
+  -Pcache="$APP/.rynl10n-cache.json" \
+  -Pout="$APP/<앱 모듈>/src/main/assets" -PstableName=true
 ```
+
+**경로는 절대 경로로 준다.** 태스크는 `sdks/android`를 작업 디렉터리로 돌기 때문에 `-Pout`·`-Pcache`·
+`-Psource`의 상대 경로는 앱 저장소가 아니라 `sdks/android` 기준으로 풀린다.
 
 산출물은 `assets/rynl10n/snapshot.json` + `assets/rynl10n/rynl10n.lock`이다.
 `-PstableName=true`가 파일명을 고정해 주므로 런타임 로더가 바로 찾는다.
 
 에어갭·오프라인 빌드라면 `-Pfetch` 대신 커밋해 둔 스냅샷 파일을 `-Psource=`로 넘긴다.
 
-`-PemitNative=true`를 더하면 `res/values-<locale>/strings.xml`도 함께 방출한다 —
+`-Pstrict=true`를 더하면 커버리지 공백(비어 있는 칸)이나 base 해시 불일치가 있을 때 bake가 실패한다(기본은 경고만 찍고 계속).
+
+`-PemitNative=true`를 더하면 로케일별 `strings.xml`도 함께 방출한다 —
 `getString(R.string.…)`을 쓰는 기존 코드에 fallback을 주고 싶을 때만 쓰면 된다(선택).
 여기에 `-Pdescriptions=`로 키 설명 사이드카를 주면 대시보드에 적은 **키 설명이 XML 주석으로
 구워진다**(5.3). 스냅샷과 분리된 사이드카라 **읽지 못해도 빌드는 주석 없이 계속한다.**
 
-```bash
-./gradlew rynl10nBake -Pfetch="$API/projects/myapp/releases/R1/snapshot" -Ptoken="$TOKEN" \
-  -Pdescriptions="$API/projects/myapp/releases/R1/descriptions" \
-  -PemitNative=true -Pout=<앱 모듈>/src/main/assets -PstableName=true
-```
+> **`strings.xml`은 `<out>/rynl10n/res/` 밑에 떨어진다.** 위 명령처럼 `-Pout`이 `src/main/assets`면
+> `assets/rynl10n/res/values*/strings.xml`이 되어 **리소스로 컴파일되지 않는다**(`R.string`이 생기지
+> 않고 raw asset으로 APK에 실린다). 네이티브 방출을 쓰려면 assets 밖으로 한 번 더 굽고, 그 `res`를
+> 앱의 리소스 디렉터리로 등록한다:
+>
+> ```bash
+> ./gradlew rynl10nBake -Pfetch="$API/projects/myapp/releases/R1/snapshot" -Ptoken="$TOKEN" \
+>   -Pdescriptions="$API/projects/myapp/releases/R1/descriptions" \
+>   -PemitNative=true -Pout="$APP/<앱 모듈>/build/rynl10n-native" -PstableName=true
+> ```
+>
+> ```kotlin
+> // 앱 모듈 build.gradle.kts
+> android { sourceSets["main"].res.srcDir("build/rynl10n-native/rynl10n/res") }
+> ```
+>
+> 폴더 이름은 `values-<로케일 태그>`를 그대로 쓴다. `ja`·`ko` 같은 언어 태그는 맞지만 `pt-BR`·
+> `zh-Hant`처럼 지역·문자 하위 태그가 붙은 로케일은 Android 한정자(`values-pt-rBR`·`values-b+zh+Hant`)가
+> 아니라서 aapt가 거부한다. 그런 로케일이 있으면 네이티브 방출은 쓰지 않는다.
 
 ### 3-b. 확인
 
@@ -117,8 +140,13 @@ class App : Application() {
 }
 ```
 
-`appVersion`은 기본적으로 `PackageInfo.versionName`, `buildNumber`는 `longVersionCode`를 쓴다.
-릴리스 매칭을 다른 값으로 하려면 인자로 넘긴다.
+`appVersion`은 기본적으로 `PackageInfo.versionName`, `buildNumber`는 `longVersionCode`(`Int`로 변환,
+API 28 미만은 `versionCode`)를 쓴다. 릴리스 매칭을 다른 값으로 하려면 인자로 넘긴다.
+
+> **카나리(rollout 100% 미만) 릴리스를 받으려면 `enableCanary = true`를 넘긴다.** 기본은 `false`이고,
+> 이때는 카나리 버킷에 쓸 `installId`가 없어서 rollout이 100 미만인 릴리스의 오버레이를 **하나도 받지
+> 않는다**(번들로 남고 `overlay_applied`도 세지 않는다). `true`면 기기 로컬 익명 UUID를
+> SharedPreferences에 만들어 쓰며, 서버로는 보내지 않는다.
 
 조회 로케일은 `locale` 인자이며 기본값은 **앱에 적용된 기기 언어**(`RynL10n.deviceLocale(context)` —
 `Locale.getDefault()`가 아니라 리소스 설정의 로케일 목록을 먼저 보므로 Android 13+ 앱별 언어 설정이
@@ -181,6 +209,9 @@ class MainActivity : ComponentActivity() {
 ### 4-e. 주기 폴링 — 켜 두면 알아서 따라간다
 
 앱이 오래 떠 있는 동안에도 갱신을 받고 싶으면 폴링을 켠다. 즉시 한 번 돌고 간격마다 반복한다.
+
+`ProcessLifecycleOwner`는 SDK가 끌고 오지 않는다 — 앱에 `androidx.lifecycle:lifecycle-process`
+의존성을 추가한다.
 
 ```kotlin
 // ProcessLifecycleOwner 관찰자 — 배터리·트래픽은 앱이 정한다(SDK가 생명주기를 가로채지 않는다).
@@ -254,7 +285,7 @@ RynL10n.startTelemetry("https://admin.example.com")                             
 | 값이 안 바뀜 (서버는 바뀜) | manifest ETag 캐시 | manifest는 짧은 TTL. 즉시 확인하려면 `RynL10n.store?.clearCache()` |
 | Compose에서 `NoClassDefFoundError` | Compose 없는 앱이 `rynl10nString` 호출 | Compose 어댑터는 `compileOnly` — Compose를 쓰지 않으면 `RynL10n.t`를 쓴다 |
 
-`RynL10n.configure(telemetry = "aggregate")`로 켜면 `client.drainTelemetry()`가 익명 집계 카운트
+`RynL10n.configure(this, project = "myapp", telemetry = "aggregate")`로 켜면 `client.drainTelemetry()`가 익명 집계 카운트
 (`releaseApplied` / `overlayApplied` / `formatGuardRejected` / `keyUnresolved` / `deltaFailed`)를 돌려준다.
 값·키명·기기 식별자는 포함되지 않는다. 서버로 올려 관측성 탭에서 보려면 §4-g.
 
@@ -267,11 +298,12 @@ RynL10n.startTelemetry("https://admin.example.com")                             
   (bake 산출물을 실제로 구워 다시 읽는 왕복) + **폴링·푸시·텔레메트리 9개**(폴링 정지 보장,
   SSE 프레임 계수, 업로드 본문이 5개 필드뿐인지, 실패 시 카운트 되돌리기).
   AAR 빌드와 `publishToMavenLocal`도 확인됨.
-- **미검증**: **실제 Android 앱 모듈에서의 end-to-end.** assets 병합, `PackageInfo` 기반 버전 판정,
-  Compose 재구성은 코드만 준비된 상태다 — 이 저장소에 앱 모듈이 없어 계측 테스트를 돌리지 못했다.
+- **미검증**: **실제 기기·에뮬레이터에서의 end-to-end.** Maven Central 게시본을 받은 소비자
+  프로젝트에서 AGP 유닛 테스트로 `t()` 왕복까지는 확인했지만(§2), assets 병합, `PackageInfo` 기반 버전
+  판정, Compose 재구성은 계측 테스트를 돌리지 못했다.
   처음 붙일 때 ① 빌드 로그의 `[rynl10n] bake 완료` ② `RynL10n.client.status()`가 기대한 릴리스를
   가리키는지부터 확인할 것.
-- **미게시**: Maven Central 배포는 계정·서명 키 준비가 남아 있다(기획서 6.5 · M5).
+- **게시**: Maven Central `com.devryner.rynl10n:android:0.2.0`(2026-09-17, §2).
 
 ---
 
@@ -280,9 +312,10 @@ RynL10n.startTelemetry("https://admin.example.com")                             
 ```
 sdks/android/
   build.gradle.kts        루트 = 결정적 코어(JVM). 배포하지 않는다.
+  gradle/gradle-daemon-jvm.properties  Gradle 데몬 JVM을 21로 고정 — JAVA_HOME이 JDK 26이어도 21로 돈다
   src/main/kotlin/        코어 — :library가 이 소스를 그대로 컴파일해 AAR에 넣는다
   src/cli/kotlin/         bake CLI(java.net.http 사용 — Android에 없는 API라 AAR에서 제외)
-  src/test/kotlin/        골든 벡터·시나리오·배포 플레인·번들 로더 테스트 (Android SDK 불요)
+  src/test/kotlin/        골든 벡터·시나리오·배포 플레인·번들 로더·bake CLI·로케일·폴링/푸시/텔레메트리 테스트 (Android SDK 불요)
   library/                배포 아티팩트(AAR) — com.devryner.rynl10n:android
     src/main/kotlin/      Android 바인딩만(assets 로더·configure 파사드·Compose 어댑터)
 ```
