@@ -6,7 +6,9 @@ let package = Package(
     name: "Consumer",
     platforms: [.macOS(.v13)],
     dependencies: [
-        .package(path: "../.."),
+        // 경로 의존의 패키지 이름은 디렉토리 이름에서 온다 — 서브모듈로 `core/` 같은 곳에 체크아웃되면
+        // "RynL10n"이 아니게 되어 아래 `package: "RynL10n"`을 못 찾는다. 이름을 못박아 둔다.
+        .package(name: "RynL10n", path: "../.."),
     ],
     targets: [
         .executableTarget(
