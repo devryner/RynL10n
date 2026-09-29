@@ -4,7 +4,7 @@
 알고리즘·골든 벡터 등 SDK 내부는 [`../README.md`](../README.md), 서버 운영은
 [`../../OPERATIONS.md`](../../OPERATIONS.md)를 참조한다.
 
-**요구 사항**: Swift 6 / Xcode 16+ / iOS 15+.
+**요구 사항**: Swift 6 / Xcode 16+ / iOS 15+ · macOS 13+.
 
 ---
 
@@ -107,7 +107,7 @@ curl -H "$AUTH" $API/projects/myapp/releases/R1/snapshot \
 | 환경 | 방법 |
 | --- | --- |
 | **Xcode 앱 타깃** | 타깃 → **Build Phases → Run Build Tool Plug-ins** → `+` → `RynL10nBakePlugin` |
-| **SwiftPM 타깃** | `Package.swift`의 타깃에 `plugins: [.plugin(name: "RynL10nBakePlugin", package: "RynL10n")]` 한 줄 |
+| **SwiftPM 타깃** | `Package.swift`의 타깃에 `plugins: [.plugin(name: "RynL10nBakePlugin", package: "RynL10n")]`와 `exclude: ["rynl10n"]` — vendored 스냅샷은 `Sources/<Target>/rynl10n/release-snapshot.json`에 두고, 플러그인이 직접 읽으므로 SwiftPM 리소스 처리에서는 뺀다([`examples/ios-consumer/Package.swift`](../../examples/ios-consumer/Package.swift)) |
 
 빌드하면 로그에 `[rynl10n] bake 완료: release=… base=… keys=…`가 찍히고
 `snapshot.json` + `rynl10n.lock`이 앱 번들 리소스로 들어간다. **커밋할 산출물은 없다.**
@@ -131,6 +131,13 @@ swift run rynl10n-bake \
 `--emit-native`는 `Localizable.xcstrings`도 함께 방출한다 — `String(localized:)`를 쓰는 기존 코드에
 fallback을 주고 싶을 때만 쓰면 된다(선택). 대시보드에 적은 **키 설명이 `.xcstrings`의 `comment`로
 구워져** Xcode에서 번역하는 사람에게 맥락이 전달된다.
+
+산출물은 `./Generated/rynl10n/` 밑에 `snapshot-<base>.json` + `rynl10n.lock`(+ `Localizable.xcstrings`)으로
+떨어진다. **플러그인과 달리 앱 번들에 자동으로 들어가지 않는다** — 이 폴더를 앱 타깃 리소스로
+추가한다(SwiftPM이면 `resources: [.copy("Generated/rynl10n")]`처럼). 이 경로를 쓸 때는
+**3-a의 vendored 파일과 3-b의 플러그인을 함께 두지 않는다.** 로더는 `snapshot.json`(플러그인 산출물)을
+`snapshot-<base>.json`보다 먼저 집기 때문에, 둘이 같이 있으면 CI가 받은 최신 스냅샷이 경고 없이 무시된다.
+`--strict`를 더하면 커버리지 공백이나 base 해시 불일치에서 bake가 실패한다(기본은 경고만).
 
 ---
 
@@ -164,6 +171,19 @@ enum L10n {
     )
 }
 ```
+
+> **카나리(rollout 100% 미만) 릴리스를 받으려면 `installId:`를 넘긴다.** 기본값은 `nil`이고, 이때는
+> rollout이 100 미만인 릴리스의 오버레이를 **하나도 받지 않는다**(번들로 남고 `overlay_applied`도 세지
+> 않는다). 값은 앱이 처음 실행될 때 만든 익명 UUID를 저장해 두고 쓰면 된다 — 서버로는 보내지 않는다.
+>
+> ```swift
+> let installId = UserDefaults.standard.string(forKey: "rynl10n.installId") ?? {
+>     let id = UUID().uuidString
+>     UserDefaults.standard.set(id, forKey: "rynl10n.installId")
+>     return id
+> }()
+> // RynL10nClient(bundle: …, store: …, context: …, locale: …, installId: installId)
+> ```
 
 > `try!`는 예제를 짧게 쓴 것이다. 실제로는 `catch`에서 로그를 남기고 진행하되, 번들이 없으면 번역이
 > 전부 `⟪key⟫`로 나오므로 **디버그 빌드에서는 크래시시키는 편**이 초기 설정 실수를 빨리 잡는다.
@@ -217,7 +237,8 @@ func applicationDidBecomeActive(_ application: UIApplication) {
 
 `try?`로 삼켜도 되는 이유: 실패는 **이전 상태 유지**를 뜻할 뿐 화면이 깨지지 않는다.
 네트워크가 끊겨 있으면 마지막으로 받은 manifest·산출물 캐시로 진행하고, 캐시조차 없으면
-`DeliveryError.unavailable`을 던진 뒤 번들 그대로 동작한다.
+`DeliveryError.unavailable`을 던진 뒤 번들 그대로 동작한다. 서버가 2xx가 아닌 응답을 주면
+`badStatus`, 본문을 읽지 못하면 `malformed`다.
 
 ### 4-c-1. 주기 폴링 — 켜 두면 알아서 따라간다
 
@@ -231,7 +252,8 @@ L10n.remote.startPolling(L10n.client, interval: 60)   // 기본 60초
 복귀할 때 켜는 것이 기본 패턴이다:
 
 ```swift
-.onChange(of: scenePhase) { _, phase in
+// iOS 15·16도 받는 한 인자 형태. iOS 17+만 지원한다면 `{ _, phase in }` 형태를 써도 된다.
+.onChange(of: scenePhase) { phase in
     if phase == .active { L10n.remote.startPolling(L10n.client) }
     else { L10n.remote.stopPolling() }
 }
@@ -376,7 +398,7 @@ RYNL10N_ENDPOINT=http://localhost:8788 RYNL10N_PROJECT=myapp \
 | `BakedError.notFound` | 플러그인 미연결 / vendored 스냅샷이 타깃 멤버십 밖 | Build Phases → Run Build Tool Plug-ins, 파일 Target Membership |
 | 번들 값만 나오고 원격이 안 붙음 | 앱 버전이 릴리스 범위 밖 | `client.status().selection`이 `bundle-only`면 그것. manifest의 `versionMatch` 확인 |
 | 특정 키만 옛 값 | 포맷 안전 가드 | 오버레이의 플레이스홀더 서명이 번들과 다르면 그 키만 번들로 fallback(크래시 방지). 서버에서 키 `placeholders` 확인 |
-| `DeliveryError.badStatus(404)` | 배포 플레인 경로/프로젝트 ID 불일치 | `curl $CDN/{project}/manifest.json` |
+| `DeliveryError.badStatus(404, path:)` | 배포 플레인 경로/프로젝트 ID 불일치 | `curl $CDN/{project}/manifest.json` |
 | 값이 안 바뀜 (서버는 바뀜) | manifest ETag 캐시 | manifest는 짧은 TTL. 즉시 확인하려면 `remote.clearCache()` |
 
 `RynL10nClient(telemetry: "aggregate")`로 켜면 `drainTelemetry()`가 익명 집계 카운트

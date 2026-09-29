@@ -4,7 +4,7 @@
 // 실제 앱 적용(배포 플레인 HTTP·폴링·푸시·텔레메트리)은 ../README.md 참조.
 import 'package:rynl10n/rynl10n.dart';
 
-/// 빌드타임에 구워진 번들(fallback). 실제로는 플러그인이 `assets/rynl10n/snapshot.json`에
+/// 빌드타임에 구워진 번들(fallback). 실제로는 iOS·Android bake CLI가 `assets/rynl10n/snapshot.json`에
 /// 굽고 앱이 `parseBakedSnapshot`으로 읽는다 — 여기서는 같은 모양을 손으로 만든다.
 Snapshot bakedBundle() => Snapshot(1, 'R42', 'base0', 'en', {
       'en': {

@@ -1,7 +1,8 @@
-# @rynl10n/web (M4 α)
+# @rynl10n/web
 
-Web(JS/TS) SDK. **프레임워크 무관 코어 + fetch/ETag 폴링 + 영속 캐시 + React 어댑터.** 코어 알고리즘
-(resolve·매칭·카나리)은 참조 구현(`../../src`)을 재사용 — 골든 벡터로 검증된 동작을 그대로 공유한다.
+Web(JS/TS) SDK. **프레임워크 무관 코어 + fetch/ETag 폴링 + 영속 캐시.** React 어댑터는 패키지에
+들어 있지 않고 아래 복사용 스니펫으로 제공한다. 코어 알고리즘(resolve·매칭·카나리)은 참조
+구현(`../../src`)을 재사용 — 골든 벡터로 검증된 동작을 그대로 공유한다.
 
 ## 설치
 
@@ -28,8 +29,14 @@ SSR·스크립트·테스트에서는 하드 에러가 난다. 빌드는 `prepac
 "dependencies": { "@rynl10n/web": "^0.2.0" }
 ```
 
-코어를 함께 고치는 중이라면 경로 의존도 그대로 동작한다 — `prepack`이 게시 빌드를 돌리므로
-`npm pack` tarball 설치와 결과가 같다:
+코어를 함께 고치는 중이라면 경로 의존을 쓸 수 있다. 단 npm 기본 설정(`install-links=false`)에서
+`file:` 디렉터리 의존은 **심볼릭 링크로 걸리고 `prepack`이 돌지 않는다.** 진입점은 gitignore된
+`dist/`뿐이라, 클론 직후 그대로 걸면 모듈을 찾지 못한다(`ERR_MODULE_NOT_FOUND`). 먼저 게시 빌드를
+한 번 돌려 두거나, `npm install --install-links`로 tarball처럼 설치한다:
+
+```bash
+cd ../RynL10n/sdks/web && npm run build:publish   # 코어를 고칠 때마다 다시
+```
 
 ```jsonc
 "dependencies": { "@rynl10n/web": "file:../RynL10n/sdks/web" }
@@ -47,12 +54,26 @@ const sdk = new HttpRynL10n({
   bundle: BakedBundle.parse(raw),        // import 값 검증(아래 "번들 로더")
   context: { appVersion: "3.2.1" },      // 어느 릴리스를 받을지(4.3) — 또는 releaseLabel / buildNumber
   // locale: "ko-KR",                    // 그 안에서 어느 언어를 읽을지(3.1). 기본값 = navigator.language
-  installId: localStorage.getItem("rynl10n_iid") ?? undefined, // 카나리용(옵션)
+  installId: installId(),                // 카나리 버킷용 — 없으면 rollout<100 릴리스를 받지 않는다
 });
-sdk.start();                              // 포그라운드 폴링(ETag 조건부)
+sdk.start();                              // 포그라운드 폴링(ETag 조건부, 기본 60초 = pollIntervalMs)
 sdk.onCatalogUpdated(() => rerender());
 sdk.t("cart.title");                       // 동기 — 항상 번들 fallback
 ```
+
+```ts
+// 기기(브라우저) 로컬 익명 id — 처음 한 번 만들어 저장해 두고 계속 쓴다. 서버로는 보내지 않는다.
+function installId(): string | undefined {
+  try {
+    let id = localStorage.getItem("rynl10n_iid");
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem("rynl10n_iid", id); }
+    return id;
+  } catch { return undefined; } // 저장소를 못 쓰는 환경 → 카나리 미참여(rollout 100 릴리스는 그대로 받음)
+}
+```
+
+> **`installId`가 없으면 카나리(rollout 100% 미만) 릴리스의 오버레이를 하나도 받지 않는다**(번들로 남고
+> `overlay_applied`도 세지 않는다). 부분 배포를 쓸 거라면 위처럼 값을 만들어 넘긴다.
 
 - 갱신 = manifest 조건부 요청(If-None-Match) → 변경 시 필요한 델타/스냅샷만 프리페치 → 동기 코어 적용.
 - 플레인 분리 준수: 배포 플레인의 정적 파일만 읽는다.
@@ -68,6 +89,11 @@ sdk.t("cart.title");                       // 동기 — 항상 번들 fallback
 Android `RemoteDeliveryStore`와 같은 계약을 지키며, 시나리오 테스트도 1:1로 맞춰 두었다.
 
 ### ① 번들 로더
+
+**이 패키지에는 bake CLI가 없다.** 번들은 iOS(`swift run rynl10n-bake … --stable-name <out>`) 또는
+Android(`./gradlew rynl10nBake … -PstableName=true -Pout=<out>`, JDK 21만 있으면 되고 Android SDK는
+필요 없다) CLI로 굽는다. 산출물은 `<out>/rynl10n/snapshot.json` + `<out>/rynl10n/rynl10n.lock`이다 —
+명령과 옵션은 [Android 가이드](../android/README.md) §3을 따른다.
 
 빌드 산출물(`snapshot.json`)을 쓰는 길은 두 갈래이고 둘 다 같은 검증 관문을 지난다 — 잘못된 JSON을
 import해도 런타임 깊은 곳이 아니라 여기서 안내 메시지와 함께 실패한다.
@@ -120,7 +146,11 @@ sdk.clearCache();                                   // 로그아웃·프로젝�
 const sdk = new HttpRynL10n({ ...cfg, pushEndpoint: "https://api.example.com" });
 sdk.connectServerPush(() => rerender());  // SSE 'manifest' 신호 → 즉시 refresh(폴링 지연 0)
 ```
-신호는 캐시 무효화용일 뿐(번역 데이터 없음) — 데이터는 여전히 배포 플레인에서 fetch. 연결 실패 시 폴링으로 폴백.
+신호는 캐시 무효화용일 뿐(번역 데이터 없음) — 데이터는 여전히 배포 플레인에서 fetch.
+**푸시는 스스로 재연결하지도, 폴링을 켜지도 않는다** — 연결에 실패하거나 스트림이 끊기면 그냥 끝난다.
+그래서 `sdk.start()`로 폴링을 함께 켜 두는 것이 정상 구성이다(끊긴 구간은 폴링이 덮는다).
+`connectServerPush()`가 돌려주는 Promise는 스트림이 끝날 때까지 resolve되지 않으니 `await`하지 않는다.
+`sdk.stop()`은 폴링·푸시·텔레메트리를 함께 끈다.
 
 ### ④ 익명 집계 텔레메트리 (옵트인, 9.3)
 

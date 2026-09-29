@@ -1,4 +1,4 @@
-/// RynL10n Flutter/Dart SDK (M4 α) 공개 표면.
+/// RynL10n Flutter/Dart SDK 공개 표면.
 /// 코어 알고리즘은 M0 TS 참조 구현과 골든 벡터(fixtures/golden)로 정합성 보장.
 library rynl10n;
 
