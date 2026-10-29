@@ -11,7 +11,6 @@ final class ScenarioTests: XCTestCase {
 
     func testScenarioA_OTAHotfix() {
         let v0 = snap("R42", "base0", ["en": ["pay.button": .text("Pay")], "ja": ["pay.button": .text("支払―")]])
-        let v1 = snap("R42", "base1", ["en": ["pay.button": .text("Pay")], "ja": ["pay.button": .text("支払い")]])
         let delta = Delta(schemaVersion: 1, release: "R42", from: "base0", to: "base1",
                           ops: [DeltaOp(op: "set", key: "pay.button", locale: "ja", value: .text("支払い"))])
 

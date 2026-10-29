@@ -321,7 +321,7 @@ final class StubRegistry: @unchecked Sendable {
 }
 
 final class StubURLProtocol: URLProtocol {
-    nonisolated(unsafe) static let registry = StubRegistry()
+    static let registry = StubRegistry()
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }

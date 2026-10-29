@@ -109,7 +109,7 @@ final class PushTelemetryTests: XCTestCase {
         let channel = ServerPushChannel(endpoint: URL(string: "https://admin.test")!, project: "demo",
                                         session: makeSession())
 
-        try await channel.receive { try? await store.update(client) }
+        try await channel.receive { _ = try? await store.update(client) }
 
         XCTAssertEqual(client.status().releaseId, "R42")
         // 신호 자체는 데이터를 나르지 않는다 — 번역은 배포 플레인에서 받아 온다(4.1).
