@@ -31,6 +31,12 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
 실행해 **각 6/6, 합계 24/24**를 확인했다. 런타임·공개 API·골든 벡터 계약은 `0.2.1`과 같다.
 SDK XML 경고는 프로젝트 전용 SDK 경로로 해결한 **로컬 환경 설정**이며 AAR 변경이 아니다.
 재현 방법은 `sdks/android/README.md`, 게시·검증 근거는 `HANDOVER.md`의 "SDK 배포 채널" 절.
+2026-10-29 **SDK 가이드 코드 수정·컴파일·실행 검증 완료**(`4706ae0`) — 공통·4개 SDK 가이드의
+import·변수·초기화·의존성 예제를 실제 API에 맞췄다. iOS 15 대상 Swift 6 컴파일과 macOS 런타임·
+SwiftPM 플러그인 실행, Android AAR·Robolectric·Compose 재구성, Web 타입 검사·DOM·React 렌더,
+Flutter 위젯·IO·Chrome의 HTTP·localStorage 검증을 통과했다. 로컬 CI도 전 컴포넌트 통과.
+가이드 검증은 임시 소비자 프로젝트에서 수행했으며, 실기기·배포 앱의 전체 통합 검증은 남아 있다.
+수정 내역·검증 범위는 `HANDOVER.md`의 "SDK 가이드 코드 검증" 절. SDK 최신 버전은 `0.2.2`다.
 남은 것은 실제 앱/외부 환경 의존 항목뿐(아래 "열려 있는 항목" 참조). 전체 지도는 `HANDOVER.md`.
 
 - **코어 스택**: TypeScript/Node ≥ 23.6 (네이티브 타입 스트리핑, 빌드 스텝 없음). 참조 구현·백엔드 모두
@@ -410,6 +416,7 @@ Origin 정책을 보여주고, **admin이면 토큰 발급·폐기까지 이 화
 - **실제 앱 통합**: **Xcode 앱 타깃의 플러그인 경로는 2026-09-10에 실증됐다** — 실제 앱(RynDevice)을
   로컬 패키지로 잡아 `XcodeBuildToolPlugin` 경로로 bake까지 확인(R16·433키). 남은 것은 **위젯 렌더·리소스
   병합**과 **AGP 앱 모듈** 쪽이다(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는 앱 모듈.
+  2026-10-29 가이드 검증에서 Compose 재구성은 Robolectric으로 확인했으며, 실기기 계측 검증은 별도다.
 - ~~**SDK 패키지 게시(6.5)**~~ — **닫혔다. `v0.2.0`(2026-09-17)이 태그 하나로 4채널을 게시한 첫 릴리스다**
   (npm `@rynl10n/web` · pub.dev `rynl10n` · Maven `com.devryner.rynl10n:android` · SwiftPM 태그).
   **최신은 `v0.2.2`(2026-10-29), 네 채널 모두 게시·소비자 검증 완료(각 6/6, 총 24/24)**다.

@@ -36,6 +36,9 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
 - **최신 SDK 릴리스 `v0.2.2` 배포·검증 완료(2026-10-29)** — SwiftPM·npm·pub.dev·Maven Central의
   게시본을 각각 별도 프로젝트에서 설치·빌드·실행해 **각 6/6, 합계 24/24** 확인했다.
   Maven도 공개 반영 후 설치 검증까지 끝났으므로 남은 게시 대기는 없다. 아래 "SDK 배포 채널" 참조.
+- **SDK 가이드 코드 검증 완료(2026-10-29, `4706ae0`)** — 공통·4개 SDK 가이드의 코드 예제를 수정하고
+  컴파일·실행했다. iOS 대상 컴파일·macOS 실행, Android/Compose(Robolectric), Web/React,
+  Flutter 위젯·IO·Chrome 검증과 전체 로컬 CI 통과. 아래 "SDK 가이드 코드 검증" 참조.
 - **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 + 4개 플랫폼 앱 적용 경로.**
   커밋 99개(`1c0e225`~`f69eab3` — 이 줄을 갱신하는 문서 커밋 자신은 세지 않으므로 항상 한 칸 뒤처진다.
   정확한 값은 `git rev-list --count HEAD`). 이 수치는 당시 기록이다.
@@ -155,6 +158,39 @@ LICENSE · NOTICE      Apache-2.0
 
 > **런타임 의존성 0 원칙**: 참조·백엔드·iOS는 외부 런타임 의존성 없음(Node 내장 sqlite/crypto, CryptoKit).
 > Android=kotlinx(serialization·coroutines), Flutter=crypto·unorm_dart(NFC), 백엔드 devDep=typescript.
+
+## SDK 가이드 코드 검증 (2026-10-29)
+
+수정 커밋 **`4706ae0`**은 `sdks/README.md`와 iOS·Android·Web·Flutter의 `README.md`, 총 5개
+가이드를 고쳤다. SDK 구현·공개 API·골든 벡터는 바꾸지 않았으며 최신 게시 버전은 계속 `0.2.2`다.
+
+- **iOS**: `Foundation`·UI import, `count`·`scenePhase`의 사용 범위, `update()` 반환값 처리를 보완했다.
+  텔레메트리는 화면과 같은 `L10n.client`에서 수집·전송하도록 맞췄다. 공통 SwiftPM 플러그인 예제에는
+  vendored 입력 디렉터리의 `exclude`를 추가했다.
+- **Android**: Android·SDK·AndroidX import와 Compose 함수·의존성, Application 등록·인터넷 권한을
+  추가했다. 정의되지 않은 `CDN` 변수를 실제 URL 예제로 바꾸고, 키 필드 안내를 `signature`로 고쳤다.
+- **Web**: `config.ts`에 설정·설치 ID 생성을 모으고 초기 렌더·갱신 함수를 구현했다. 번들 로더의
+  중복 `const bundle` 선언을 대안별 코드 블록으로 분리하고, `memoryCache` import와 React 설정을 채웠다.
+- **Flutter**: 미선언 변수에 의존하던 예제를 인자를 받는 함수로 만들고, 최상위 `await`를 비동기
+  초기화 함수 안으로 옮겼다. Flutter 자산·`path_provider` import와 의존성, 바인딩 초기화·로케일 전달·
+  텔레메트리 옵트인·객체 보관 범위를 명시했다.
+
+README 코드 블록을 저장소 밖 임시 소비자 프로젝트에 옮겨 실제 SDK·UI 프레임워크로 검증했다.
+필요한 앱·함수 틀과 테스트 자산을 제공하고 예제 URL은 임시 백엔드로 연결했다.
+Web·Android·Flutter 소비자는 `0.2.2` 게시본을 사용했고, SwiftPM은 원격 버전 의존과 로컬 의존을
+각각 빌드했다. 검증 결과는 다음과 같다.
+
+| SDK | 컴파일·실행 결과 | 검증 경계 |
+| --- | --- | --- |
+| iOS | Swift 6.4에서 iOS 15 시뮬레이터 대상으로 SwiftUI·UIKit 예제 컴파일(`warnings-as-errors`) 통과. macOS에서 번들·복수형·로케일·원격 갱신·Observable·폴링·푸시·텔레메트리 실행 통과. SwiftPM 원격/로컬 의존 빌드와 플러그인 bake→리소스 로드 실행 통과. | iOS 대상 컴파일과 macOS 실행을 구분한다. iOS 실기기 화면·앱 리소스 통합 검증은 남아 있다. |
+| Android | 실제 AAR·AndroidX·Compose 의존성으로 빌드 통과. Robolectric 테스트 2개 통과: Application 초기화·assets 조회·원격 갱신·텔레메트리, Compose 번역 표시·갱신 후 재구성. 리소스 디렉터리 등록 Gradle DSL 적용 확인. | Robolectric 실행이며 실기기·에뮬레이터 계측 테스트는 아니다. |
+| Web | TypeScript strict 검사 통과. DOM 환경에서 초기 렌더·원격 갱신·복수형·번들 import/fetch·캐시·푸시·텔레메트리 5개 시나리오와 React `useSyncExternalStore`의 갱신 전후 렌더, 총 6개 시나리오 통과. | DOM은 jsdom, React 렌더는 서버 렌더링으로 검증했다. 배포된 브라우저 앱의 전체 통합은 별도다. |
+| Flutter | analyze 통과. Flutter 위젯·IO 테스트 2개(로케일·Text, 자산·파일 캐시·HTTP·폴링·푸시·텔레메트리)와 Chrome 테스트 1개(`package:http`·프로젝트 범위 localStorage 캐시) 통과. | 파일 캐시 경로는 테스트용 `path_provider` 플랫폼 구현으로 제공했다. 실제 앱 플러그인·모바일 생명주기 통합은 별도다. |
+
+`./tools/ci-local.sh`의 reference·web·ios·android·flutter도 전부 통과했고, 골든 벡터 재생성 후 diff가
+없었다. Swift 툴체인이 바뀌어 iOS는 `swift package clean` 후 실행했다. 가이드 검증 하네스는 임시
+프로젝트이며 상시 CI에 추가한 테스트가 아니다. 저장소의 **549개 테스트**와 게시본 **24/24 소비자 스모크**
+집계에 가이드 테스트를 더하지 않는다.
 
 ## SDK 배포 채널 (기획서 6.5) — **`v0.2.2` 게시·4채널 검증 완료 (2026-10-29)**
 
@@ -972,13 +1008,14 @@ Pattern_White_Space도 아닌 문자 1개 이상**이라 비ASCII를 허용하�
   rollout을 쓰는 API 라우트는 없다 — 값을 담을 수 있는 **유일한 경로가 import의 백업 복원**이고(`c816a17`,
   0~100 정수 검증), 이건 무손실 복원이 우선이라는 판단이다. 100 고정으로 되돌리려면 `importProject`의
   `r.rollout ?? 100`을 `100`으로 바꾸면 된다.
-- **브라우저 실기 검증**: Web·Flutter Web 경로는 어댑터 계약(요청 헤더·응답 매핑·갱신 사이클)과 배포
-  플레인 CORS까지 기계 검증했으나, 실제 브라우저에서의 end-to-end는 앱 프로젝트 몫이다.
-  (Flutter Web 웹 테스트는 `dart test -p chrome`이 필요해 기본 스위트에 넣지 않았다.)
+- **브라우저 앱 통합**: 어댑터 계약과 배포 플레인 CORS에 더해, 2026-10-29 가이드 검증에서
+  Flutter Web의 HTTP·localStorage를 Chrome으로 확인했다. Web은 jsdom·React 서버 렌더링으로
+  검증했다. 실제 배포 앱의 브라우저 end-to-end는 남아 있으며, Chrome 가이드 테스트는 기본 스위트 밖이다.
 - **실제 앱 통합**: **Xcode 앱 타깃의 플러그인 경로는 2026-09-10에 닫혔다** — 실제 앱(RynDevice)을 로컬
   패키지로 잡아 `XcodeBuildToolPlugin` 경로로 bake까지 확인했다(R16·433키, `d3c096c`). 남은 것은 **위젯
   렌더·리소스 병합**과 **AGP 앱 모듈** 쪽이다(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는
   앱 모듈.
+  2026-10-29 가이드 예제의 Compose 표시·재구성은 Robolectric으로 검증했으며, 실기기 계측과는 별도다.
 - ~~**macOS 26에서는 `ci-local.sh android`가 돌지 않는다**~~ — **완료(2026-09-23)**. 2026-09-17에
   Kotlin 2.1.20으로 해결했다고 적었으나 그것으로는 닫히지 않았다. 진단이 틀렸었다.
   `26.0.1`은 **OS 버전이 아니라 JDK 버전**이다. 이 기계의 macOS는 26.6.2인데도 기본 JDK 21에서는
@@ -1175,6 +1212,10 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
   `Json` 재사용과 Foojay JDK 조달 저장소 설정. SDK XML 경고는 프로젝트 전용 SDK를 쓰는 로컬
   설정으로 해결하고 방법을 문서화했다. 로컬 전체 게이트·GitHub 게시 사전 검사·정식 게시 성공,
   Maven Central 공개 반영 확인 뒤 네 채널 게시본 검증 **24/24** 완료. 상세 근거는 위 "SDK 배포 채널" 절.
+
+- **SDK 가이드 코드 수정·컴파일·실행 검증** `4706ae0`(2026-10-29) — 공통·4개 SDK 가이드의
+  import·변수·초기화·의존성·UI 연결 예제를 수정했다. 검증 환경·결과와 실제 앱 통합의 남은 범위는
+  위 "SDK 가이드 코드 검증" 절에 기록했다.
 
 각 컴포넌트의 상세는 해당 디렉토리의 README(`sdks/README.md`, `sdks/*/README.md`, `backend/README.md`)와
 `OPERATIONS.md` 참조.
