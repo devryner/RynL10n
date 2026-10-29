@@ -99,6 +99,10 @@ cd /tmp/rynl10n/sdks/android
 산출물은 `assets/rynl10n/snapshot.json` + `assets/rynl10n/rynl10n.lock`이다.
 `-PstableName=true`가 파일명을 고정해 주므로 런타임 로더가 바로 찾는다.
 
+로더는 `rynl10n.lock`의 `release`·`base`와 일치하는 번들을 선택하므로, 이전 내용해시 파일이나
+오래된 `snapshot.json`이 함께 있어도 의도한 번들을 읽는다. lockfile이 없거나 깨졌으면 stable-name
+또는 유일한 내용해시 후보만 허용하고, 유효한 lockfile과 불일치하거나 후보가 모호하면 로드를 거부한다.
+
 에어갭·오프라인 빌드라면 `-Pfetch` 대신 커밋해 둔 스냅샷 파일을 `-Psource=`로 넘긴다.
 
 `-Pstrict=true`를 더하면 커버리지 공백(비어 있는 칸)이나 base 해시 불일치가 있을 때 bake가 실패한다(기본은 경고만 찍고 계속).

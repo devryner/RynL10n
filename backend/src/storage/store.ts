@@ -3,7 +3,8 @@
  * 정적 파일 레이아웃: /{project}/manifest.json · /{project}/releases/{r}/snapshot-{hash}.json · delta-{base}-{target}.json
  * 스냅샷·델타는 내용해시 URL(불변). MinIO/S3 대체 가능 — 여기선 로컬 FS 구현.
  */
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, renameSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { canonicalStringify } from "../../../src/serialize/jcs.ts";
 import type { Snapshot, Delta, Manifest } from "../../../src/core/types.ts";
@@ -18,6 +19,7 @@ export interface ArtifactStore {
   writeSnapshot(project: string, releaseId: string, snap: Snapshot): string;
   writeDelta(project: string, releaseId: string, delta: Delta): string;
   writeManifest(project: string, manifest: Manifest): void;
+  deleteManifest(project: string): void;
   readSnapshot(project: string, releaseId: string, base: string): Snapshot | undefined;
   readDelta(project: string, releaseId: string, from: string, to: string): Delta | undefined;
   readManifest(project: string): Manifest | undefined;
@@ -89,7 +91,14 @@ export class FsArtifactStore implements ArtifactStore {
   }
   private write(path: string, content: string): void {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, content);
+    // 같은 디렉토리에서 교체해야 독자가 빈 파일·부분 JSON을 읽지 않는다.
+    const temp = `${path}.${randomUUID()}.tmp`;
+    try {
+      writeFileSync(temp, content, { flag: "wx", flush: true });
+      renameSync(temp, path);
+    } finally {
+      rmSync(temp, { force: true });
+    }
   }
 
   writeSnapshot(project: string, releaseId: string, snap: Snapshot): string {
@@ -104,6 +113,9 @@ export class FsArtifactStore implements ArtifactStore {
   }
   writeManifest(project: string, manifest: Manifest): void {
     this.write(this.abs(project, "manifest.json"), canonicalStringify(manifest));
+  }
+  deleteManifest(project: string): void {
+    rmSync(this.abs(project, "manifest.json"), { force: true });
   }
   readSnapshot(project: string, releaseId: string, base: string): Snapshot | undefined {
     const p = this.abs(project, snapshotPath(releaseId, base));
@@ -156,6 +168,9 @@ export class MemoryArtifactStore implements ArtifactStore {
   }
   writeManifest(project: string, manifest: Manifest): void {
     this.manifests.set(project, manifest);
+  }
+  deleteManifest(project: string): void {
+    this.manifests.delete(project);
   }
   readSnapshot(project: string, releaseId: string, base: string): Snapshot | undefined {
     return this.snapshots.get(this.key(project, snapshotPath(releaseId, base)));

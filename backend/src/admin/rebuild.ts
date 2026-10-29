@@ -10,26 +10,28 @@ import { buildSnapshot, compileManifest, type ReleaseRecord } from "../../../src
 import type { Repo } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
 import type { Manifest } from "../../../src/core/types.ts";
+import { publishAtomically } from "../pipeline/publication.ts";
 
 export function rebuildAllArtifacts(repo: Repo, store: ArtifactStore, projectId: string): Manifest {
   const project = repo.getProject(projectId);
   if (!project) throw new Error(`없는 프로젝트: ${projectId}`);
 
-  const records: ReleaseRecord[] = [];
-  for (const r of repo.listReleases(projectId)) {
-    if (r.state === "draft" || r.state === "archived") continue;
-    const catalog = repo.catalogForRelease(projectId, r.id);
-    const snap = buildSnapshot({ release: r.id, defaultLocale: project.defaultLocale, locales: catalog });
-    store.writeSnapshot(projectId, r.id, snap);
-    repo.updateReleasePointers(projectId, r.id, snap.base, snap.base); // 재베이스라인
-    records.push({ id: r.id, versionMatch: r.versionMatch, state: r.state, base: snap.base, overlay: snap.base, rollout: r.rollout });
-  }
+  return publishAtomically(repo, store, projectId, () => {
+    const records: ReleaseRecord[] = [];
+    for (const r of repo.listReleases(projectId)) {
+      if (r.state === "draft" || r.state === "archived") continue;
+      const catalog = repo.catalogForRelease(projectId, r.id);
+      const snap = buildSnapshot({ release: r.id, defaultLocale: project.defaultLocale, locales: catalog });
+      store.writeSnapshot(projectId, r.id, snap);
+      repo.updateReleasePointers(projectId, r.id, snap.base, snap.base); // 재베이스라인
+      records.push({ id: r.id, versionMatch: r.versionMatch, state: r.state, base: snap.base, overlay: snap.base, rollout: r.rollout });
+    }
 
-  const manifest = compileManifest({
-    project: project.id, defaultLocale: project.defaultLocale,
-    updatedAt: new Date().toISOString(), records,
+    const manifest = compileManifest({
+      project: project.id, defaultLocale: project.defaultLocale,
+      updatedAt: new Date().toISOString(), records,
+    });
+    repo.audit(projectId, "system", "rebuild", { releases: records.length });
+    return { manifest, result: manifest };
   });
-  store.writeManifest(projectId, manifest);
-  repo.audit(projectId, "system", "rebuild", { releases: records.length });
-  return manifest;
 }

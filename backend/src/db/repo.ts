@@ -87,6 +87,32 @@ export class Repo {
   private readonly db: DatabaseSync;
   constructor(db: DatabaseSync) { this.db = db; }
 
+  /** 동기 게시 작업의 상태·포인터·이력·감사를 한 번에 커밋한다. */
+  transaction<T>(work: () => T): T {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = work();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  recordPublicationRecovery(projectId: string, previousManifestJson: string | null, jobId?: string): void {
+    this.db.prepare("INSERT INTO publication_recovery(project_id,previous_manifest_json,job_id) VALUES(?,?,?)")
+      .run(projectId, previousManifestJson, jobId ?? null);
+  }
+  listPublicationRecoveries(): { projectId: string; previousManifestJson: string | null; jobId: string | null }[] {
+    return (this.db.prepare("SELECT project_id,previous_manifest_json,job_id FROM publication_recovery").all() as
+      { project_id: string; previous_manifest_json: string | null; job_id: string | null }[])
+      .map((r) => ({ projectId: r.project_id, previousManifestJson: r.previous_manifest_json, jobId: r.job_id }));
+  }
+  clearPublicationRecovery(projectId: string): void {
+    this.db.prepare("DELETE FROM publication_recovery WHERE project_id=?").run(projectId);
+  }
+
   // ── Project / Locale ────────────────────────────────────────────────────────
   createProject(id: string, name: string, defaultLocale: string, locales: string[]): void {
     this.db.prepare("INSERT INTO projects(id,name,default_locale) VALUES(?,?,?)").run(id, name, defaultLocale);

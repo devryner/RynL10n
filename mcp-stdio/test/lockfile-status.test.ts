@@ -85,36 +85,82 @@ test("lockfile과 번들의 base가 다르면 잡는다 — 빌드가 반쯤 돈
   seed(dir, snapA, { stable: true, lockOf: snapB });
   const r = lockfileStatus({ outDir: dir });
   assert.ok(codes(r).includes("base_mismatch"));
-  assert.equal(r.bundle?.matchesLockfile, false);
-  // lockfile이 가리키는 번들이 디렉토리에 없으므로 loads_stale_bundle은 아니다
-  assert.equal(codes(r).includes("loads_stale_bundle"), false);
+  assert.equal(r.bundle, null, "lockfile과 다른 번들을 읽는다고 답하면 안 된다");
+  assert.equal(r.candidates.some((candidate) => candidate.wouldLoad), false);
 });
 
-/**
- * 이 도구의 존재 이유. `--stable-name` 없이 구우면 `snapshot-<base>.json`이 쌓이고, Android는
- * **파일명 최소값**(최신이 아니다)을 집는다. lockfile이 가리키는 번들이 바로 옆에 있는데도
- * 앱은 스테일 카탈로그를 들고 조용히 돈다.
- */
-test("내용해시 번들이 쌓이면: 로더가 집는 것과 lockfile이 어긋나는 것을 잡는다", () => {
+test("내용해시 번들이 쌓여도 lockfile이 가리키는 번들을 SDK와 같이 고른다", () => {
   const dir = tmp();
   const bundleDir = join(dir, "rynl10n");
   mkdirSync(bundleDir, { recursive: true });
   for (const s of [snapA, snapB]) {
     writeFileSync(join(bundleDir, `snapshot-${s.base}.json`), bake(s).bundle, "utf8");
   }
-  // lockfile은 "파일명이 큰 쪽"을 가리키게 둔다 — 로더는 최소값을 집으므로 어긋난다.
-  const [small, large] = [snapA.base, snapB.base].sort();
+  // 예전의 파일명 최소값 선택과 다른 파일을 의도한 것으로 둔다.
+  const large = [snapA.base, snapB.base].sort().at(-1)!;
   const newer = snapA.base === large ? snapA : snapB;
   writeFileSync(join(bundleDir, "rynl10n.lock"), bake(newer).lockfileText, "utf8");
 
   const r = lockfileStatus({ outDir: dir });
-  assert.equal(r.ok, false);
-  assert.ok(codes(r).includes("stale_candidates"));
-  assert.ok(codes(r).includes("ios_load_order_undefined"));
-  assert.ok(codes(r).includes("base_mismatch"));
-  assert.ok(codes(r).includes("loads_stale_bundle"), "옆에 있는데 안 집는 경우를 잡아야 한다");
-  assert.equal(r.bundle?.base, small, "Android의 minByOrNull { name }과 같은 선택이어야 한다");
+  assert.equal(r.ok, true);
+  assert.deepEqual(codes(r), ["ok"]);
+  assert.equal(r.bundle?.base, large);
   assert.equal(r.candidates.filter((c) => c.wouldLoad).length, 1);
+});
+
+test("오래된 stable-name보다 lockfile과 일치하는 내용해시 번들을 선택한다", () => {
+  const dir = tmp();
+  seed(dir, snapA, { stable: true });
+  const current = seed(dir, snapB);
+
+  const r = lockfileStatus({ outDir: dir });
+  assert.equal(r.ok, true);
+  assert.equal(r.bundle?.path, current);
+});
+
+test("base가 같아도 release가 다른 번들은 선택하지 않는다", () => {
+  const dir = tmp();
+  seed(dir, snapA);
+  const lock = { ...bake(snapA).lockfile, release: "another-release" };
+  writeFileSync(join(dir, "rynl10n", "rynl10n.lock"), JSON.stringify(lock));
+
+  const r = lockfileStatus({ outDir: dir });
+  assert.equal(r.bundle, null);
+  assert.ok(codes(r).includes("base_mismatch"));
+});
+
+test("lockfile 없이 내용해시 번들이 여럿이면 SDK처럼 선택을 거절한다", () => {
+  const dir = tmp();
+  const bundleDir = join(dir, "rynl10n");
+  mkdirSync(bundleDir);
+  for (const snap of [snapA, snapB]) {
+    writeFileSync(join(bundleDir, `snapshot-${snap.base}.json`), bake(snap).bundle);
+  }
+
+  const r = lockfileStatus({ outDir: dir });
+  assert.equal(r.bundle, null);
+  assert.ok(codes(r).includes("stale_candidates"));
+  assert.equal(r.candidates.some((candidate) => candidate.wouldLoad), false);
+});
+
+test("불완전한 lockfile은 SDK 디코더와 같이 읽기 실패로 진단한다", () => {
+  const dir = tmp();
+  seed(dir, snapA);
+  writeFileSync(join(dir, "rynl10n", "rynl10n.lock"), JSON.stringify({ base: snapB.base, release: snapB.release }));
+
+  const r = lockfileStatus({ outDir: dir });
+  assert.ok(codes(r).includes("lockfile_unreadable"));
+  assert.equal(r.bundle?.base, snapA.base, "유일한 레거시 번들은 계속 로드한다");
+});
+
+test("lockfile과 base·release만 같은 잘못된 스냅샷은 SDK처럼 고르지 않는다", () => {
+  const dir = tmp();
+  const path = seed(dir, snapA);
+  writeFileSync(path, JSON.stringify({ base: snapA.base, release: snapA.release, defaultLocale: "en", locales: null }));
+
+  const r = lockfileStatus({ outDir: dir });
+  assert.equal(r.bundle, null);
+  assert.equal(r.candidates.some((candidate) => candidate.wouldLoad), false);
 });
 
 test("탐색 순서가 SDK와 같다 — stable-name이 내용해시 파일보다 먼저다", () => {

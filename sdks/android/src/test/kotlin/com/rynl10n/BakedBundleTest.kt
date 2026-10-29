@@ -37,10 +37,10 @@ class BakedBundleTest {
     }
 
     /** CLI가 하는 일과 동일하게 배치한다(BakeCli: `<out>/rynl10n/<name>` + `rynl10n.lock`). */
-    private fun bake(stableName: Boolean): Bake.Result {
-        val result = Bake.run(snap)
+    private fun bake(stableName: Boolean, snapshot: Snapshot = snap): Bake.Result {
+        val result = Bake.run(snapshot)
         val bundleDir = File(dir, "rynl10n").apply { mkdirs() }
-        val name = if (stableName) "snapshot.json" else "snapshot-${snap.base}.json"
+        val name = if (stableName) "snapshot.json" else "snapshot-${snapshot.base}.json"
         File(bundleDir, name).writeText(result.bundle)
         File(bundleDir, "rynl10n.lock").writeText(result.lockfileText)
         return result
@@ -63,6 +63,68 @@ class BakedBundleTest {
 
         assertEquals("R42", loaded.release)
         assertEquals(TranslationValue.Text("Cart"), loaded.locales["en"]?.get("cart.title"))
+    }
+
+    @Test fun 누적된_번들에서_lockfile이_가리키는_내용해시를_선택한다() {
+        bake(false, snap.copy(base = "0000000000000000"))
+        val current = snap.copy(base = "ffffffffffffffff", release = "R43")
+        bake(false, current)
+
+        assertEquals(current, BakedBundle.snapshot(dir))
+    }
+
+    @Test fun 오래된_stable_name보다_lockfile과_일치하는_번들을_선택한다() {
+        bake(true, snap.copy(base = "old"))
+        val current = snap.copy(base = "current", release = "R43")
+        bake(false, current)
+
+        assertEquals(current, BakedBundle.snapshot(dir))
+    }
+
+    @Test fun 같은_base여도_release가_다르면_선택하지_않는다() {
+        bake(false, snap.copy(base = "current"))
+        File(dir, "rynl10n/rynl10n.lock").writeText(Bake.run(snap.copy(base = "current", release = "R43")).lockfileText)
+
+        assertNull(BakedBundle.locate(dir))
+        assertThrows(BakedBundle.BakedException::class.java) { BakedBundle.snapshot(dir) }
+    }
+
+    @Test fun lockfile이_가리키는_번들이_없으면_오래된_번들로_대체하지_않는다() {
+        bake(true, snap.copy(base = "old"))
+        File(dir, "rynl10n/rynl10n.lock").writeText(Bake.run(snap.copy(base = "missing")).lockfileText)
+
+        assertNull(BakedBundle.locate(dir))
+    }
+
+    @Test fun lockfile이_없는_복수_내용해시는_임의로_선택하지_않는다() {
+        bake(false, snap.copy(base = "old"))
+        bake(false, snap.copy(base = "new"))
+        File(dir, "rynl10n/rynl10n.lock").delete()
+
+        assertNull(BakedBundle.locate(dir))
+    }
+
+    @Test fun 깨진_lockfile이어도_내용해시가_하나뿐이면_기존처럼_로드한다() {
+        bake(false)
+        File(dir, "rynl10n/rynl10n.lock").writeText("{")
+
+        assertEquals(snap, BakedBundle.snapshot(dir))
+    }
+
+    @Test fun assets_선택도_lockfile에_맞춰_stable_name보다_새_번들을_고른다() {
+        val current = snap.copy(base = "current", release = "R43")
+        val assets = mapOf("rynl10n/snapshot.json" to snap, "snapshot-current.json" to current)
+
+        val selected = BakedBundle.select(assets.keys.toList(), Bake.buildLockfile(current)) { assets[it] }
+
+        assertEquals("snapshot-current.json", selected)
+    }
+
+    @Test fun Windows_경로에서도_lockfile이_없으면_stable_name을_우선한다() {
+        val stable = "C:\\app\\rynl10n\\snapshot.json"
+        val hashed = "C:\\app\\rynl10n\\snapshot-old.json"
+
+        assertEquals(stable, BakedBundle.select(listOf(hashed, stable), null) { null })
     }
 
     @Test fun lockfile을_판독한다() {

@@ -18,6 +18,7 @@ import { Metrics, METRIC } from "../observability/metrics.ts";
 import { Notifier } from "../observability/notifier.ts";
 import { ingest, releaseHealth } from "../observability/telemetry.ts";
 import { rebuildAllArtifacts } from "../admin/rebuild.ts";
+import { recoverPublications } from "../pipeline/publication.ts";
 import type { ProjectExport } from "../db/repo.ts";
 import { uiAsset } from "../ui/serve.ts";
 import { handleMcpMessage, listMcpTools } from "../mcp/server.ts";
@@ -613,6 +614,7 @@ export type ManagementHandler = (req: IncomingMessage, res: ServerResponse) => v
  * 같은 오리진에서 이 핸들러로 위임하게 된다. 프레임워크 의존성 없음. metrics/log 주입 가능.
  */
 export function createManagementHandler(deps: ServerDeps): ManagementHandler {
+  recoverPublications(deps.repo, deps.store);
   const metrics = deps.metrics ?? new Metrics();
   const notifier = deps.notifier ?? new Notifier();
   const log = deps.log ?? defaultLog;

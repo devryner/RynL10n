@@ -45,7 +45,9 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
   PR #1~#17은 rebase 머지했으며, PR #20은 머지 커밋 `04f1386`으로 `main`에 반영했다.
   **2026-09-10 부터 평상시 CI 는 로컬 `tools/ci-local.sh` 다** — `ci.yml` 은 push·PR 트리거를 빼고
   `workflow_call`(태그 게시 게이트)·`workflow_dispatch` 만 남겼다. Actions 한도 절약.
-- **테스트 549개 전부 통과** — TS 참조 78 · 백엔드 233 · mcp-stdio 38 · Web 33 · iOS 51 · Android 62 · Flutter 54.
+- **테스트 591개** — TS 참조 78 · 백엔드 253 · mcp-stdio 45 · Web 33 · iOS 58 · Android 70 · Flutter 54.
+  2026-10-29 게시 실패 복구·번들 선택 수정으로 회귀 42개 추가. 변경 대상은 로컬 CI
+  `reference ios android`(504개)이며, 공통 코어·골든 벡터·Web·Flutter 런타임은 바뀌지 않았다.
   (2026-09-16 **`release_applied` 텔레메트리 이벤트** — `src/`와 4개 SDK가 같이 바뀌므로 5개 컴포넌트 전부
   재실행. 골든 벡터는 텔레메트리를 담지 않아 재생성 불필요이고, 재생성해도 무변경을 확인했다.
   아래 커밋 지도 참조.)
@@ -62,7 +64,7 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
   (2026-08-27 **MCP 도구 표면** + 토큰 최소 권한·Origin 가드로 백엔드 145 → 206. `src/`·`fixtures/`·`sdks/`는 무변경이라
   골든 벡터 계약이 걸린 자리를 건드리지 않았고, 재실행은 TS 참조·백엔드·Web으로 한정했다.
   아래 "MCP 도구 표면" 절.)
-  (**소비자 스모크는 이 549개 밖이다** — 저장소 소스가 아니라 레지스트리 게시본을 보므로 CI가 아니라
+  (**소비자 스모크는 이 591개 밖이다** — 저장소 소스가 아니라 레지스트리 게시본을 보므로 CI가 아니라
   게시 직후 수동 1회다. "SDK 배포 채널 › 소비자 스모크" 절.)
   (2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후 **GitHub Actions CI에서 5개 컴포넌트 전부 재실행**
   — run 32833302282. 같은 날 릴리스 dry-run 4채널 통과 — 아래 "SDK 배포 채널" 절.)
@@ -922,17 +924,11 @@ resource_metadata=...` ③ JWT 검증(JWKS 서명 · `iss` · **`aud`가 우리 
 
 ### `lockfile_status` — 지금 상태와 **앱이 실제로 집는 파일**
 
-`bake_preview`가 다음 빌드를 본다면 이건 지금을 본다. lockfile은 빌드가 의도한 릴리스·base의 유일한
-기록이라(런타임은 안 읽는다 — 스냅샷 자신이 들고 있다) "의도한 것"과 "디스크에 있는 것"이 어긋났는지
-볼 자리도 여기뿐이다.
-
-**만들면서 드러난 것이 이 도구의 존재 이유가 됐다.** `--stable-name` 없이 구우면
-`snapshot-<base>.json`이 빌드마다 **쌓이는데**, 그때 로더는 Android가 `minByOrNull { it.name }`
-(**파일명 최소값**이지 최신이 아니다), iOS가 `bundle.urls(...).first(where:)`(**순서 미보장**)를 집는다.
-둘 다 조용하다 — 앱은 스테일 카탈로그를 들고 멀쩡히 돌고 개발자는 왜 새 번역이 안 보이는지 모른다.
-lockfile의 base와 대조해야만 드러나고, 그래서 진단 코드에 `loads_stale_bundle`이 있다(lockfile이
-가리키는 번들이 바로 옆에 있는데 로더가 그것을 안 집는 경우). 코드 9종은 조기 반환 지점과 1:1이고
-케이스마다 원인을 실제로 만들어 대조한다.
+`bake_preview`가 다음 빌드를 본다면 이건 지금을 본다. lockfile은 빌드가 의도한 릴리스·base의
+기록이며 iOS·Android 런타임도 그 값과 일치하는 번들을 선택한다(2026-10-29).
+오래된 stable-name 파일이 있어도 lockfile이 우선이다. lockfile이 없거나 깨졌으면 stable-name
+또는 유일한 내용해시 후보만 허용하며, 유효한 lockfile에 맞는 파일이 없거나 후보가 모호하면
+로드를 거부한다. MCP 진단·미리보기도 같은 선택을 쓴다. 진단 7종은 각 원인을 만들어 검증한다.
 
 **탐색 순서가 SDK 로더와 같아야 한다**는 것이 이 도구의 불변식이다. 어긋나면 "앱이 이걸 집는다"고
 답한 파일과 앱이 실제로 집는 파일이 달라지는데, 그건 진단 도구가 낼 수 있는 최악의 오답이다.
@@ -1059,15 +1055,9 @@ Pattern_White_Space도 아닌 문자 1개 이상**이라 비ASCII를 허용하�
   태그가 곧 버전이라 없다) ② `sdks/flutter/CHANGELOG.md`에 절 추가(**pub.dev는 게시 후 수정 불가**)
   ③ 태그 push. 태그 전에 `workflow_dispatch`로 dry-run을 돌리면 lockstep 불일치를 미리 잡는다.
   채널·좌표는 위 "SDK 배포 채널" 절.
-- **내용해시 번들이 쌓이면 로더가 스테일을 집을 수 있다**(2026-08-28 `lockfile_status`를 만들다 확인,
-  미수정). `--stable-name` 없이 구우면 `snapshot-<base>.json`이 산출물 디렉토리에 누적되는데
-  Android `BakedBundle.locate`는 **파일명 최소값**(`minByOrNull { it.name }` — 최신이 아니다)을,
-  iOS `Snapshot.bakedURL`은 `bundle.urls(...)`의 `first(where:)`라 **순서가 보장되지 않는 것**을
-  집는다. 앱은 스테일 카탈로그를 들고 조용히 돌고, 기기마다 다른 것을 볼 수도 있다.
-  **고치는 방향은 정해져 있다** — 로더가 옆의 `rynl10n.lock`을 먼저 읽고 그 `base`와 맞는 스냅샷을
-  고르면 된다(lockfile은 이미 그 자리에 굽는다). 다만 Swift·Kotlin 두 로더 + 각 테스트가 한 묶음이고,
-  실무 배치는 대개 `--stable-name`이라(Gradle 태스크 기본값) 급하지 않다고 봤다. 그때까지는
-  `lockfile_status`가 이 상태를 **진단**한다(`stale_candidates`·`loads_stale_bundle`).
+- ~~**내용해시 번들 누적 시 오래된 파일 선택**~~ — **2026-10-29 수정**. Swift·Kotlin·Android assets가
+  lockfile의 `release`·`base`로 선택하고, MCP 진단·미리보기도 같은 규칙으로 맞췄다.
+  lockfile이 없거나 깨졌으면 기존 stable-name·유일 후보는 허용하되 복수 내용해시에서 임의 선택하지 않는다.
 - **프로덕션 토폴로지(M3+)**: Postgres·MinIO/S3·CDN·별도 빌더 워커·OIDC·Helm/K8s. 플레인 분리·API
   계약·결정적 빌더는 그대로 유지.
 

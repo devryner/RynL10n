@@ -7,11 +7,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, openSync, closeSync, readFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FsArtifactStore, MemoryArtifactStore } from "../src/storage/store.ts";
-import type { Delta, Snapshot } from "../../src/core/types.ts";
+import type { Delta, Snapshot, Manifest } from "../../src/core/types.ts";
 
 const SNAP: Snapshot = { schemaVersion: 1, release: "R1", base: "abc123", defaultLocale: "en", locales: { en: { k: "v" } } };
 const DELTA: Delta = { schemaVersion: 1, release: "R1", from: "abc123", to: "def456", ops: [{ op: "set", key: "k", locale: "en", value: "v2" }] };
@@ -53,4 +53,32 @@ test("FsArtifactStore: deliveryReader의 상대 경로도 루트 밖을 못 나�
   assert.throws(() => reader.getSnapshot("../../../etc/passwd"), /경로 세그먼트/);
   assert.throws(() => reader.getSnapshot("/etc/passwd"), /상대 경로/);
   rmSync(root, { recursive: true, force: true });
+});
+
+test("FsArtifactStore: manifest 교체 중 이미 열린 독자는 완전한 이전 파일을 읽는다", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "rynl10n-atomic-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const store = new FsArtifactStore(root);
+  const first: Manifest = { schemaVersion: 1, project: "shop", defaultLocale: "en", updatedAt: "first", releases: [] };
+  store.writeManifest("shop", first);
+  const path = join(root, "shop", "manifest.json");
+  const reader = openSync(path, "r");
+  t.after(() => closeSync(reader));
+  const second = { ...first, updatedAt: "second" };
+  store.writeManifest("shop", second);
+  assert.deepEqual(JSON.parse(readFileSync(reader, "utf8")), first);
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), second);
+  assert.deepEqual(readdirSync(join(root, "shop")), ["manifest.json"]);
+});
+
+test("FsArtifactStore: rename 실패는 기존 경로 보존·임시 파일 정리", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "rynl10n-atomic-failure-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const store = new FsArtifactStore(root);
+  const destination = join(root, "shop", "manifest.json");
+  mkdirSync(destination, { recursive: true });
+  writeFileSync(join(destination, "sentinel"), "untouched");
+  assert.throws(() => store.writeManifest("shop", { schemaVersion: 1, project: "shop", defaultLocale: "en", updatedAt: "", releases: [] }));
+  assert.equal(readFileSync(join(destination, "sentinel"), "utf8"), "untouched");
+  assert.deepEqual(readdirSync(join(root, "shop")), ["manifest.json"]);
 });

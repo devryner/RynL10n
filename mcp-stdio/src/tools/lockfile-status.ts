@@ -2,18 +2,13 @@
  * `lockfile_status` — "지금 이 빌드에 무엇이 구워져 있나, 그리고 앱이 실제로 그걸 집는가"
  *
  * `bake_preview`가 **다음** 빌드를 보는 도구라면 이건 **지금** 상태를 보는 도구다. lockfile은
- * 빌드가 의도한 릴리스·base의 유일한 기록이고(런타임은 안 읽는다 — 스냅샷 자신이 들고 있다),
+ * 빌드가 의도한 릴리스·base의 기록이고(런타임도 번들 선택 기준으로 읽는다),
  * 그래서 "의도한 것"과 "디스크에 있는 것"이 어긋났는지 볼 수 있는 자리도 여기뿐이다.
  *
  * **진단의 핵심은 SDK가 어느 파일을 집느냐다.** `--stable-name` 없이 구우면 파일명이
- * `snapshot-<base>.json`이라 빌드를 거듭할수록 산출물 디렉토리에 **쌓인다**. 그때 로더는:
- *
- *   - Android `BakedBundle.locate` — `minByOrNull { it.name }`, 즉 **파일명 최소값**(가장 작은
- *     16진수 base)이지 최신이 아니다.
- *   - iOS `Snapshot.bakedURL` — `bundle.urls(...)`의 `first(where:)`라 **순서가 보장되지 않는다.**
- *
- * 둘 다 조용하다. 앱은 스테일 카탈로그를 들고 멀쩡히 돌고, 개발자는 왜 새 번역이 안 보이는지
- * 모른다. lockfile의 base와 대조해야만 드러난다.
+ * `snapshot-<base>.json`이라 빌드를 거듭할수록 산출물 디렉토리에 **쌓인다**. 두 SDK 모두
+ * lockfile의 release·base와 일치하는 번들만 선택한다. lockfile이 없거나 깨졌으면 stable-name,
+ * 그것도 없으면 내용해시 후보 하나만 허용한다. 복수 후보에서 임의 선택하지 않는다.
  *
  * 탐색 순서는 두 SDK가 같다(`mcp-stdio/README.md`):
  *   ① `<dir>/rynl10n/snapshot.json` ② `<dir>/snapshot.json` ③ `snapshot-<base>.json`
@@ -35,9 +30,7 @@ export type DiagnosisCode =
   | "bundle_missing"
   | "base_mismatch"
   | "base_integrity_failed"
-  | "stale_candidates"
-  | "loads_stale_bundle"
-  | "ios_load_order_undefined";
+  | "stale_candidates";
 
 export interface Diagnosis {
   readonly code: DiagnosisCode;
@@ -71,7 +64,7 @@ const STABLE_CANDIDATES = [join("rynl10n", "snapshot.json"), "snapshot.json"] as
 export function lockfileStatus(input: LockfileStatusInput): LockfileStatusResult {
   const diagnosis: Diagnosis[] = [];
   const lockfile = readLockfile(input.outDir, diagnosis);
-  const candidates = findCandidates(input.outDir);
+  const candidates = findBundleCandidates(input.outDir, lockfile);
   const loaded = candidates.find((c) => c.wouldLoad) ?? null;
 
   if (candidates.length === 0) {
@@ -82,18 +75,15 @@ export function lockfileStatus(input: LockfileStatusInput): LockfileStatusResult
     return { lockfile, bundle: null, candidates, diagnosis, ok: false };
   }
 
-  // 내용해시 파일명이 쌓이면 로더가 무엇을 집는지가 조용한 사고가 된다.
-  const hashNamed = candidates.filter((c) => !isStableName(c.path));
-  if (hashNamed.length > 1) {
+  if (loaded === null && lockfile !== null) {
+    diagnosis.push({
+      code: "base_mismatch",
+      message: `lockfile의 release=${lockfile.release} base=${lockfile.base}와 일치하는 번들이 없다 — SDK는 오래된 번들로 대체하지 않는다.`,
+    });
+  } else if (loaded === null && candidates.length > 1) {
     diagnosis.push({
       code: "stale_candidates",
-      message:
-        `내용해시 번들이 ${hashNamed.length}개 쌓여 있다. Android는 파일명 최소값을 집고(최신이 아니다) ` +
-        `iOS는 순서가 보장되지 않는다. 빌드를 --stable-name으로 돌리거나 산출물 디렉토리를 비울 것.`,
-    });
-    diagnosis.push({
-      code: "ios_load_order_undefined",
-      message: "iOS는 후보가 둘 이상이면 어느 것을 집을지 정해져 있지 않다 — 기기마다 다른 카탈로그를 볼 수 있다.",
+      message: `내용해시 번들이 ${candidates.length}개여서 의도한 번들을 고를 수 없다. 올바른 lockfile을 포함하거나 오래된 산출물을 지울 것.`,
     });
   }
 
@@ -114,21 +104,7 @@ export function lockfileStatus(input: LockfileStatusInput): LockfileStatusResult
     });
   }
 
-  const matchesLockfile = lockfile !== null && lockfile.base === snap.base;
-  if (lockfile !== null && !matchesLockfile) {
-    diagnosis.push({
-      code: "base_mismatch",
-      message: `lockfile은 base=${lockfile.base}(release=${lockfile.release})를 가리키는데 앱이 집을 번들은 base=${snap.base}다.`,
-    });
-    if (candidates.some((c) => c.base === lockfile.base)) {
-      diagnosis.push({
-        code: "loads_stale_bundle",
-        message:
-          `lockfile이 가리키는 번들은 같은 디렉토리에 있는데 로더가 그것을 집지 않는다 — ` +
-          `앱은 스테일 카탈로그를 들고 조용히 돈다. 오래된 산출물을 지울 것.`,
-      });
-    }
-  }
+  const matchesLockfile = lockfile !== null && lockfile.base === snap.base && lockfile.release === snap.release;
 
   if (diagnosis.length === 0) {
     diagnosis.push({
@@ -166,8 +142,8 @@ function readLockfile(outDir: string, diagnosis: Diagnosis[]): (Lockfile & { pat
     const path = join(outDir, rel);
     if (!isFile(path)) continue;
     try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as Lockfile;
-      if (typeof parsed?.base !== "string" || typeof parsed?.release !== "string") {
+      const parsed = parseLockfile(readFileSync(path, "utf8"));
+      if (parsed === null) {
         diagnosis.push({ code: "lockfile_unreadable", message: `lockfile 형식이 아니다: ${path}` });
         return null;
       }
@@ -186,8 +162,21 @@ function readLockfile(outDir: string, diagnosis: Diagnosis[]): (Lockfile & { pat
   return null;
 }
 
-/** 로더 탐색 순서 그대로. 먼저 걸리는 하나만 `wouldLoad`. */
-function findCandidates(outDir: string): BundleCandidate[] {
+/** SDK의 Decodable/serialization 필수 필드와 같은 범위로 판독한다. */
+export function parseLockfile(text: string): Lockfile | null {
+  try {
+    const parsed = JSON.parse(text) as Lockfile;
+    return typeof parsed?.base === "string" && typeof parsed?.release === "string"
+      && Number.isInteger(parsed.schemaVersion) && Number.isInteger(parsed.keyCount)
+      && Array.isArray(parsed.locales) && parsed.locales.every((locale) => typeof locale === "string")
+      ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** SDK의 lockfile 기준 선택. bake_preview도 같은 선택으로 현재 카탈로그를 찾는다. */
+function findBundleCandidates(outDir: string, lockfile: Lockfile | null): BundleCandidate[] {
   const found: string[] = [];
   for (const rel of STABLE_CANDIDATES) {
     const path = join(outDir, rel);
@@ -198,11 +187,18 @@ function findCandidates(outDir: string): BundleCandidate[] {
     if (!isDir(dir)) continue;
     const hits = readdirSync(dir)
       .filter((f) => f.startsWith("snapshot-") && f.endsWith(".json"))
-      .sort() // Android의 minByOrNull { name }과 같은 순서
-      .map((f) => join(dir, f));
+      .sort()
+      .map((f) => join(dir, f)).filter(isFile);
     found.push(...hits);
   }
-  return found.map((path, i) => ({ path, base: tryParseSnapshot(path)?.base ?? null, wouldLoad: i === 0 }));
+  const snapshots = new Map(found.map((path) => [path, tryParseSnapshot(path)]));
+  const selected = lockfile !== null
+    ? found.find((path) => {
+      const snap = snapshots.get(path);
+      return snap?.base === lockfile.base && snap.release === lockfile.release;
+    })
+    : found.find(isStableName) ?? (found.length === 1 ? found[0] : undefined);
+  return found.map((path) => ({ path, base: snapshots.get(path)?.base ?? null, wouldLoad: path === selected }));
 }
 
 /** `--stable-name` 산출물인가. 내용해시 이름은 `snapshot-<base>.json`이라 여기 걸리지 않는다. */
@@ -213,8 +209,12 @@ function isStableName(path: string): boolean {
 function tryParseSnapshot(path: string): Snapshot | null {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<Snapshot>;
-    return typeof parsed?.base === "string" && typeof parsed?.release === "string"
-      && typeof parsed?.defaultLocale === "string" && typeof parsed?.locales === "object"
+    const record = (value: unknown): value is Record<string, unknown> =>
+      typeof value === "object" && value !== null && !Array.isArray(value);
+    return Number.isInteger(parsed?.schemaVersion) && typeof parsed.base === "string" && typeof parsed.release === "string"
+      && typeof parsed.defaultLocale === "string" && record(parsed.locales)
+      && Object.values(parsed.locales).every((catalog) => record(catalog) && Object.values(catalog).every((value) =>
+        typeof value === "string" || (record(value) && Object.values(value).every((text) => typeof text === "string"))))
       ? (parsed as Snapshot)
       : null;
   } catch {

@@ -22,21 +22,30 @@ import java.util.UUID
  * (`-Pout=src/main/assets -PstableName=true`) 빌드마다 이 자리가 채워진다 — 커밋할 파일은 없다.
  */
 fun BakedBundle.fromAssets(context: Context): Snapshot {
-    for (candidate in ASSET_CANDIDATES) {
-        val stream = runCatching { context.assets.open(candidate) }.getOrNull() ?: continue
-        return snapshot(stream, "assets/$candidate")
+    val stable = ASSET_CANDIDATES.filter { path ->
+        runCatching { context.assets.open(path).use { } }.isSuccess
     }
+    val hashed = listOf("rynl10n", "").flatMap { directory ->
+        (runCatching { context.assets.list(directory) }.getOrNull() ?: emptyArray())
+            .filter { it.startsWith("snapshot-") && it.endsWith(".json") }
+            .sorted().map { if (directory.isEmpty()) it else "$directory/$it" }
+    }
+    val selected = select(stable + hashed, lockfileFromAssets(context)) { path ->
+        runCatching { snapshot(context.assets.open(path), "assets/$path") }.getOrNull()
+    }
+    if (selected != null) return snapshot(context.assets.open(selected), "assets/$selected")
     throw BakedBundle.BakedException(
         """
         [rynl10n] assets에서 bake된 스냅샷을 찾지 못했습니다(${ASSET_CANDIDATES.joinToString(", ")}).
         확인: ① 앱 모듈 build.gradle.kts 에서 preBuild 가 rynl10nBake 에 의존하는지
         ② 태스크 출력이 assets 로 향하는지(-Pout=src/main/assets -PstableName=true)
-        ③ 에어갭이면 vendored 스냅샷을 그 자리에 커밋했는지.
+        ③ 에어갭이면 vendored 스냅샷을 그 자리에 커밋했는지
+        ④ rynl10n.lock의 release·base와 일치하는 번들이 있는지(복수 내용해시는 lockfile 필요).
         """.trimIndent()
     )
 }
 
-/** 함께 구워진 lockfile(진단용). 없으면 null — 런타임 동작에는 쓰이지 않는다. */
+/** 함께 구워진 lockfile(번들 선택·진단 기준). 없거나 깨지면 null. */
 fun BakedBundle.lockfileFromAssets(context: Context): Bake.Lockfile? {
     for (candidate in LOCKFILE_CANDIDATES) {
         val stream = runCatching { context.assets.open(candidate) }.getOrNull() ?: continue

@@ -78,8 +78,8 @@ export const TOOLS: readonly StdioTool[] = [
     title: "구워진 번들 상태 진단(쓰기 없음)",
     description:
       "지금 이 빌드에 어느 릴리스·base가 구워져 있는지 lockfile로 확인하고, **앱이 실제로 그 번들을 집는지**까지 대조한다. " +
-      "`--stable-name` 없이 구우면 `snapshot-<base>.json`이 쌓이는데 그때 Android는 파일명 최소값(최신이 아니다)을, " +
-      "iOS는 순서가 보장되지 않는 것을 집는다 — 앱이 스테일 카탈로그를 들고 조용히 돈다. " +
+      "iOS·Android는 lockfile의 release·base와 맞는 번들을 선택한다. lockfile이 없으면 stable-name 또는 유일한 내용해시 후보만 허용한다. " +
+      "의도한 번들이 없거나 후보가 모호해 SDK가 로드를 거부하는 상태도 진단한다. " +
       "'새 번역이 왜 안 보이지'를 묻는 자리에 먼저 쓴다. 다음 빌드가 무엇을 바꿀지는 bake_preview가 본다.",
     inputSchema: {
       type: "object",

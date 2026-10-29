@@ -5,7 +5,7 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 549개 전부 통과(TS 참조 78 · 백엔드 233 · mcp-stdio 38 · Web 33 · iOS 51 · Android 62 · Flutter 54 —
+테스트 591개(TS 참조 78 · 백엔드 253 · mcp-stdio 45 · Web 33 · iOS 58 · Android 70 · Flutter 54 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
 iOS는 실제 백엔드 대상 왕복 확인. 2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후
@@ -66,7 +66,7 @@ Flutter 위젯·IO·Chrome의 HTTP·localStorage 검증을 통과했다. 로컬 
     전체 실행에는 Xcode·Android SDK 35·Flutter·Chrome이 필요하며 도구가 없으면 실패한다.
     README의 게시본 설치 선언을 쓰므로 이 추가 단계는 로컬 전용이다(태그 게시 전 Actions 게이트와 구분).
   - `npm run smoke:consumer` — **소비자 스모크**(`tools/consumer-smoke/`). 네 채널의 **게시본**을
-    저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 549개는 전부 소스를
+    저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 591개는 전부 소스를
     보므로 게시본에만 있는 실패(패키징 누락·`exports` 경로·POM 스코프·태그가 가리키는 커밋)를 볼
     자리가 여기뿐이다. CI 아님 — **태그를 민 직후 로컬 1회**. 케이스는 `run.ts`의 `CHECKS` 한 곳에
     있고 네 언어가 같은 `checks.json`을 읽는다(골든 벡터와 같은 원리). 전제는 하나 — 소비자 쪽에
@@ -270,8 +270,9 @@ CLI(저장소 루트): `swift run rynl10n-bake <snapshot.json> <out-dir> --descr
 좌표 `@rynl10n/mcp`만 확보). 상세는 `mcp-stdio/README.md`.
 
 **`lockfile_status`** — "지금 무엇이 구워져 있고 **앱이 실제로 그걸 집는가**"(쓰기 없음).
-`--stable-name` 없이 구우면 `snapshot-<base>.json`이 쌓이는데 Android는 파일명 최소값(최신이 아니다),
-iOS는 순서 미보장인 것을 집는다 — 앱이 스테일 카탈로그를 들고 조용히 돈다. 진단 코드 9종.
+내용해시 번들이 누적돼도 iOS·Android는 lockfile의 `release`·`base`와 맞는 번들을 고른다.
+lockfile이 없거나 깨졌으면 stable-name 또는 유일한 내용해시 후보만 허용하며, 모호하면 로드를 거부한다.
+`lockfile_status`·`bake_preview`도 같은 선택을 쓴다. 진단 코드 7종.
 **탐색 순서가 SDK 로더와 같아야 한다**가 불변식이다.
 
 **`bake_preview`** — "다음 빌드가 무엇을 구울 것인가"를 빌드 전에 본다(쓰기 없음). 판정은 새로
@@ -415,6 +416,15 @@ Origin 정책을 보여주고, **admin이면 토큰 발급·폐기까지 이 화
 - 마일스톤별 커밋 지도는 `HANDOVER.md` 참조.
 - **완료 정의(DoD)**: 각 핵심 기능은 ① 샘플 앱에서 시나리오 A/B/C 재현 ② 단위+통합 테스트 통과 ③ 문서화 — 셋을 충족해야 완료.
 - 시나리오: A = 출시 직후 오타 OTA 긴급 수정 / B = 신규 프로젝트에 플러그인 한 줄로 자동 번들링 도입 / C = 규제 산업 완전 셀프호스트.
+
+## 게시 실패 복구 (2026-10-29)
+
+`pipeline/publication.ts`가 publish·rollback·rebuild의 DB 변경을 트랜잭션으로 묶고 manifest를 마지막에
+원자 교체한다. `publication_recovery`에 직전 배포본(첫 게시면 null)을 먼저 기록하며, 표식 삭제는
+게시와 함께 커밋한다. 실패·중단 시 이전 파일을 복원하고 게시 잡을 failed로 마무리한다. 시작 복구는
+`createManagementHandler`에 있어 마운트 방식도 포함한다. 복원 실패 시 표식을 남기고 기동·다음 게시를
+막는다. 복구 때 현재 카탈로그를 다시 빌드하면 미게시 편집이 나가므로 기록된 manifest만 복원한다.
+회귀 42개 추가. 이번 변경은 `./tools/ci-local.sh reference ios android` 대상이며 골든 벡터는 불변이다.
 
 ## 열려 있는 항목 (앱/외부 환경 의존 — 코드 아님)
 

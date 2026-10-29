@@ -113,6 +113,36 @@ test("직전 lockfile을 함께 돌려준다 — 어느 릴리스·base에서 �
   assert.equal(r.lockfile.next.base, snapV2.base);
 });
 
+test("누적된 산출물은 다음 base의 기존 파일보다 현재 lockfile의 번들과 비교한다", () => {
+  const dir = tmp();
+  const out = join(dir, "out");
+  seedBaked(out, snapV1);
+  seedBaked(out, snapV2);
+
+  const r = bakePreview({ snapshot: writeSnapshot(dir, snapV1), outDir: out });
+
+  assert.equal(r.catalogDiff?.from, snapV2.base);
+  assert.equal(r.catalogDiff?.to, snapV1.base);
+  assert.equal(r.catalogDiff?.opCount, 2);
+});
+
+test("루트의 lockfile도 SDK처럼 찾아 오래된 stable-name 대신 현재 번들과 비교한다", () => {
+  const dir = tmp();
+  const out = join(dir, "out");
+  mkdirSync(out);
+  writeFileSync(join(out, "snapshot.json"), bake(snapV1).bundle);
+  writeFileSync(join(out, `snapshot-${snapV2.base}.json`), bake(snapV2).bundle);
+  writeFileSync(join(out, "rynl10n.lock"), bake(snapV2).lockfileText);
+
+  const r = bakePreview({ snapshot: writeSnapshot(dir, snapV1), outDir: out });
+
+  assert.equal(r.catalogDiff?.from, snapV2.base);
+  assert.equal(r.catalogDiff?.to, snapV1.base);
+  assert.equal(r.catalogDiff?.opCount, 2);
+  assert.equal(r.lockfile.current, null, "CLI가 쓸 경로의 현재 파일 상태는 루트 파일과 구분한다");
+  assert.equal(r.lockfile.path, join(out, "rynl10n", "rynl10n.lock"));
+});
+
 test("android: 로케일별 res/values[-locale]/strings.xml을 비교한다", () => {
   const dir = tmp();
   const out = join(dir, "out");

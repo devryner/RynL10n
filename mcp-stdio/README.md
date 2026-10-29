@@ -42,22 +42,17 @@ lockfile · **카탈로그 diff**(로케일별 set/delete + 예시 20건) · 커
 ### `lockfile_status` — 지금 무엇이 구워져 있고, 앱이 그걸 집는가 (쓰기 없음)
 
 `bake_preview`가 **다음** 빌드를 보는 도구라면 이건 **지금** 상태를 보는 도구다. lockfile은 빌드가
-의도한 릴리스·base의 유일한 기록이고(런타임은 안 읽는다 — 스냅샷 자신이 들고 있다), "의도한 것"과
+의도한 릴리스·base의 기록이고 런타임도 번들 선택에 사용한다. "의도한 것"과
 "디스크에 있는 것"이 어긋났는지 볼 자리도 여기뿐이다. 인자는 `outDir` 하나.
 
-**핵심은 SDK가 어느 파일을 집느냐다.** `--stable-name` 없이 구우면 `snapshot-<base>.json`이 빌드마다
-**쌓이고**, 그때 로더는:
+**핵심은 SDK가 어느 파일을 집느냐다.** iOS·Android는 lockfile의 `release`·`base`와 맞는 번들을
+선택한다. 오래된 `snapshot.json`이 함께 있어도 lockfile이 우선이다. lockfile이 없거나 깨졌으면
+stable-name(`rynl10n/` → 루트), 또는 유일한 내용해시 후보만 허용한다. 유효한 lockfile에 맞는 파일이
+없거나 내용해시 후보가 모호하면 로드를 거부한다. `bake_preview`도 같은 현재 번들을 기준으로 비교한다.
 
-- Android `BakedBundle.locate` — `minByOrNull { it.name }`, **파일명 최소값**이지 최신이 아니다.
-- iOS `Snapshot.bakedURL` — `bundle.urls(...)`의 `first(where:)`라 **순서가 보장되지 않는다.**
-
-둘 다 조용하다. 앱은 스테일 카탈로그를 들고 멀쩡히 돌고 개발자는 왜 새 번역이 안 보이는지 모른다.
-"새 번역이 왜 안 보이지"를 묻는 자리에 먼저 쓴다.
-
-진단 코드 9종은 코드의 조기 반환 지점과 1:1이다 — `ok` · `lockfile_missing` ·
+진단 코드 7종은 코드의 조기 반환 지점과 1:1이다 — `ok` · `lockfile_missing` ·
 `lockfile_unreadable` · `bundle_missing` · `base_mismatch` · `base_integrity_failed` ·
-`stale_candidates` · **`loads_stale_bundle`**(lockfile이 가리키는 번들이 옆에 있는데 로더가 안 집는
-경우) · `ios_load_order_undefined`. 각 코드마다 그 원인을 실제로 만들어 대조하는 테스트가 있다.
+`stale_candidates`(lockfile 없이 내용해시 후보가 여럿인 경우). 각 코드의 원인을 실제로 만들어 대조한다.
 
 ## 알아 둘 것 셋
 
@@ -113,7 +108,7 @@ npm run typecheck:mcp-stdio
   바이트 대조) · 판정을 코어에서 가져오는가 · `.xcstrings` 의미 비교 · 첫 빌드에서 카탈로그
   diff를 부풀리지 않는가.
 - `lockfile-status.test.ts` — 진단 코드마다 그 원인을 실제로 만들어 대조 · **탐색 순서가 SDK
-  로더와 같은가**(stable-name 우선 · 내용해시는 파일명 최소값 · `rynl10n/` 다음 루트).
+  로더와 같은가**(lockfile의 release·base 우선 · lockfile 없으면 stable-name 또는 유일 후보).
 - `protocol.test.ts` — 프레이밍 + **관리 플레인과의 대조**.
 - `stdio.test.ts` — 실제 프로세스 왕복. 개행 프레이밍 · stdout 오염 없음 · 청크가 줄 중간에서
   끊겨도 살아남는가 · 깨진 JSON 뒤에도 서버가 사는가.

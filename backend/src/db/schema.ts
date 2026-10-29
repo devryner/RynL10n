@@ -130,6 +130,13 @@ CREATE TABLE IF NOT EXISTS published_manifests (
   PRIMARY KEY (project_id, seq)
 );
 
+-- DB 트랜잭션과 정적 manifest 교체 사이 중단 복구. 삭제도 게시 트랜잭션 안에서 커밋한다.
+CREATE TABLE IF NOT EXISTS publication_recovery (
+  project_id     TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  previous_manifest_json TEXT,
+  job_id         TEXT
+);
+
 -- 텔레메트리 집계(9.3): 옵트인·익명·집계만. 번역 값·키명·기기 식별자 없음.
 -- 배포 건전성(카나리 판정 8.4 입력): 이벤트별 count를 (project,release,event,bucket)로 누적.
 CREATE TABLE IF NOT EXISTS telemetry (

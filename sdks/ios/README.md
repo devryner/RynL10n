@@ -147,8 +147,9 @@ fallback을 주고 싶을 때만 쓰면 된다(선택). 대시보드에 적은 *
 산출물은 `./Generated/rynl10n/` 밑에 `snapshot-<base>.json` + `rynl10n.lock`(+ `Localizable.xcstrings`)으로
 떨어진다. **플러그인과 달리 앱 번들에 자동으로 들어가지 않는다** — 이 폴더를 앱 타깃 리소스로
 추가한다(SwiftPM이면 `resources: [.copy("Generated/rynl10n")]`처럼). 이 경로를 쓸 때는
-**3-a의 vendored 파일과 3-b의 플러그인을 함께 두지 않는다.** 로더는 `snapshot.json`(플러그인 산출물)을
-`snapshot-<base>.json`보다 먼저 집기 때문에, 둘이 같이 있으면 CI가 받은 최신 스냅샷이 경고 없이 무시된다.
+**3-a의 vendored 파일과 3-b의 플러그인을 함께 두지 않는다.** 번들 로더는 `rynl10n.lock`의
+`release`·`base`와 일치하는 파일을 선택한다. 오래된 `snapshot.json`이 있어도 lockfile이 우선이다.
+lockfile이 없거나 깨졌으면 stable-name 또는 유일한 내용해시 후보만 허용하며, 모호하면 로드를 거부한다.
 `--strict`를 더하면 커버리지 공백이나 base 해시 불일치에서 bake가 실패한다(기본은 경고만).
 
 ---

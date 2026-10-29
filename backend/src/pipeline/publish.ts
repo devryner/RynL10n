@@ -13,6 +13,7 @@ import type { Repo, ReleaseRow } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
 import { type Metrics, METRIC } from "../observability/metrics.ts";
 import type { Notifier } from "../observability/notifier.ts";
+import { publishAtomically } from "./publication.ts";
 
 export { RangeConflictError };
 export class NotFoundError extends Error {
@@ -56,14 +57,13 @@ function servingRecords(repo: Repo, projectId: string): ReleaseRecord[] {
     .map(toRecord);
 }
 
-/** DB의 서빙 릴리스로 manifest를 재생성해 스토리지에 게시하고 이력에 기록(롤백 보존 창). */
-function buildAndPublishManifest(repo: Repo, store: ArtifactStore, projectId: string): Manifest {
+/** DB의 서빙 릴리스로 manifest를 생성하고 이력에 기록한다(롤백 보존 창). */
+function buildManifest(repo: Repo, projectId: string): Manifest {
   const project = repo.getProject(projectId)!;
   const manifest = compileManifest({
     project: project.id, defaultLocale: project.defaultLocale,
     updatedAt: new Date().toISOString(), records: servingRecords(repo, projectId),
   });
-  store.writeManifest(projectId, manifest);
   // 이력 기록은 updatedAt를 뺀 정규화로 seq 판단하지 않고 단순 누적(보존 창 20).
   repo.recordManifest(projectId, JSON.stringify(manifest));
   return manifest;
@@ -202,6 +202,13 @@ export interface PublishResult {
  *  4) 서빙 릴리스로 manifest 재게시 + 이력 기록
  */
 export function publishRelease(repo: Repo, store: ArtifactStore, projectId: string, releaseId: string, actor: string): PublishResult {
+  return publishReleaseWithJob(repo, store, projectId, releaseId, actor);
+}
+
+function publishReleaseWithJob(
+  repo: Repo, store: ArtifactStore, projectId: string, releaseId: string, actor: string,
+  jobId?: string,
+): PublishResult {
   const project = repo.getProject(projectId);
   if (!project) throw new NotFoundError(`project ${projectId}`);
   const release = repo.getRelease(projectId, releaseId);
@@ -225,42 +232,42 @@ export function publishRelease(repo: Repo, store: ArtifactStore, projectId: stri
   const baseline = baselineOf(repo, store, projectId, release)?.snapshot;
   const droppedKeys = baseline ? droppedKeyNames(baseline, newSnap) : [];
 
-  // 자동 상한 닫힘으로 바뀐 이전 릴리스를 DB에 반영(superseded 전이 + 범위 축소).
-  for (const rec of autoClosed) {
-    if (rec.id === releaseId) continue;
-    const orig = others.find((o) => o.id === rec.id);
-    if (orig && (orig.versionMatch.value !== rec.versionMatch.value || orig.state !== rec.state)) {
-      repo.updateReleaseVersionMatch(projectId, rec.id, rec.versionMatch);
-      repo.updateReleaseState(projectId, rec.id, rec.state);
+  return publishAtomically(repo, store, projectId, () => {
+    // 자동 상한·상태도 산출물 쓰기 실패 시 함께 되돌린다.
+    for (const rec of autoClosed) {
+      if (rec.id === releaseId) continue;
+      const orig = others.find((o) => o.id === rec.id);
+      if (orig && (orig.versionMatch.value !== rec.versionMatch.value || orig.state !== rec.state)) {
+        repo.updateReleaseVersionMatch(projectId, rec.id, rec.versionMatch);
+        repo.updateReleaseState(projectId, rec.id, rec.state);
+      }
     }
-  }
 
-  // 3) 산출물 생성.
-  if (release.base === null) {
-    // 최초 publish: base=overlay=newSnap.
-    store.writeSnapshot(projectId, releaseId, newSnap);
-    repo.updateReleasePointers(projectId, releaseId, newSnap.base, newSnap.base);
-  } else if (newSnap.base !== release.overlay) {
-    // 편집 반영: base→newSnap 델타 사전 생성(클라이언트 diff 없음).
-    const baseSnap = store.readSnapshot(projectId, releaseId, release.base);
-    store.writeSnapshot(projectId, releaseId, newSnap);
-    if (baseSnap) {
-      const delta = buildDelta(baseSnap, newSnap);
-      store.writeDelta(projectId, releaseId, delta);
-      repo.setReleaseOverlay(projectId, releaseId, newSnap.base);
-    } else {
-      // base 스냅샷 유실 방어: 재베이스라인.
+    // 3) 불변 산출물 생성 후 포인터 갱신.
+    if (release.base === null) {
+      store.writeSnapshot(projectId, releaseId, newSnap);
       repo.updateReleasePointers(projectId, releaseId, newSnap.base, newSnap.base);
+    } else if (newSnap.base !== release.overlay) {
+      const baseSnap = store.readSnapshot(projectId, releaseId, release.base);
+      store.writeSnapshot(projectId, releaseId, newSnap);
+      if (baseSnap) {
+        store.writeDelta(projectId, releaseId, buildDelta(baseSnap, newSnap));
+        repo.setReleaseOverlay(projectId, releaseId, newSnap.base);
+      } else {
+        // base 스냅샷 유실 방어: 재베이스라인.
+        repo.updateReleasePointers(projectId, releaseId, newSnap.base, newSnap.base);
+      }
     }
-  }
-  if (release.state === "draft") repo.updateReleaseState(projectId, releaseId, "published");
+    if (release.state === "draft") repo.updateReleaseState(projectId, releaseId, "published");
 
-  // 4) manifest 재게시.
-  const manifest = buildAndPublishManifest(repo, store, projectId);
-  repo.audit(projectId, actor, "publish", { releaseId, base: newSnap.base });
+    const manifest = buildManifest(repo, projectId);
+    repo.audit(projectId, actor, "publish", { releaseId, base: newSnap.base });
 
-  const updated = repo.getRelease(projectId, releaseId)!;
-  return { releaseId, base: updated.base!, overlay: updated.overlay!, manifest, droppedKeys };
+    const updated = repo.getRelease(projectId, releaseId)!;
+    const result = { releaseId, base: updated.base!, overlay: updated.overlay!, manifest, droppedKeys };
+    if (jobId !== undefined) repo.finishJob(jobId, "done", { base: result.base, overlay: result.overlay });
+    return { manifest, result };
+  }, jobId);
 }
 
 export interface PublishJobDeps {
@@ -281,13 +288,9 @@ export function publishReleaseJob(
   const jobId = randomUUID();
   deps.repo.createJob(jobId, projectId, "publish");
   const started = performance.now();
+  let published: PublishResult;
   try {
-    const result = publishRelease(deps.repo, deps.store, projectId, releaseId, actor);
-    deps.repo.finishJob(jobId, "done", { base: result.base, overlay: result.overlay });
-    deps.metrics.inc(METRIC.publishTotal, { result: "success" });
-    deps.metrics.observe(METRIC.publishDuration, (performance.now() - started) / 1000);
-    deps.notifier.emit(projectId); // 실시간 푸시 신호(manifest 변경)
-    return { ...result, jobId };
+    published = publishReleaseWithJob(deps.repo, deps.store, projectId, releaseId, actor, jobId);
   } catch (e) {
     deps.repo.finishJob(jobId, "failed", { error: (e as Error).message });
     // 빈 릴리스는 서버 고장이 아니라 입력 거절이다 — error에 섞으면 오류율 경보가 사람의 실수로 울린다.
@@ -295,6 +298,10 @@ export function publishReleaseJob(
     deps.metrics.inc(METRIC.publishTotal, { result });
     throw e;
   }
+  deps.metrics.inc(METRIC.publishTotal, { result: "success" });
+  deps.metrics.observe(METRIC.publishDuration, (performance.now() - started) / 1000);
+  deps.notifier.emit(projectId);
+  return { ...published, jobId };
 }
 
 /**
@@ -308,8 +315,10 @@ export function rollbackRelease(repo: Repo, store: ArtifactStore, projectId: str
   const valid = previousOverlay === release.base || store.readSnapshot(projectId, releaseId, previousOverlay) !== undefined
     || store.readSnapshot(projectId, releaseId, release.base ?? "") !== undefined;
   if (!valid) throw new NotFoundError(`rollback target ${previousOverlay}`);
-  repo.setReleaseOverlay(projectId, releaseId, previousOverlay);
-  const manifest = buildAndPublishManifest(repo, store, projectId);
-  repo.audit(projectId, actor, "rollback", { releaseId, to: previousOverlay });
-  return manifest;
+  return publishAtomically(repo, store, projectId, () => {
+    repo.setReleaseOverlay(projectId, releaseId, previousOverlay);
+    const manifest = buildManifest(repo, projectId);
+    repo.audit(projectId, actor, "rollback", { releaseId, to: previousOverlay });
+    return { manifest, result: manifest };
+  });
 }

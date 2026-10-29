@@ -21,12 +21,13 @@
  * 두 CLI 모두 `--descriptions`로 키 설명 주석을 함께 굽는다(5.3). 빌드가 그 플래그를 쓰지 않으면
  * 미리보기도 쓰면 안 된다 — 그 차이가 그대로 가짜 "변경"이 된다.
  */
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { bake, type Lockfile } from "../../../src/builder/bake.ts";
 import { buildDelta } from "../../../src/builder/builder.ts";
 import { toAndroidStringsXml, toXcstrings, type Descriptions } from "../../../src/builder/convert.ts";
 import type { Snapshot } from "../../../src/core/types.ts";
+import { lockfileStatus, parseLockfile } from "./lockfile-status.ts";
 
 export type Platform = "ios" | "android";
 
@@ -95,7 +96,8 @@ export function bakePreview(input: BakePreviewInput): BakePreviewResult {
 
   // 디스크에 이미 번들이 있으면 카탈로그 수준으로 무엇이 바뀌는지까지 낸다.
   // 없으면(첫 빌드) 비교 대상이 없으니 null — "전부 추가"를 델타로 부풀리지 않는다.
-  const previous = readPreviousSnapshot(bundleDir, bundleName);
+  const previousPath = lockfileStatus({ outDir: input.outDir }).bundle?.path;
+  const previous = previousPath === undefined ? null : tryParseSnapshot(previousPath);
   const catalogDiff = previous === null ? null : summarizeDelta(previous, snap);
 
   const files = [bundle, lockfile, ...native];
@@ -162,29 +164,10 @@ function readDescriptions(path: string | undefined): Descriptions {
 function readLockfile(path: string): Lockfile | null {
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as Lockfile;
+    return parseLockfile(readFileSync(path, "utf8"));
   } catch {
     return null;
   }
-}
-
-/**
- * 디스크의 직전 번들. `--stable-name` 빌드는 파일명이 고정이라 그대로 읽고, 내용해시 이름이면
- * **이번 base의 파일이 아니라 그 디렉토리에 있는 번들**을 찾아야 한다 — 이름이 다르면 비교
- * 대상이 없다고 보는 게 아니라 직전 빌드의 것과 비교해야 "무엇이 바뀌나"에 답이 된다.
- */
-function readPreviousSnapshot(bundleDir: string, bundleName: string): Snapshot | null {
-  const exact = join(bundleDir, bundleName);
-  if (existsSync(exact)) return tryParseSnapshot(exact);
-  if (!existsSync(bundleDir)) return null;
-  const candidates = readdirSync(bundleDir)
-    .filter((f) => f === "snapshot.json" || (f.startsWith("snapshot-") && f.endsWith(".json")))
-    .sort();
-  for (const c of candidates) {
-    const snap = tryParseSnapshot(join(bundleDir, c));
-    if (snap !== null) return snap;
-  }
-  return null;
 }
 
 function tryParseSnapshot(path: string): Snapshot | null {

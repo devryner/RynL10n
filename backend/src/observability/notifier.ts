@@ -22,7 +22,10 @@ export class Notifier {
   emit(projectId: string): number {
     const next = (this.seq.get(projectId) ?? 0) + 1;
     this.seq.set(projectId, next);
-    for (const l of this.subs.get(projectId) ?? []) l(next);
+    for (const l of this.subs.get(projectId) ?? []) {
+      // 알림은 지연 단축용이다. 구독자 오류가 이미 커밋된 게시를 실패로 바꾸면 안 된다.
+      try { l(next); } catch { /* 폴링이 갱신을 보장한다. 다른 구독자에게도 계속 알린다. */ }
+    }
     return next;
   }
 
