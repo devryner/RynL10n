@@ -7,11 +7,11 @@ Web(JS/TS) SDK. **프레임워크 무관 코어 + fetch/ETag 폴링 + 영속 캐
 ## 설치
 
 ```bash
-npm install @rynl10n/web
+npm install @rynl10n/web@0.2.2
 ```
 
-> **npm에 게시돼 있다 — `0.2.0`**(2026-09-17 · 4개 SDK lockstep 6.5). `dist-tags.latest = 0.2.0`.
-> 빈 프로젝트에서 레지스트리 설치 → `t()` 왕복 + `.d.ts` 타입 해석까지 확인했다(0.2.0 재확인).
+> **npm에 게시돼 있다 — `0.2.2`**(2026-10-29 · 4개 SDK lockstep 6.5). `dist-tags.latest = 0.2.2`.
+> 빈 프로젝트에서 레지스트리 설치 → `t()` 왕복 + `.d.ts` 타입 해석까지 확인했다(2026-10-29, 0.2.2 재확인).
 > **0.2.0부터 provenance가 붙는다** — GitHub Actions의 OIDC(Trusted Publisher)로 게시하기 때문이고,
 > 로컬 수동 게시였던 0.1.0에는 영구히 없다.
 
@@ -26,7 +26,7 @@ SSR·스크립트·테스트에서는 하드 에러가 난다. 빌드는 `prepac
 
 ```jsonc
 // 앱 package.json
-"dependencies": { "@rynl10n/web": "^0.2.0" }
+"dependencies": { "@rynl10n/web": "^0.2.2" }
 ```
 
 코어를 함께 고치는 중이라면 경로 의존을 쓸 수 있다. 단 npm 기본 설정(`install-links=false`)에서

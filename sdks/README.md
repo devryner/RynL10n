@@ -4,31 +4,31 @@ iOS(Swift/SPM)·Android(Kotlin/JVM)·**Web(TS)**·**Flutter(Dart)** 플랫폼 SD
 버전 격리 + 카나리 + 실시간 푸시**를 제공하며, 코어 알고리즘은 M0 TS 참조 구현과 **골든 벡터(`fixtures/golden`)로
 4개 언어 모두 바이트·해시·동작 단위 정합성**을 보장한다. (Web=`sdks/web`, Flutter=`sdks/flutter`.)
 
-## 배포 채널 — **4채널 전부 게시됨 `0.2.0` (2026-09-17)**
+## 배포 채널 — **4채널 전부 게시됨 `0.2.2` (2026-10-29)**
 
-버전은 4개 SDK **lockstep**(현재 `0.2.0`). 태그 `v*` 하나에서 `.github/workflows/release.yml`이
+버전은 4개 SDK **lockstep**(현재 `0.2.2`). 태그 `v*` 하나에서 `.github/workflows/release.yml`이
 4채널을 동시에 퍼블리시하고, 게시 후 `npm run smoke:consumer`가 저장소 밖 빈 프로젝트에서
-실 좌표로 설치해 `t()`까지 굴린다(0.2.0에서 4채널 24/24 통과).
+실 좌표로 설치해 `t()`까지 굴린다(0.2.2에서 4채널 24/24 통과).
 
 ```
-iOS      .package(url: "https://github.com/devryner/RynL10n", from: "0.2.0")
-Android  implementation("com.devryner.rynl10n:android:0.2.0")
-Web      npm i @rynl10n/web
-Flutter  dart pub add rynl10n
+iOS      .package(url: "https://github.com/devryner/RynL10n", from: "0.2.2")
+Android  implementation("com.devryner.rynl10n:android:0.2.2")
+Web      npm i @rynl10n/web@0.2.2
+Flutter  dart pub add 'rynl10n:^0.2.2'
 ```
 
 | SDK | 채널 / 좌표 | 지금 붙이는 법 |
 | --- | --- | --- |
-| iOS | SwiftPM — **이 저장소 + 태그**(아래) | `.package(path: "…/RynL10n")` — `examples/ios-consumer`가 이 방식 |
-| Android | Maven Central `com.devryner.rynl10n:android` | `./gradlew :library:publishToMavenLocal` + `mavenLocal()` |
-| Web | npm `@rynl10n/web` (컴파일된 `.js`+`.d.ts`) | `"@rynl10n/web": "file:…/sdks/web"` |
-| Flutter | pub.dev `rynl10n` | `dependencies: rynl10n: { path: …/sdks/flutter }` |
+| iOS | SwiftPM — **이 저장소 + 태그**(아래) | `.package(url: "https://github.com/devryner/RynL10n", from: "0.2.2")` |
+| Android | Maven Central `com.devryner.rynl10n:android` | `implementation("com.devryner.rynl10n:android:0.2.2")` |
+| Web | npm `@rynl10n/web` (컴파일된 `.js`+`.d.ts`) | `npm install @rynl10n/web@0.2.2` |
+| Flutter | pub.dev `rynl10n` | `rynl10n: ^0.2.2` (`pubspec.yaml`) |
 
 **iOS는 매니페스트가 루트에 있다**: SPM은 저장소 루트의 `Package.swift`만 패키지로 인식하기 때문이다.
 소스는 `sdks/ios/` 아래 그대로이고 타깃이 `path:`로 가리키므로, 4개 SDK 대칭 레이아웃은 유지된다.
 **태그가 곧 SPM 배포**라 iOS에는 게시 잡도 시크릿도 없다(2026-08-26에 미러 저장소 안을 폐기했다).
 
-게시까지 남은 절차·레지스트리 게이트·릴리스 CI는 `HANDOVER.md`의 "SDK 배포 채널" 절.
+게시 절차·레지스트리 게이트·릴리스 CI는 `HANDOVER.md`의 "SDK 배포 채널" 절.
 
 ## 정합성 전략 — 골든 벡터
 

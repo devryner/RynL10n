@@ -34,13 +34,13 @@
 | Flutter | 순수 Dart (`sdks/flutter`) | build hook | ValueListenable |
 
 네 SDK는 **같은 버전 번호를 함께 올립니다**(lockstep) — 버전 번호 하나가 곧 정합 조합입니다.
-현재 `0.2.0`이 네 레지스트리에 모두 올라가 있습니다:
+현재 `0.2.2`가 네 레지스트리에 모두 올라가 있습니다:
 
 ```
-iOS      .package(url: "https://github.com/devryner/RynL10n", from: "0.2.0")   # SwiftPM (태그가 곧 배포)
-Android  implementation("com.devryner.rynl10n:android:0.2.0")                  # Maven Central
-Web      npm install @rynl10n/web                                              # npm
-Flutter  dart pub add rynl10n                                                  # pub.dev
+iOS      .package(url: "https://github.com/devryner/RynL10n", from: "0.2.2")   # SwiftPM (태그가 곧 배포)
+Android  implementation("com.devryner.rynl10n:android:0.2.2")                  # Maven Central
+Web      npm install @rynl10n/web@0.2.2                                        # npm
+Flutter  dart pub add 'rynl10n:^0.2.2'                                         # pub.dev
 ```
 
 SDK 표면은 세 가지가 전부입니다:

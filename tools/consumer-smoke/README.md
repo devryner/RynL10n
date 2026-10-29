@@ -3,7 +3,7 @@
 ```bash
 npm run smoke:consumer                          # 도구가 있는 채널 전부
 npm run smoke:consumer -- --only=npm,pub        # 일부만
-npm run smoke:consumer -- --version=0.2.0       # 매니페스트 대신 이 버전을 검증
+npm run smoke:consumer -- --version=0.2.2       # 매니페스트 대신 이 버전을 검증
 npm run smoke:consumer -- --keep                # 생성한 소비자 프로젝트를 남긴다
 ```
 

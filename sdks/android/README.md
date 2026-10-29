@@ -53,14 +53,14 @@ sdk.dir=/path/to/project-android-sdk
 ```kotlin
 // 앱 모듈 build.gradle.kts
 dependencies {
-    implementation("com.devryner.rynl10n:android:0.2.0")
+    implementation("com.devryner.rynl10n:android:0.2.2")
 }
 ```
 
-> **Maven Central에 게시돼 있다 — `com.devryner.rynl10n:android:0.2.0`**(2026-09-17 · 4개 SDK
+> **Maven Central에 게시돼 있다 — `com.devryner.rynl10n:android:0.2.2`**(2026-10-29 · 4개 SDK
 > lockstep 6.5). `mavenCentral()` 외에 저장소 선언이 필요 없고, AAR과 함께 sources·javadoc jar,
 > `.asc` 서명, Gradle 모듈 메타데이터가 올라가 있다. 2026-08-27에 `mavenLocal()` 없는 소비자
-> 프로젝트에서 AGP 유닛 테스트로 `t()` 왕복까지 확인했다.
+> 프로젝트에서 AGP 유닛 테스트로 `t()` 왕복까지 확인했다. `0.2.2`도 2026-10-29에 설치·실행 6/6을 확인했다.
 >
 > 코어를 함께 고치는 중이라면 `cd sdks/android && ./gradlew :library:publishToMavenLocal` 후 앱의
 > `repositories`에 `mavenLocal()`을 추가한다.
@@ -83,7 +83,7 @@ Compose를 쓰지 않는 앱도 그대로 쓸 수 있다 — Compose 어댑터�
 # CI: 최신 릴리스 스냅샷을 받아 앱 모듈 assets로 bake
 #     서버가 죽어 있으면 --cache 의 마지막 성공본으로 진행한다(빌드가 서버에 종속되지 않음)
 APP="$PWD"                                   # 앱 저장소 루트
-git clone --depth 1 --branch v0.2.0 https://github.com/devryner/RynL10n.git /tmp/rynl10n
+git clone --depth 1 --branch v0.2.2 https://github.com/devryner/RynL10n.git /tmp/rynl10n
 cd /tmp/rynl10n/sdks/android
 ./gradlew rynl10nBake \
   -Pfetch="$API/projects/myapp/releases/R1/snapshot" -Ptoken="$TOKEN" \
@@ -316,7 +316,7 @@ RynL10n.startTelemetry("https://admin.example.com")                             
   판정, Compose 재구성은 계측 테스트를 돌리지 못했다.
   처음 붙일 때 ① 빌드 로그의 `[rynl10n] bake 완료` ② `RynL10n.client.status()`가 기대한 릴리스를
   가리키는지부터 확인할 것.
-- **게시**: Maven Central `com.devryner.rynl10n:android:0.2.0`(2026-09-17, §2).
+- **게시**: Maven Central `com.devryner.rynl10n:android:0.2.2`(2026-10-29, §2).
 
 ---
 
