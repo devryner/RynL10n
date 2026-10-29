@@ -1,4 +1,4 @@
-# RynL10n SDK (M1 α)
+# RynL10n SDK
 
 iOS(Swift/SPM)·Android(Kotlin/JVM)·**Web(TS)**·**Flutter(Dart)** 플랫폼 SDK. **조회 API + 런타임 로딩 +
 버전 격리 + 카나리 + 실시간 푸시**를 제공하며, 코어 알고리즘은 M0 TS 참조 구현과 **골든 벡터(`fixtures/golden`)로
@@ -174,17 +174,13 @@ gradle rynl10nBake -Pfetch=<url> -Ptoken=<t> -Pcache=<p> -Pout=<out-dir>
 
 **Xcode 앱 타깃(`.xcodeproj`)** 은 `BuildToolPlugin`만으로는 플러그인이 붙지 않는다 → 플러그인이
 `XcodeBuildToolPlugin`을 함께 구현하며, 타깃의 입력 파일에서 `rynl10n/release-snapshot.json`을 찾는다.
-연결은 타깃 → Build Phases → **Run Build Tool Plug-ins**. (이 경로는 실제 Xcode 앱 빌드로는 미검증 —
-`ios/README.md` §8 참조.)
+연결은 타깃 → Build Phases → **Run Build Tool Plug-ins**. 실제 Xcode 앱 타깃의 bake까지
+2026-09-10에 확인했다. 위젯 렌더·리소스 병합은 별도 검증 대상이다(`ios/README.md` §8).
 
-**Android — Gradle 태스크(AGP preBuild 연결).** `rynl10nBake` 태스크를 앱 모듈의 `preBuild`에 의존시키고
-출력을 `assets/`(또는 res)로 지정한다. CI에서는 `--fetch`로 최신 스냅샷을 받고, 앱 빌드는 로컬 캐시로 진행:
-
-```kotlin
-// 앱 build.gradle.kts
-tasks.named("preBuild").configure { dependsOn(":rynl10nBake") }
-// gradle rynl10nBake -Pfetch=<url> -Ptoken=<t> -Pcache=<p> -Pout=src/main/assets -PstableName=true
-```
+**Android — 저장소의 Gradle bake 태스크.** `rynl10nBake`는 게시된 AAR이나 소비자 앱의 태스크가
+아니라 이 저장소의 `sdks/android` 빌드가 제공한다. 앱 CI에서 `v0.2.2`를 체크아웃해 실행하고,
+출력을 앱의 `assets/`로 보낸다. `-Pfetch` 다운로드 실패 시 마지막 캐시를 쓰며 `-PstableName=true`로
+산출물 이름을 고정한다. 실행 위치·절대 경로·네이티브 `res` 연결은 [앱 적용 가이드](android/README.md) §3을 따른다.
 
 ## 네이티브 포맷 변환 (5.3) ✅
 
@@ -217,8 +213,9 @@ format_guard_rejected/key_unresolved/delta_failed)**. 클라이언트 `installId
 ## 남은 작업 (앱 환경 필요)
 
 - 실제 Xcode 앱 타깃·Android 앱 모듈에서의 end-to-end 통합(위젯 렌더·리소스/assets 병합)은 각 플랫폼 앱 프로젝트에서.
-  iOS는 SwiftPM 경로가 실서버 대상까지 검증됐고(`ios/README.md` §6), Xcode 타깃 경로는 코드만 준비된 상태.
-  Android는 AAR 빌드·로컬 퍼블리시까지 검증됐고 앱 모듈 통합은 미검증(`android/README.md` §7).
+  iOS는 SwiftPM 실서버 경로와 Xcode 앱 타깃의 bake까지 검증됐다(`ios/README.md` §8).
+  Android는 AAR 빌드와 Maven Central `0.2.2` 게시본의 소비자 실행 6/6까지 확인했으며,
+  앱 모듈의 리소스/assets 병합·실기 동작은 미검증이다(`android/README.md` §7).
 - **브라우저 실기 검증**: Web·Flutter Web 경로는 어댑터 계약까지 기계 검증했으나(요청 헤더·응답 매핑·
   갱신 사이클), 실제 브라우저에서의 end-to-end는 앱 프로젝트 몫이다. 배포 플레인 CORS는 참조 서버가
   이미 갖췄고 계약 테스트로 못박아 뒀다(`backend/test/delivery-plane.test.ts`).

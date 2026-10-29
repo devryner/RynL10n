@@ -201,8 +201,8 @@ SwiftPM  v0.2.2 (e4490e2)               원격 resolve 검증 완료
 | --- | --- | --- | --- | --- | --- |
 | iOS | SwiftPM (git 태그) | **이 저장소** + 태그 `v*` | 루트 `Package.swift` — products 3종(library·`rynl10n-bake` CLI·build tool plugin), 소스는 `sdks/ios/`를 path로 | ✅ **`v0.2.2`** — 태그가 곧 배포 | `.package(url: "https://github.com/devryner/RynL10n", from: "0.2.2")` |
 | Android | Maven Central (AAR) | `com.devryner.rynl10n:android:0.2.2` | `sdks/android/library/build.gradle.kts` — `maven-publish` + release variant + sources/javadoc jar + POM(라이선스·SCM·developer) 완비 | ✅ **게시됨** `0.2.2` (산출물 5종 + `.asc` 서명) | `implementation("com.devryner.rynl10n:android:0.2.2")` |
-| Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.2.2`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | ✅ **게시됨** `0.2.2` (2026-10-29, CI OIDC — **provenance 첨부**) | `npm i @rynl10n/web` |
-| Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.2.2`, `publish_to` 해제, `.pubignore` | ✅ **게시됨** `0.2.2` (2026-10-29, CI OIDC) | `dart pub add rynl10n` |
+| Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.2.2`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | ✅ **게시됨** `0.2.2` (2026-10-29, CI OIDC — **provenance 첨부**) | `npm i @rynl10n/web@0.2.2` |
+| Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.2.2`, `publish_to` 해제, `.pubignore` | ✅ **게시됨** `0.2.2` (2026-10-29, CI OIDC) | `dart pub add 'rynl10n:^0.2.2'` |
 
 ### 소비자 스모크 — **최신 `0.2.2` 네 채널 각 6/6 · 총 24/24 (2026-10-29)**
 
@@ -250,7 +250,7 @@ SwiftPM  v0.2.2 (e4490e2)               원격 resolve 검증 완료
 자유롭다.** 그래서 루트에 `Package.swift`를 두고 타깃이 `path:`로 `sdks/ios/`를 가리킨다 —
 4개 언어 SDK가 `sdks/` 밑에 대칭으로 놓이는 레이아웃은 그대로다.
 
-**소비자**: `.package(url: "https://github.com/devryner/RynL10n", from: "0.1.0")`.
+**소비자**: `.package(url: "https://github.com/devryner/RynL10n", from: "0.2.2")`.
 **태그가 곧 배포**이므로 릴리스 워크플로에 iOS 게시 잡이 없다.
 
 기각안: `sdks/ios/`를 subtree push하는 **미러 저장소 `rynl10n-swift`**(기획서의 원래 확정안).
@@ -269,14 +269,15 @@ SwiftPM  v0.2.2 (e4490e2)               원격 resolve 검증 완료
 
 ### 릴리스 CI (`.github/workflows/`)
 
-- **`ci.yml`** — push·PR에서 도는 일상 CI이자 **릴리스 게이트 그 자체**다(`workflow_call`).
+- **`ci.yml`** — **릴리스 게이트 그 자체**다(`workflow_call`). 2026-09-10부터 push·PR 자동 실행은
+  없고, 일상 검증은 `./tools/ci-local.sh`로 한다. Actions에서는 태그 릴리스 호출과 수동 실행만 지원한다.
   릴리스가 이 워크플로를 그대로 호출하므로 둘이 갈라질 수 없다 — 갈라지면 "테스트는 통과했는데
-  릴리스가 깨진다"가 생긴다. 잡 5개: TS 참조·백엔드 + **골든 벡터 결정성**(`gen:golden` 후
+  릴리스가 깨진다"가 생긴다. 잡 5개: TS 참조·백엔드·mcp-stdio + **골든 벡터 결정성**(`gen:golden` 후
   `git diff --exit-code`) · Web(게시 빌드 스모크 포함) · iOS(macOS 러너 + SPM 소비 예제 빌드) ·
-  Android(`./gradlew test`는 Android SDK 없이 돌고 AAR 빌드까지) · Flutter(테스트 + 예제 실행 +
+  Android(코어 `./gradlew :test`와 SDK가 필요한 전체 테스트·AAR 빌드) · Flutter(테스트 + 예제 실행 +
   `dart analyze --fatal-infos`).
 - **`release.yml`** — 태그 `v*`에서 4개 채널 동시 퍼블리시. 구조는 하나뿐이다: **검증은 전부 앞에,
-  게시는 전부 뒤에.** `gate`(=ci.yml) → `lockstep` → npm·pub·maven·swift-mirror.
+  게시는 전부 뒤에.** `gate`(=ci.yml) → `lockstep` → npm·pub·maven. SwiftPM은 태그 자체가 배포다.
   되돌리는 롤백이 없으므로(게시 후 사실상 불변) 이 순서가 유일한 안전장치다.
 - **`lockstep` 잡**이 태그 버전과 web·flutter·android 매니페스트 값이 모두 같은지 본다.
   여기서 걸러야 "npm은 0.1.0인데 pub.dev는 0.0.9"가 영구히 남는 사고를 막는다. iOS는 매니페스트에
@@ -295,7 +296,10 @@ SwiftPM  v0.2.2 (e4490e2)               원격 resolve 검증 완료
   pub.dev=Automated publishing). `NPM_TOKEN`은 2026-08-26에 제거했다 — 아래 "두 레지스트리의
   부트스트랩" 참조.
 
-### 릴리스 dry-run 실전 검증 (2026-08-25) — **파이프라인은 태그를 받을 준비가 됐다**
+### 릴리스 dry-run 실전 검증 (2026-08-25, 과거 이력)
+
+> 아래는 최초 게시 전 검증 기록이다. 당시의 SPM 미러 잡은 2026-08-26에 폐기됐다.
+> 현재 게시·검증 상태는 이 절 상단의 `v0.2.2` 기록을 따른다.
 
 `gh workflow run Release --ref main -f dry_run=true`로 두 번 돌렸다. 게시는 일어나지 않는다
 (npm·pub은 `--dry-run`, Maven은 `publishToMavenLocal`, 미러는 subtree split 검사까지만).
@@ -461,7 +465,10 @@ sources/javadoc jar는 `singleVariant("release")`의 `withSourcesJar()`·`withJa
 관리 중이라 대시보드에서 바로 추가할 수 있다. 막히면 **GitHub 가입 시 자동 검증되는
 `io.github.devryner`가 탈출구**이지만, 좌표가 바뀌므로 문서·매니페스트를 함께 고쳐야 한다.
 
-### 게시 준비 현황 (2026-08-21)
+### 게시 준비 현황 (2026-08-21, 과거 이력)
+
+> 아래 표의 준비 상태·버전·용량은 당시 기록이다. 계정·서명 설정과 최초 게시는 완료됐으며,
+> 현재는 `0.2.2`가 네 채널에 게시돼 있다.
 
 | SDK | 매니페스트 | 게시 가능? |
 | --- | --- | --- |
@@ -508,11 +515,11 @@ import했다(카나리 버킷 SHA-256). 브라우저에 없는 모듈이라 **ro
 **검증**: `npm pack` → 소비자 프로젝트에 설치 → 평범한 Node에서 `import`·`t()` 실행 성공,
 `tsc --noEmit`로 타입 해석까지 확인. 산출물에 `node:` import는 남아 있지 않다(주석뿐).
 
-### 게시하려면 남은 일 (전부 저장소 밖)
+### 최초 게시의 외부 준비 이력 (2026-08-26 완료)
 
-저장소 안쪽은 끝났다 — 4개 매니페스트 version `0.1.0` 일치 · Web `private` 해제 + `tsc` 게시 빌드 ·
+최초 게시 준비 당시 저장소 안쪽은 끝난 상태였다 — 4개 매니페스트 version `0.1.0` 일치 · Web `private` 해제 + `tsc` 게시 빌드 ·
 Flutter `publish_to` 해제 + `example/`·CHANGELOG · Android POM·sources·javadoc · 릴리스 CI.
-남은 것은 **계정·소유 검증·키**뿐이다:
+당시 남은 것은 **계정·소유 검증·키**였으며 아래 항목은 모두 완료됐다:
 
 1. ~~**iOS**~~ — **완료(2026-08-26)**. 루트 `Package.swift`로 전환해 미러 저장소가 불필요해졌다.
    태그 `v0.1.0`을 미는 순간 SPM 배포가 끝난다.
