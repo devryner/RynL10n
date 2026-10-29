@@ -33,6 +33,9 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
 
 ## 현재 상태 (한눈에)
 
+- **최신 SDK 릴리스 `v0.2.2` 배포·검증 완료(2026-10-29)** — SwiftPM·npm·pub.dev·Maven Central의
+  게시본을 각각 별도 프로젝트에서 설치·빌드·실행해 **각 6/6, 합계 24/24** 확인했다.
+  Maven도 공개 반영 후 설치 검증까지 끝났으므로 남은 게시 대기는 없다. 아래 "SDK 배포 채널" 참조.
 - **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 + 4개 플랫폼 앱 적용 경로.**
   커밋 99개(`1c0e225`~`f69eab3` — 이 줄을 갱신하는 문서 커밋 자신은 세지 않으므로 항상 한 칸 뒤처진다.
   정확한 값은 `git rev-list --count HEAD`). 이 수치는 당시 기록이다.
@@ -153,10 +156,27 @@ LICENSE · NOTICE      Apache-2.0
 > **런타임 의존성 0 원칙**: 참조·백엔드·iOS는 외부 런타임 의존성 없음(Node 내장 sqlite/crypto, CryptoKit).
 > Android=kotlinx(serialization·coroutines), Flutter=crypto·unorm_dart(NFC), 백엔드 devDep=typescript.
 
-## SDK 배포 채널 (기획서 6.5) — **`v0.2.0` 게시 완료 (2026-09-17) · 첫 진짜 원커맨드 릴리스**
+## SDK 배포 채널 (기획서 6.5) — **`v0.2.2` 게시·4채널 검증 완료 (2026-10-29)**
 
-버전은 **4개 SDK lockstep**(현재 `0.2.0`). 채널·좌표는 확정돼 각 매니페스트에 박혀 있고
+버전은 **4개 SDK lockstep**(현재 `0.2.2`). 채널·좌표는 확정돼 각 매니페스트에 박혀 있고
 게시 자동화는 `.github/workflows/`에 있다(`ci.yml`·`release.yml` — 아래 "릴리스 CI").
+
+**`v0.2.2`는 Android 빌드 경고를 정리한 유지보수 릴리스다.** 수정 커밋 `da37d77`,
+릴리스 커밋·태그 대상 `e4490e2`([GitHub Release](https://github.com/devryner/RynL10n/releases/tag/v0.2.2)).
+CLI·테스트의 `Json` 객체를 재사용해 반복 생성 경고 4건을 없애고, Foojay 툴체인 저장소를 명시해
+JDK 조달 경고를 없앴다. SDK XML 경고는 **프로젝트 전용 SDK를 지정하는 로컬 환경 설정**으로
+해결했으며, AAR 설치만으로 공용 SDK의 XML 형식이 바뀌는 것은 아니다. 재현은
+`sdks/android/README.md`의 SDK XML 환경 가이드에 있다. 런타임·공개 API·골든 벡터 계약은 `0.2.1`과 같다.
+
+검증 근거(2026-10-29):
+
+- 로컬 `./tools/ci-local.sh` 전 컴포넌트 통과, 골든 벡터 재생성 후 diff 없음.
+- [게시 사전 검사 40802689756](https://github.com/devryner/RynL10n/actions/runs/40802689756)와
+  [정식 게시 40803080965](https://github.com/devryner/RynL10n/actions/runs/40803080965) 모두 성공.
+- Maven 승격 요청 수락 직후의 404는 공개 반영 대기였다. 이후
+  [Central POM](https://repo.maven.apache.org/maven2/com/devryner/rynl10n/android/0.2.2/android-0.2.2.pom)의
+  HTTP 200과 새 소비자 프로젝트의 설치·실행 6/6을 확인해 검증을 완료했다.
+- SwiftPM·npm·pub.dev도 각 6/6 통과. 네 채널 합계 **24/24**, SKIP 없음.
 
 **`v0.2.0`은 태그 하나가 네 채널을 전부 게시한 첫 릴리스다.** `v0.1.0`에서는 npm·pub.dev가
 부트스트랩 때문에 로컬 수동으로 올라갔고 태그 릴리스에서는 멱등 가드가 그 둘을 건너뛰었다 —
@@ -164,10 +184,10 @@ LICENSE · NOTICE      Apache-2.0
 미검증 항목 둘이 여기서 닫혔다).
 
 ```
-npm      @rynl10n/web@0.2.0             latest 0.2.0 · provenance 첨부(OIDC 게시의 증거)
-pub.dev  rynl10n 0.2.0                  latest 0.2.0
-Maven    com.devryner.rynl10n:android   0.2.0 (repo1에서 POM 확인 — 승격까지 자동으로 끝났다)
-SwiftPM  v0.2.0 (c212fae)               원격 resolve 검증 완료
+npm      @rynl10n/web@0.2.2             latest 0.2.2 · provenance 첨부(OIDC 게시의 증거)
+pub.dev  rynl10n 0.2.2                  latest 0.2.2
+Maven    com.devryner.rynl10n:android   0.2.2 (Central POM 공개 반영 + 소비자 설치·실행 검증 완료)
+SwiftPM  v0.2.2 (e4490e2)               원격 resolve 검증 완료
 ```
 
 게시 후 `npm run smoke:consumer`로 받는 쪽까지 확인했다 — **4채널 24/24 통과**(채널당 6케이스).
@@ -179,12 +199,12 @@ SwiftPM  v0.2.0 (c212fae)               원격 resolve 검증 완료
 
 | SDK | 채널 | 좌표 | 매니페스트 | 게시 상태 | 지금 붙이는 법 |
 | --- | --- | --- | --- | --- | --- |
-| iOS | SwiftPM (git 태그) | **이 저장소** + 태그 `v*` | 루트 `Package.swift` — products 3종(library·`rynl10n-bake` CLI·build tool plugin), 소스는 `sdks/ios/`를 path로 | ✅ **`v0.2.0`** — 태그가 곧 배포 | `.package(url: "https://github.com/devryner/RynL10n", from: "0.2.0")` |
-| Android | Maven Central (AAR) | `com.devryner.rynl10n:android:0.2.0` | `sdks/android/library/build.gradle.kts` — `maven-publish` + release variant + sources/javadoc jar + POM(라이선스·SCM·developer) 완비 | ✅ **게시됨** `0.2.0` (산출물 5종 + `.asc` 서명) | `implementation("com.devryner.rynl10n:android:0.2.0")` |
-| Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.2.0`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | ✅ **게시됨** `0.2.0` (2026-09-17, CI OIDC — **provenance 첨부**) | `npm i @rynl10n/web` |
-| Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.2.0`, `publish_to` 해제, `.pubignore` | ✅ **게시됨** `0.2.0` (2026-09-17, CI OIDC) | `dart pub add rynl10n` |
+| iOS | SwiftPM (git 태그) | **이 저장소** + 태그 `v*` | 루트 `Package.swift` — products 3종(library·`rynl10n-bake` CLI·build tool plugin), 소스는 `sdks/ios/`를 path로 | ✅ **`v0.2.2`** — 태그가 곧 배포 | `.package(url: "https://github.com/devryner/RynL10n", from: "0.2.2")` |
+| Android | Maven Central (AAR) | `com.devryner.rynl10n:android:0.2.2` | `sdks/android/library/build.gradle.kts` — `maven-publish` + release variant + sources/javadoc jar + POM(라이선스·SCM·developer) 완비 | ✅ **게시됨** `0.2.2` (산출물 5종 + `.asc` 서명) | `implementation("com.devryner.rynl10n:android:0.2.2")` |
+| Web | npm (**`tsc` 게시 빌드** — `.js`+`.d.ts`) | `@rynl10n/web` | `sdks/web/package.json` — version `0.2.2`, `files`·`exports`·`prepack`(게시 빌드) 완비, `private` 제거 | ✅ **게시됨** `0.2.2` (2026-10-29, CI OIDC — **provenance 첨부**) | `npm i @rynl10n/web` |
+| Flutter | pub.dev | `rynl10n` | `sdks/flutter/pubspec.yaml` — version `0.2.2`, `publish_to` 해제, `.pubignore` | ✅ **게시됨** `0.2.2` (2026-10-29, CI OIDC) | `dart pub add rynl10n` |
 
-### 소비자 스모크 — **네 채널 실 좌표로 설치해 `t()`까지 굴렸다 (0.1.0 2026-08-27 · 0.2.0 2026-09-17)**
+### 소비자 스모크 — **최신 `0.2.2` 네 채널 각 6/6 · 총 24/24 (2026-10-29)**
 
 게시가 끝났다는 것과 **소비자가 실제로 받아 쓸 수 있다**는 것은 다른 명제다. 그 사이에는 게시본에만
 있는 실패가 산다 — 패키징에서 빠진 파일, `.d.ts` 경로가 어긋난 `exports`, POM이 못 끌고 오는 전이
@@ -195,10 +215,10 @@ SwiftPM  v0.2.0 (c212fae)               원격 resolve 검증 완료
 
 | 채널 | 설치 방법 | 결과 |
 | --- | --- | --- |
-| npm | 빈 패키지에 `npm i @rynl10n/web@0.2.0` | 6/6 통과 + `tsc --strict --moduleResolution nodenext`로 `.d.ts` 해석 확인 |
-| pub.dev | 빈 패키지에 `rynl10n: ^0.2.0` → `dart pub get` | 6/6 통과 (전이 의존 14개 해석) |
-| Maven Central | AGP 소비자 모듈에 `implementation("com.devryner.rynl10n:android:0.2.0")` | 6/6 통과 (유닛 테스트) |
-| SwiftPM | 빈 패키지에 `.package(url:…/RynL10n, from: "0.2.0")` → `swift run` | 6/6 통과 (`Package.resolved`가 `0.2.0` 고정) |
+| npm | 빈 패키지에 `npm i @rynl10n/web@0.2.2` | 6/6 통과 + `tsc --strict --moduleResolution nodenext`로 `.d.ts` 해석 확인 |
+| pub.dev | 빈 패키지에 `rynl10n: ^0.2.2` → `dart pub get` | 6/6 통과 |
+| Maven Central | AGP 소비자 모듈에 `implementation("com.devryner.rynl10n:android:0.2.2")` | 6/6 통과 (유닛 테스트) |
+| SwiftPM | 빈 패키지에 `.package(url:…/RynL10n, from: "0.2.2")` → `swift run` | 6/6 통과 (`Package.resolved`가 `0.2.2` 고정) |
 
 **소비자 저장소 선언에 `mavenLocal()`·`file:`·`path:`를 두지 않는 것이 이 검증의 전부다.** 하나라도
 남으면 로컬 산출물을 집어 레지스트리를 건드리지 않고 통과한다 — 검증한 것이 게시본이 아니게 된다.
@@ -215,8 +235,8 @@ SwiftPM  v0.2.0 (c212fae)               원격 resolve 검증 완료
 이 스모크는 **받는 쪽**을 본다. **태그를 민 직후 로컬에서 한 번** 돌린다. 배경·옵션은
 `tools/consumer-smoke/README.md`.
 
-Maven 산출물은 Central에서 직접 확인했다: `.aar`(240 KB) · `.pom` · `-sources.jar` · `-javadoc.jar`
-(549 KB) · `.module` · `.asc` 서명. repo1 동기화도 끝나 있다.
+`0.1.0` 게시 당시 Central에서 확인한 산출물: `.aar`(240 KB) · `.pom` · `-sources.jar` · `-javadoc.jar`
+(549 KB) · `.module` · `.asc` 서명. 당시 repo1 동기화까지 확인했다.
 
 > **태그 `v0.1.0`은 annotated 태그다.** `git rev-parse v0.1.0`은 태그 객체(`19de314a`)를,
 > SPM의 `Package.resolved`는 그것이 가리키는 커밋(`2cf8e16c`)을 적는다. 둘이 달라 보이는 것이
@@ -973,6 +993,7 @@ Pattern_White_Space도 아닌 문자 1개 이상**이라 비ASCII를 허용하�
 - ~~**SDK 패키지 게시**~~ — **완료. 파이프라인 전체가 닫혔다(2026-09-17 `v0.2.0`)**. 태그 하나가
   네 채널을 게시한 첫 릴리스이고, 마지막까지 미검증이던 **npm OIDC 인증·pub.dev 자동 게시가 여기서
   처음 돌아 성공했다**. 게시 후 `npm run smoke:consumer`로 받는 쪽도 4채널 24/24 확인.
+  **최신 `v0.2.2`(2026-10-29)도 네 채널 게시·설치·실행 검증 완료(24/24)**. Maven 공개 반영 대기도 끝났다.
   **다음 릴리스의 절차는 이제 셋뿐이다**: ① 매니페스트 3곳 버전 올리기(`sdks/web/package.json` ·
   `sdks/flutter/pubspec.yaml` · `sdks/android/library/build.gradle.kts`의 `rynl10nVersion` — iOS는
   태그가 곧 버전이라 없다) ② `sdks/flutter/CHANGELOG.md`에 절 추가(**pub.dev는 게시 후 수정 불가**)
@@ -1142,6 +1163,11 @@ craft_read: blocks get 0f5c1bb2-03c7-7787-654c-483c5061805f --format markdown
   계산할 뿐 서버 서명을 읽지 않는다(`resolve.ts:100`). **pub.dev CHANGELOG는 게시 후 수정 불가**라
   태그를 먼저 밀었으면 틀린 설명이 영구히 남았다.
   결과: 4채널 전부 `0.2.0` 실물 확인(npm은 provenance 첨부 — OIDC 경로의 증거) + 소비자 스모크 24/24.
+
+- **v0.2.2 Android 경고 정리·4채널 배포** `da37d77`·`e4490e2`(2026-10-29) — CLI·테스트의
+  `Json` 재사용과 Foojay JDK 조달 저장소 설정. SDK XML 경고는 프로젝트 전용 SDK를 쓰는 로컬
+  설정으로 해결하고 방법을 문서화했다. 로컬 전체 게이트·GitHub 게시 사전 검사·정식 게시 성공,
+  Maven Central 공개 반영 확인 뒤 네 채널 게시본 검증 **24/24** 완료. 상세 근거는 위 "SDK 배포 채널" 절.
 
 각 컴포넌트의 상세는 해당 디렉토리의 README(`sdks/README.md`, `sdks/*/README.md`, `backend/README.md`)와
 `OPERATIONS.md` 참조.

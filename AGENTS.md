@@ -25,6 +25,12 @@ GitHub Actions에서 5개 컴포넌트 전부 재실행.
 2026-09-17 **`v0.2.0` 4채널 배포** — Kotlin 2.1.20 · 매니페스트 3곳 lockstep ·
 태그 push. **태그 하나가 네 채널을 게시한 첫 릴리스**이고 npm OIDC·pub.dev 자동 게시가 여기서 처음
 성공했다. 게시 후 소비자 스모크 4채널 24/24.
+2026-10-29 **최신 릴리스 `v0.2.2` 배포·4채널 검증 완료** — Android CLI·테스트의 `Json` 반복 생성
+경고 4건 제거 + Foojay JDK 조달 저장소 명시. 로컬 전체 CI와 GitHub 게시 사전 검사·태그 릴리스 검증을
+통과했고, Maven Central 공개 반영까지 확인한 뒤 네 채널 게시본을 저장소 밖 프로젝트에서 설치·빌드·
+실행해 **각 6/6, 합계 24/24**를 확인했다. 런타임·공개 API·골든 벡터 계약은 `0.2.1`과 같다.
+SDK XML 경고는 프로젝트 전용 SDK 경로로 해결한 **로컬 환경 설정**이며 AAR 변경이 아니다.
+재현 방법은 `sdks/android/README.md`, 게시·검증 근거는 `HANDOVER.md`의 "SDK 배포 채널" 절.
 남은 것은 실제 앱/외부 환경 의존 항목뿐(아래 "열려 있는 항목" 참조). 전체 지도는 `HANDOVER.md`.
 
 - **코어 스택**: TypeScript/Node ≥ 23.6 (네이티브 타입 스트리핑, 빌드 스텝 없음). 참조 구현·백엔드 모두
@@ -405,8 +411,9 @@ Origin 정책을 보여주고, **admin이면 토큰 발급·폐기까지 이 화
   로컬 패키지로 잡아 `XcodeBuildToolPlugin` 경로로 bake까지 확인(R16·433키). 남은 것은 **위젯 렌더·리소스
   병합**과 **AGP 앱 모듈** 쪽이다(SDK 계층은 완료·검증). Compose `stringResource` 얇은 래퍼는 앱 모듈.
 - ~~**SDK 패키지 게시(6.5)**~~ — **닫혔다. `v0.2.0`(2026-09-17)이 태그 하나로 4채널을 게시한 첫 릴리스다**
-  (npm `@rynl10n/web` · pub.dev `rynl10n` · Maven `com.devryner.rynl10n:android` · SwiftPM 태그, lockstep `0.2.0`).
-  마지막까지 미검증이던 **npm OIDC 인증·pub.dev 자동 게시가 여기서 처음 돌아 성공**했고, 게시 후
+  (npm `@rynl10n/web` · pub.dev `rynl10n` · Maven `com.devryner.rynl10n:android` · SwiftPM 태그).
+  **최신은 `v0.2.2`(2026-10-29), 네 채널 모두 게시·소비자 검증 완료(각 6/6, 총 24/24)**다.
+  마지막까지 미검증이던 **npm OIDC 인증·pub.dev 자동 게시는 `v0.2.0`에서 처음 성공**했고, 게시 후
   `npm run smoke:consumer`로 받는 쪽까지 4채널 24/24 확인했다. npm 게시본에는 **provenance**가 붙는다
   (OIDC 경로의 증거 — 로컬 수동이던 `0.1.0`에는 없다).
   **다음 릴리스 절차는 셋뿐이다**: ① 매니페스트 3곳 버전(`sdks/web/package.json` ·
