@@ -188,6 +188,7 @@ swift run rynl10n-bake --fetch "$API/projects/$PROJECT/releases/$RELEASE/snapsho
 .executableTarget(
     name: "App",
     dependencies: [.product(name: "RynL10n", package: "RynL10n")],
+    exclude: ["rynl10n"], // vendored 입력은 플러그인이 읽는다
     plugins: [.plugin(name: "RynL10nBakePlugin", package: "RynL10n")]   // ← 이 한 줄
 )
 ```

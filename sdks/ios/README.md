@@ -158,6 +158,7 @@ fallback을 주고 싶을 때만 쓰면 된다(선택). 대시보드에 적은 *
 앱 시작 시 한 번. 번들 로드는 동기라 스플래시에서 네트워크를 기다릴 일이 없다.
 
 ```swift
+import Foundation
 import RynL10n
 
 enum L10n {
@@ -171,7 +172,8 @@ enum L10n {
             bundle: bundled,
             store: remote,
             context: .init(appVersion: version),       // 어느 릴리스를 받을지(4.3)
-            locale: RynL10nClient.deviceLocale()       // 그 안에서 어느 언어를 읽을지(3.1)
+            locale: RynL10nClient.deviceLocale(),      // 그 안에서 어느 언어를 읽을지(3.1)
+            telemetry: "off"                          // §4-e를 쓰려면 "aggregate"
         )
     }()
 
@@ -199,6 +201,9 @@ enum L10n {
 > 전부 `⟪key⟫`로 나오므로 **디버그 빌드에서는 크래시시키는 편**이 초기 설정 실수를 빨리 잡는다.
 
 ### 4-b. 조회
+
+SwiftUI 뷰 파일에는 `import SwiftUI`와 `import RynL10n`을 추가한다. 아래 코드는
+`View.body` 안에서 사용하며 `count`는 화면이 가진 `Int` 값이다.
 
 ```swift
 Text(L10n.client.t("home.title"))
@@ -231,17 +236,19 @@ Text(L10n.client.t("home.title", locale: "ja"))               // 로케일 강�
 
 ```swift
 // SwiftUI
-.task { try? await L10n.remote.update(L10n.client) }
+.task { _ = try? await L10n.remote.update(L10n.client) }
 .onReceive(NotificationCenter.default.publisher(
     for: UIApplication.willEnterForegroundNotification)) { _ in
-    Task { try? await L10n.remote.update(L10n.client) }
+    Task { _ = try? await L10n.remote.update(L10n.client) }
 }
 ```
 
 ```swift
 // UIKit — AppDelegate
+import UIKit
+
 func applicationDidBecomeActive(_ application: UIApplication) {
-    Task { try? await L10n.remote.update(L10n.client) }
+    Task { _ = try? await L10n.remote.update(L10n.client) }
 }
 ```
 
@@ -260,6 +267,9 @@ L10n.remote.startPolling(L10n.client, interval: 60)   // 기본 60초
 
 배터리·트래픽 관리는 **앱이 정한다** — SDK가 생명주기를 가로채지 않는다. 백그라운드 전환 때 끄고
 복귀할 때 켜는 것이 기본 패턴이다:
+
+SwiftUI 뷰에 `@Environment(\.scenePhase) private var scenePhase`를 선언하고,
+`body` 안의 뷰에 아래 modifier를 연결한다.
 
 ```swift
 // iOS 15·16도 받는 한 인자 형태. iOS 17+만 지원한다면 `{ _, phase in }` 형태를 써도 된다.
@@ -294,6 +304,9 @@ push.start(updating: L10n.client, via: L10n.remote)        // 신호 → 즉시 
 `RynL10nObservable`이 카탈로그 갱신 때 `version`을 올려 뷰를 다시 그린다.
 
 ```swift
+import SwiftUI
+import RynL10n
+
 @main
 struct MyApp: App {
     @StateObject private var l10n = RynL10nObservable(client: L10n.client)
@@ -302,7 +315,7 @@ struct MyApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(l10n)
-                .task { try? await L10n.remote.update(L10n.client) }
+                .task { _ = try? await L10n.remote.update(L10n.client) }
         }
     }
 }
@@ -323,19 +336,19 @@ struct ContentView: View {
 
 대시보드 **관측성** 탭과 `releases/{r}/health`(카나리 판정의 입력)를 채우는 익명 집계다.
 두 번 옵트인해야 한다 — **수집**(클라이언트 옵션)과 **전송**(리포터 객체 생성).
+§4-a의 `telemetry: "off"`를 `telemetry: "aggregate"`로 바꾼 뒤,
+앱이 아래 `reporter`를 보관한다. 화면과 같은 `L10n.client`를 사용한다.
 
 ```swift
-let client = RynL10nClient(
-    bundle: bundled, store: remote, context: .init(appVersion: version),
-    telemetry: "aggregate"                                  // ① 수집 켜기(기본 "off")
-)
+import Foundation
+import RynL10n
 
 let reporter = TelemetryReporter(
     endpoint: URL(string: "https://admin.example.com")!,    // 관리 플레인(업로드 경로)
     project: "myapp"
 )
-reporter.start(client, every: 300)                          // ② 5분마다 전송
-// 백그라운드 전환처럼 확실히 올리고 싶은 시점: await reporter.flush(client)
+reporter.start(L10n.client, every: 300)                     // ② 5분마다 전송
+// 백그라운드 전환처럼 확실히 올리고 싶은 시점: await reporter.flush(L10n.client)
 ```
 
 올라가는 것은 서버가 정의한 **5개 필드가 전부**다(`projectId`·`releaseId`·`event`·`count`·

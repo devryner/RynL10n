@@ -44,24 +44,22 @@ cd ../RynL10n/sdks/web && npm run build:publish   # 코어를 고칠 때마다 �
 
 ## 사용
 
+번들러 프로젝트의 `config.ts`에 공통 설정을 둔다. TypeScript는 `resolveJsonModule: true`와
+DOM 타입을 사용한다. `snapshot.json`은 아래 번들 로더 절의 bake 산출물이다.
+
 ```ts
-import { HttpRynL10n, BakedBundle } from "@rynl10n/web";
+import { BakedBundle, type WebConfig } from "@rynl10n/web";
 import raw from "./rynl10n/snapshot.json"; // 빌드타임 bake된 번들(fallback)
 
-const sdk = new HttpRynL10n({
+export const cfg: WebConfig = {
   projectKey: "shop",
   endpoint: "https://cdn.example.com",   // 배포 플레인(정적) — 관리 API 아님
   bundle: BakedBundle.parse(raw),        // import 값 검증(아래 "번들 로더")
   context: { appVersion: "3.2.1" },      // 어느 릴리스를 받을지(4.3) — 또는 releaseLabel / buildNumber
   // locale: "ko-KR",                    // 그 안에서 어느 언어를 읽을지(3.1). 기본값 = navigator.language
   installId: installId(),                // 카나리 버킷용 — 없으면 rollout<100 릴리스를 받지 않는다
-});
-sdk.start();                              // 포그라운드 폴링(ETag 조건부, 기본 60초 = pollIntervalMs)
-sdk.onCatalogUpdated(() => rerender());
-sdk.t("cart.title");                       // 동기 — 항상 번들 fallback
-```
+};
 
-```ts
 // 기기(브라우저) 로컬 익명 id — 처음 한 번 만들어 저장해 두고 계속 쓴다. 서버로는 보내지 않는다.
 function installId(): string | undefined {
   try {
@@ -70,6 +68,23 @@ function installId(): string | undefined {
     return id;
   } catch { return undefined; } // 저장소를 못 쓰는 환경 → 카나리 미참여(rollout 100 릴리스는 그대로 받음)
 }
+```
+
+`l10n.ts`에서 초기 렌더와 갱신을 연결한다. HTML에는 `<span id="cart-title"></span>`을 둔다.
+
+```ts
+import { HttpRynL10n } from "@rynl10n/web";
+import { cfg } from "./config";
+
+const sdk = new HttpRynL10n(cfg);
+function rerender() {
+  const title = document.getElementById("cart-title");
+  if (title) title.textContent = sdk.t("cart.title"); // 동기 — 항상 번들 fallback
+}
+sdk.onCatalogUpdated(rerender);
+rerender();
+sdk.start(); // 포그라운드 폴링(ETag 조건부, 기본 60초 = pollIntervalMs)
+// 화면을 해제할 때 sdk.stop()
 ```
 
 > **`installId`가 없으면 카나리(rollout 100% 미만) 릴리스의 오버레이를 하나도 받지 않는다**(번들로 남고
@@ -100,9 +115,14 @@ import해도 런타임 깊은 곳이 아니라 여기서 안내 메시지와 함
 
 ```ts
 import { BakedBundle } from "@rynl10n/web";
+import raw from "./rynl10n/snapshot.json";
 
 // 번들러 import (권장 — 네트워크 왕복 0)
 const bundle = BakedBundle.parse(raw);
+```
+
+```ts
+import { BakedBundle } from "@rynl10n/web";
 
 // 정적 자산에서 fetch (vendored 배치·번들러 없는 환경)
 const bundle = await BakedBundle.load("/assets");     // rynl10n/snapshot.json → snapshot.json 순
@@ -115,8 +135,11 @@ const lock = await BakedBundle.loadLockfile("/assets"); // 어느 릴리스가 �
 탭을 새로 열거나 오프라인으로 다시 들어와도 마지막 카탈로그가 그대로 살아 있다.
 
 ```ts
-new HttpRynL10n({ ...cfg });                       // 기본: localStorage(브라우저) / 메모리(SSR·Node)
-new HttpRynL10n({ ...cfg, cache: memoryCache() }); // 직접 지정
+import { HttpRynL10n, memoryCache } from "@rynl10n/web";
+import { cfg } from "./config";
+
+// new HttpRynL10n(cfg)는 기본 캐시: localStorage(브라우저) / 메모리(SSR·Node)
+const sdk = new HttpRynL10n({ ...cfg, cache: memoryCache() }); // 직접 지정
 sdk.clearCache();                                   // 로그아웃·프로젝트 전환
 ```
 
@@ -143,8 +166,12 @@ sdk.clearCache();                                   // 로그아웃·프로젝�
 ### 실시간 푸시 (옵트인, M4)
 
 ```ts
+import { HttpRynL10n } from "@rynl10n/web";
+import { cfg } from "./config";
+
 const sdk = new HttpRynL10n({ ...cfg, pushEndpoint: "https://api.example.com" });
-sdk.connectServerPush(() => rerender());  // SSE 'manifest' 신호 → 즉시 refresh(폴링 지연 0)
+sdk.start(); // 폴링을 함께 켠다. 화면 갱신은 위 l10n.ts처럼 onCatalogUpdated로 연결한다.
+void sdk.connectServerPush(); // SSE 'manifest' 신호 → 즉시 refresh
 ```
 신호는 캐시 무효화용일 뿐(번역 데이터 없음) — 데이터는 여전히 배포 플레인에서 fetch.
 **푸시는 스스로 재연결하지도, 폴링을 켜지도 않는다** — 연결에 실패하거나 스트림이 끊기면 그냥 끝난다.
@@ -158,6 +185,9 @@ sdk.connectServerPush(() => rerender());  // SSE 'manifest' 신호 → 즉시 re
 **수집**(`telemetry: "aggregate"`)과 **전송**(`telemetryEndpoint`). 하나라도 없으면 아무것도 나가지 않는다.
 
 ```ts
+import { HttpRynL10n } from "@rynl10n/web";
+import { cfg } from "./config";
+
 const sdk = new HttpRynL10n({
   ...cfg,
   telemetry: "aggregate",                       // ① 수집(기본 off)
@@ -185,8 +215,9 @@ document.addEventListener("visibilitychange", () => {
 ```tsx
 import { useSyncExternalStore } from "react";
 import { createStore } from "@rynl10n/web";
+import { cfg } from "./config";
 
-const store = createStore({ projectKey: "shop", endpoint, bundle, context: { appVersion } });
+const store = createStore(cfg);
 store.start();
 
 export function useTranslation() {
@@ -194,6 +225,7 @@ export function useTranslation() {
   return store.t;
 }
 // const t = useTranslation(); t("cart.title")
+// 앱을 해제할 때 store.stop()
 ```
 
 ## i18next 마이그레이션

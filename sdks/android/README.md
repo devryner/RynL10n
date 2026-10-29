@@ -142,6 +142,9 @@ cd /tmp/rynl10n/sdks/android
 기다릴 일이 없다.
 
 ```kotlin
+import android.app.Application
+import com.rynl10n.RynL10n
+
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
@@ -152,6 +155,16 @@ class App : Application() {
         )
     }
 }
+```
+
+`AndroidManifest.xml`의 기존 `<application>`에 `android:name=".App"`을 설정하고,
+원격 갱신을 쓴다면 인터넷 권한도 선언한다(`App`은 앱 패키지에 둔다):
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:name=".App" />
+</manifest>
 ```
 
 `appVersion`은 기본적으로 `PackageInfo.versionName`, `buildNumber`는 `longVersionCode`(`Int`로 변환,
@@ -177,6 +190,10 @@ API 28 미만은 `versionCode`)를 쓴다. 릴리스 매칭을 다른 값으로 
 ### 4-b. 조회
 
 ```kotlin
+import com.rynl10n.RynL10n
+import com.rynl10n.rynl10n
+
+// Activity/Fragment의 화면 갱신 함수 안. textView·context·count는 화면의 값이다.
 textView.text = RynL10n.t("home.title")
 textView.text = RynL10n.t("cart.items", mapOf("n" to count))   // CLDR 복수형
 textView.text = RynL10n.t("home.title", locale = "ja")         // 로케일 강제
@@ -191,10 +208,18 @@ textView.text = context.rynl10n("home.title")
 ### 4-c. Compose
 
 ```kotlin
-Text(rynl10nString("home.title"))
-Text(rynl10nString("cart.items", mapOf("n" to count)))
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import com.rynl10n.rynl10nString
+
+@Composable
+fun CatalogText(count: Int) {
+    Text(rynl10nString("home.title"))
+    Text(rynl10nString("cart.items", mapOf("n" to count)))
+}
 ```
 
+앱에는 Compose 설정과 `androidx.compose.material3:material3` 의존성이 필요하다.
 원격 갱신이 적용되면 `RynL10nState.version`이 올라가고, 이를 구독한 컴포저블만 재구성된다.
 직접 구독하려면 `RynL10n.state.version.collectAsState()`를 쓴다.
 
@@ -204,8 +229,15 @@ Text(rynl10nString("cart.items", mapOf("n" to count)))
 필요한 산출물만 다운로드 → 원자적 스왑. 이미 가진 산출물은 다시 받지 않는다(내용해시 URL = 영구 캐시).
 
 기본 시점은 **앱 시작 직후**와 **포그라운드 복귀**다.
+아래는 앱의 기존 Activity에 넣는 코드다. 앱에는 `androidx.activity:activity-ktx`와
+`androidx.lifecycle:lifecycle-runtime-ktx` 의존성이 필요하다.
 
 ```kotlin
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
+import com.rynl10n.RynL10n
+import kotlinx.coroutines.launch
+
 class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
@@ -228,7 +260,13 @@ class MainActivity : ComponentActivity() {
 의존성을 추가한다.
 
 ```kotlin
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
+import com.rynl10n.RynL10n
+
 // ProcessLifecycleOwner 관찰자 — 배터리·트래픽은 앱이 정한다(SDK가 생명주기를 가로채지 않는다).
+// Application.onCreate에서 configure() 뒤에 등록한다.
 ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
     override fun onStart(owner: LifecycleOwner) = RynL10n.startPolling()      // 기본 60초
     override fun onStop(owner: LifecycleOwner) = RynL10n.stopPolling()
@@ -259,7 +297,8 @@ RynL10n.connectServerPush("https://admin.example.com")  // 알림(관리) 플레
 두 번 옵트인해야 한다 — **수집**(`configure(telemetry = "aggregate")`)과 **전송**(`startTelemetry`).
 
 ```kotlin
-RynL10n.configure(this, project = "myapp", endpoint = CDN, telemetry = "aggregate")  // ① 수집
+// Application.onCreate 안. §4-a의 configure 호출에 telemetry 옵션을 더한다.
+RynL10n.configure(this, project = "myapp", endpoint = "https://cdn.example.com", telemetry = "aggregate")  // ① 수집
 RynL10n.startTelemetry("https://admin.example.com")                                  // ② 5분마다 전송
 // 백그라운드 전환처럼 확실히 올리고 싶은 시점: lifecycleScope.launch { RynL10n.flushTelemetry() }
 ```
@@ -294,7 +333,7 @@ RynL10n.startTelemetry("https://admin.example.com")                             
 | 모든 값이 `⟪key⟫` | 번들이 비었음 | 빌드 로그에 `[rynl10n] bake 완료`가 있는지, `assets/rynl10n/snapshot.json` 존재 여부 |
 | `BakedException` | bake 태스크 미연결 / 출력이 assets 밖 | `-Pout=<앱 모듈>/src/main/assets -PstableName=true` 인지 |
 | 번들 값만 나오고 원격이 안 붙음 | 앱 버전이 릴리스 범위 밖 | `RynL10n.client.status().selection`이 `bundle-only`면 그것. manifest의 `versionMatch` 확인 |
-| 특정 키만 옛 값 | 포맷 안전 가드 | 오버레이의 플레이스홀더 서명이 번들과 다르면 그 키만 번들로 fallback(크래시 방지). 서버에서 키 `placeholders` 확인 |
+| 특정 키만 옛 값 | 포맷 안전 가드 | 오버레이의 플레이스홀더 서명이 번들과 다르면 그 키만 번들로 fallback(크래시 방지). 서버에서 키 `signature` 확인 |
 | `DeliveryException.BadStatus(404)` | 배포 플레인 경로/프로젝트 ID 불일치 | `curl $CDN/{project}/manifest.json` |
 | 값이 안 바뀜 (서버는 바뀜) | manifest ETag 캐시 | manifest는 짧은 TTL. 즉시 확인하려면 `RynL10n.store?.clearCache()` |
 | Compose에서 `NoClassDefFoundError` | Compose 없는 앱이 `rynl10nString` 호출 | Compose 어댑터는 `compileOnly` — Compose를 쓰지 않으면 `RynL10n.t`를 쓴다 |

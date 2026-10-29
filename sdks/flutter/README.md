@@ -26,19 +26,27 @@ dependencies:
 
 ## 사용
 
+아래는 Flutter 위젯에서 쓰는 예제다. 순수 Dart 실행 예제는
+[`example/example.dart`](example/example.dart)를 본다.
+
 ```dart
-import 'dart:convert';
+import 'package:flutter/widgets.dart';
 import 'package:rynl10n/rynl10n.dart';
 
-final client = RynL10nClient(
-  bundle: Snapshot.fromJson(jsonDecode(bakedSnapshotJson)), // 빌드타임 bake된 fallback(실제로는 아래 parseBakedSnapshot)
-  store: myDeliveryStore,                                   // 배포 플레인(정적) 접근 — 아래 "앱 적용 경로"
-  context: ClientContext(appVersion: '3.2.1'),             // 어느 릴리스를 받을지(4.3)
-  locale: Localizations.localeOf(context).toLanguageTag(), // 그 안에서 어느 언어를 읽을지(3.1)
-  installId: localInstallId,                                // 카나리 버킷용 — 없으면 rollout<100 릴리스를 받지 않는다
-);
-client.refresh(manifest);                                  // manifest는 보통 RemoteDeliveryStore.update()가 넘긴다
-final s = client.t('cart.title', locale: 'ja');            // 동기 — 항상 번들 fallback
+// Localizations가 있는 위젯 트리 안에서 한 번 만들어 보관한다.
+RynL10nClient createClient(BuildContext context, String bakedSnapshotJson,
+    DeliveryStore store, {String? installId}) {
+  return RynL10nClient(
+    bundle: parseBakedSnapshot(bakedSnapshotJson), // 빌드타임 bake된 fallback 검증
+    store: store,                                // 아래 RemoteDeliveryStore
+    context: ClientContext(appVersion: '3.2.1'),  // 어느 릴리스를 받을지(4.3)
+    locale: Localizations.localeOf(context).toLanguageTag(), // 어느 언어를 읽을지(3.1)
+    installId: installId,                        // 없으면 카나리 미참여
+  );
+}
+
+// 조회는 동기다. 위에서 만든 client를 화면에 넘겨 사용한다.
+Widget cartTitle(RynL10nClient client) => Text(client.t('cart.title', locale: 'ja'));
 ```
 
 - **로케일 축은 매칭 축과 별개다**: `context`는 어느 릴리스를 받을지(4.3), `locale`은 그 안에서 어느
@@ -77,27 +85,36 @@ flutter:
 
 ```dart
 import 'dart:async';                         // unawaited
+import 'package:flutter/services.dart';     // rootBundle
+import 'package:path_provider/path_provider.dart';
 import 'package:rynl10n/rynl10n.dart';
 import 'package:rynl10n/rynl10n_io.dart';   // dart:io 기본 어댑터
 
-// ① 번들 로더 — Flutter 자산은 문자열로 온다
-final bundle = parseBakedSnapshot(
-  await rootBundle.loadString('assets/rynl10n/snapshot.json'),
-  source: 'assets/rynl10n/snapshot.json',
-);
+Future<RynL10nClient> loadClient({required String locale, String telemetry = 'off'}) async {
+  // ① 번들 로더 — Flutter 자산은 문자열로 온다
+  final bundle = parseBakedSnapshot(
+    await rootBundle.loadString('assets/rynl10n/snapshot.json'),
+    source: 'assets/rynl10n/snapshot.json',
+  );
 
-// ② 배포 플레인 HTTP — manifest(ETag) → 릴리스 자가 선택 → 필요한 산출물만 → 원자적 스왑
-final store = RemoteDeliveryStore(
-  baseUrl: 'https://cdn.example.com',       // 배포 플레인(정적) — 관리 API 아님
-  project: 'shop',
-  fetch: ioDeliveryFetch(),
-  cache: FileArtifactCache(await getApplicationCacheDirectory(), project: 'shop'),
-);
-final client = RynL10nClient(bundle: bundle, store: store, context: ClientContext(appVersion: '3.2.1'));
-// 앱 시작 직후·포그라운드 복귀에 호출. 캐시가 없는 첫 실행이 오프라인이면 DeliveryException을
-// 던지므로 삼킨다(화면은 번들로 그대로 뜬다). runApp 전에 await하지 않는다.
-unawaited(store.update(client).catchError((_) => false));
+  // ② 배포 플레인 HTTP — manifest → 릴리스 선택 → 다운로드 → 원자적 스왑
+  final store = RemoteDeliveryStore(
+    baseUrl: 'https://cdn.example.com',   // 배포 플레인(정적) — 관리 API 아님
+    project: 'shop',
+    fetch: ioDeliveryFetch(),
+    cache: FileArtifactCache(await getApplicationCacheDirectory(), project: 'shop'),
+  );
+  final client = RynL10nClient(bundle: bundle, store: store,
+      context: ClientContext(appVersion: '3.2.1'), locale: locale, telemetry: telemetry);
+  // 첫 실행이 오프라인이어도 번들로 표시한다. 원격 갱신 완료를 기다리지 않는다.
+  unawaited(store.update(client).catchError((_) => false));
+  return client;
+}
 ```
+
+앱에 `flutter pub add path_provider`로 캐시 경로 의존성을 추가한다. `loadClient`는 위젯에서
+`Localizations.localeOf(context).toLanguageTag()`를 넘겨 한 번 호출하고 결과를 보관한다.
+`runApp` 전에 호출한다면 먼저 `WidgetsFlutterBinding.ensureInitialized()`로 자산·플러그인을 초기화한다.
 
 - **동기 조회 / 비동기 다운로드 분리**: `DeliveryStore`는 동기 인터페이스라 화면이 네트워크를 기다리지
   않는다. `update()`가 산출물을 먼저 캐시에 채운 뒤 동기 코어를 호출한다.
@@ -149,6 +166,8 @@ final store = RemoteDeliveryStore(
 ### 갱신 자동화 — 폴링 · 실시간 푸시 (옵트인)
 
 `update()`를 앱이 직접 부르는 것 외에, 켜 두면 알아서 따라오는 두 갈래가 있다.
+아래는 `rynl10n.dart`·`rynl10n_io.dart`를 import한 파일에서, 위 초기화 함수 안의
+`store`·`client`를 사용하는 코드다. 앱이 `push`를 보관해 생명주기에 맞춰 중단한다.
 
 ```dart
 // ① 주기 폴링(기본 60초) — 갱신의 보장선. 배터리·트래픽은 앱이 정한다.
@@ -178,6 +197,8 @@ push.startUpdating(client, store);         // 신호 → store.update(client)
 
 대시보드 **관측성** 탭과 `releases/{r}/health`(카나리 판정의 입력)를 채우는 익명 집계다.
 두 번 옵트인해야 한다 — **수집**(`RynL10nClient(telemetry: 'aggregate')`)과 **전송**(리포터 생성).
+위 `loadClient`에서는 `telemetry: 'aggregate'`를 넘긴다. 아래는 같은 초기화 범위에서
+`client`를 사용하는 코드이며 `reporter`도 앱이 보관한다.
 
 ```dart
 final reporter = TelemetryReporter(
