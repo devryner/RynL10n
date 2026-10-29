@@ -36,7 +36,8 @@ sdk.dir=/path/to/project-android-sdk
 
 ## 1. 서버에 프로젝트 만들기
 
-서버를 아직 안 띄웠다면 `docker compose up`(또는 `npm run backend`). 대시보드는
+서버를 아직 안 띄웠다면 로컬 예제 토큰으로 `RYNL10N_ADMIN_TOKEN=dev-admin-token docker compose up`
+(또는 `npm run backend`). 대시보드는
 <http://localhost:8787>, 배포 플레인은 <http://localhost:8788>.
 
 절차는 플랫폼과 무관하므로 [iOS 가이드 §1](../ios/README.md#1-서버에-프로젝트-만들기)의 curl 예제를

@@ -40,7 +40,7 @@ SDK XML 경고는 프로젝트 전용 SDK 경로로 해결한 **로컬 환경 �
   - `npm run gen:golden` — 골든 벡터 재생성 → `fixtures/golden/*.json`
   - `npm run backend` / `npm run test:backend` / `npm run typecheck:backend` — 관리 백엔드
   - `npm run mcp:stdio` / `npm run test:mcp-stdio` / `npm run typecheck:mcp-stdio` — 앱 개발자용 stdio MCP 서버
-  - `swift test` (`sdks/ios`, Swift 6) · `./gradlew test` (`sdks/android`, Gradle 8.11 래퍼/JDK 21 고정) ·
+  - `swift test` (저장소 루트 `Package.swift`, Swift 6) · `./gradlew test` (`sdks/android`, Gradle 8.11 래퍼/JDK 21 고정) ·
     `node --test "test/*.test.ts"` (`sdks/web`) · `dart pub get && dart test` (`sdks/flutter`, Dart 3.5+)
   - `docker compose up` — 단일 노드 셀프호스트 (관리 API :8787 + 배포 플레인 :8788)
   - `./tools/ci-local.sh [reference|web|ios|android|flutter]` — **로컬 CI**. 2026-09-10 부터 `ci.yml` 은
@@ -189,7 +189,7 @@ fetch해 `.xcstrings` `comment` · `strings.xml` XML 주석 · `.arb` `@key.desc
 Web JSON은 표준 주석 자리가 없어 생략. 변환기(TS·Swift·Kotlin)는 descriptions를 **선택 인자**로 받아
 생략 시 기존 산출물과 바이트 동일하며, 주입 시 출력은 골든 벡터(`convert.json`)로 3개 언어가 정합 검증된다.
 XML 주석은 `--`를 지우지 않고 하이픈 사이 공백으로 보존(XML 1.0 §2.5, 조용한 손실 금지).
-CLI: `rynl10n-bake --descriptions <path|url> --emit-native` (읽기 실패 시 주석 없이 계속).
+CLI(저장소 루트): `swift run rynl10n-bake <snapshot.json> <out-dir> --descriptions <path|url> --emit-native` (읽기 실패 시 주석 없이 계속).
 이 라우트는 `signature`·`isPlural`을 **명시한 경우에만** 갱신한다 — 설명만 고칠 때 서명이 지워져 포맷 가드(3.1)가
 무력화되면 안 되기 때문. DB 스키마 변경은 `backend/src/db/schema.ts`의 `MIGRATIONS`에 idempotent ALTER로 추가.
 

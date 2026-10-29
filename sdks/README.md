@@ -52,7 +52,7 @@ M0 TS 참조 구현이 정규화·해시·resolve·매칭·포맷·라우팅의 
 - **배포 플레인 접근**: `RemoteDeliveryStore(baseURL:project:)` — manifest(ETag·짧은 TTL) + 산출물(내용해시·영구 캐시)을
   HTTP로 받아 디스크에 캐싱한다. `update(_:)` 한 번이 조회→선택→다운로드→원자적 스왑 전체를 처리하며,
   오프라인이면 마지막 캐시로 진행한다. 동기 프로토콜(`DeliveryStore`) 조회는 **캐시만** 본다(네트워크 대기 없음).
-- 빌드·테스트: `cd sdks/ios && swift test` (51개: 골든 9 + 원격 배포 12 + 폴링·푸시·텔레메트리 10 + **로케일 축 5** + 시나리오 A/B/C·충돌 검사 4 + M4 5 + 변환 3 + bake 2 + 반응형 1).
+- 빌드·테스트: 저장소 루트에서 `swift test` (51개: 골든 9 + 원격 배포 12 + 폴링·푸시·텔레메트리 10 + **로케일 축 5** + 시나리오 A/B/C·충돌 검사 4 + M4 5 + 변환 3 + bake 2 + 반응형 1).
 
 ```swift
 let client = RynL10nClient(bundle: bakedSnapshot, store: cdnStore,
@@ -139,16 +139,39 @@ resolve가 그대로 읽는 번들). bake 코어가 ① 기본 로케일 100% �
 bake 코어(`Bake.swift`/`Bake.kt`)도 골든 벡터(`fixtures/golden/bake.json`)로 참조 구현과 정합. 실제로
 **iOS·Android CLI가 같은 스냅샷에서 바이트 단위로 동일한 번들+lockfile을 방출**한다(크로스플랫폼 결정성 검증).
 
+다음 예제는 저장소 루트에서 실행한다. `SNAPSHOT`은 저장소에 포함된 입력 예제이고,
+`OUT`은 임시 출력 디렉터리다. 앱에 적용할 때는 둘 다 앱의 실제 절대 경로로 바꾼다.
+
 ```bash
-# vendored/에어갭 — 커밋된 스냅샷 파일 입력
-cd sdks/ios && swift run rynl10n-bake <snapshot.json> <out-dir> [--strict] [--emit-native]
-cd sdks/android && gradle rynl10nBake -Psource=<snapshot.json> -Pout=<out-dir>
+SNAPSHOT="$PWD/examples/ios-consumer/Sources/Consumer/rynl10n/release-snapshot.json"
+OUT="$(mktemp -d)"
 
-# 서버 fetch(6.3) — 현재 릴리스 스냅샷을 받아 캐시에 저장, 실패 시 마지막 캐시로 진행
-swift run rynl10n-bake --fetch <api>/projects/{p}/releases/{r}/snapshot --token <t> --cache <p> <out-dir>
-gradle rynl10nBake -Pfetch=<url> -Ptoken=<t> -Pcache=<p> -Pout=<out-dir>
+# vendored/에어갭 — strict 검증과 네이티브 포맷 방출
+swift run rynl10n-bake "$SNAPSHOT" "$OUT/ios" --strict --emit-native
+(
+  cd sdks/android
+  ./gradlew rynl10nBake -Psource="$SNAPSHOT" -Pout="$OUT/android" -Pstrict=true -PemitNative=true
+)
 
-# 산출: <out-dir>/rynl10n/snapshot-<base>.json + <out-dir>/rynl10n/rynl10n.lock
+# 산출: $OUT/{ios,android}/rynl10n/snapshot-<base>.json + rynl10n.lock
+```
+
+서버 fetch는 `API`·`PROJECT`·`RELEASE`·`TOKEN`을 실제 관리 API와 릴리스에 맞춘 뒤 실행한다.
+아래도 저장소 루트 기준이며, 위에서 만든 `OUT`을 사용한다.
+
+```bash
+API=http://localhost:8787
+PROJECT=myapp
+RELEASE=R1
+TOKEN=dev-admin-token
+
+swift run rynl10n-bake --fetch "$API/projects/$PROJECT/releases/$RELEASE/snapshot" \
+  --token "$TOKEN" --cache "$OUT/ios-cache.json" "$OUT/ios"
+(
+  cd sdks/android
+  ./gradlew rynl10nBake -Pfetch="$API/projects/$PROJECT/releases/$RELEASE/snapshot" \
+    -Ptoken="$TOKEN" -Pcache="$OUT/android-cache.json" -Pout="$OUT/android"
+)
 ```
 
 > **fetch·캐시 fallback(6.3)**: `--fetch`는 관리 API의 릴리스 스냅샷 엔드포인트(`GET /projects/{p}/releases/{r}/snapshot`,
@@ -194,7 +217,7 @@ gradle rynl10nBake -Pfetch=<url> -Ptoken=<t> -Pcache=<p> -Pout=<out-dir>
 
 변환기(`Convert.swift`/`Convert.kt`)도 골든 벡터(`fixtures/golden/convert.json`)로 참조 구현과 정합
 (Android는 strings.xml 정확 문자열, iOS는 .xcstrings 구조). `swift run rynl10n-bake ... --emit-native`,
-`gradle rynl10nBake ... -PemitNative=true`로 실제 네이티브 파일 방출.
+`./gradlew rynl10nBake ... -PemitNative=true`(`sdks/android`에서 실행)로 실제 네이티브 파일 방출.
 
 ## 코어 파리티 (4개 언어)
 

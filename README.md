@@ -56,7 +56,8 @@ onCatalogUpdated(listener)   // 원격 갱신 알림
 ### 1. 서버 실행 (셀프호스트)
 
 ```bash
-docker compose up   # 대시보드 + 관리 API :8787 · 배포 플레인 :8788
+# 아래 API 예제와 같은 로컬 평가용 토큰으로 실행
+RYNL10N_ADMIN_TOKEN=dev-admin-token docker compose up   # 관리 :8787 · 배포 :8788
 ```
 
 브라우저로 <http://localhost:8787> 을 열면 대시보드가 뜹니다. 관리 API 토큰으로 로그인하고
@@ -78,8 +79,15 @@ lockfile에 기록해 CI 재현성을 보장합니다. 서버에 접근할 수 �
 전달되므로(런타임 페이로드·콘텐츠 해시 불변) 없으면 주석 없이 빌드가 계속됩니다.
 Web JSON은 주석을 담을 표준 자리가 없어 생략합니다.
 
+아래 CLI 예제는 RynL10n 저장소 루트에서 실행합니다. `myapp` 프로젝트와 `R1` 릴리스는
+대시보드나 아래 API 워크플로로 먼저 만듭니다. 앱의 CI에서는 [iOS 가이드](sdks/ios/README.md)의
+별도 SDK 체크아웃 방법이나 [Android 가이드](sdks/android/README.md)의 Gradle 태스크를 사용합니다.
+
 ```bash
-rynl10n-bake --fetch "$API/projects/myapp/releases/R1/snapshot" --token "$TOKEN" \
+API=http://localhost:8787
+TOKEN=dev-admin-token
+swift run rynl10n-bake --fetch "$API/projects/myapp/releases/R1/snapshot" --token "$TOKEN" \
+  --cache .rynl10n-cache.json \
   --descriptions "$API/projects/myapp/releases/R1/descriptions" \
   --emit-native ./Generated
 ```
@@ -118,63 +126,66 @@ rynl10n-bake --fetch "$API/projects/myapp/releases/R1/snapshot" --token "$TOKEN"
 
 ## 빠른 시작: API 워크플로
 
-서버가 떠 있다면 curl만으로 번역 등록부터 OTA 배포까지 전 사이클을 돌릴 수 있습니다.
+서버가 떠 있다면 curl로 번역 등록부터 OTA 배포까지 진행할 수 있습니다.
+아래 스냅샷 URL 추출 예제는 Node.js로 manifest JSON을 읽습니다.
 관리 API(`:8787`)는 Bearer 토큰 인증이 필요합니다 — `npm run backend` 기본값은
 `dev-admin-token`, Docker는 `RYNL10N_ADMIN_TOKEN` 환경 변수로 주입합니다(운영 시 반드시 교체).
 
 ```bash
 API=http://localhost:8787
 CDN=http://localhost:8788
-AUTH='Authorization: Bearer dev-admin-token'
+TOKEN=dev-admin-token
+AUTH="Authorization: Bearer $TOKEN"
 JSON='content-type: application/json'
 
 # 1. 프로젝트 생성 — 지원 로케일은 반드시 생성 시 locales 배열로 등록
 #    (등록되지 않은 로케일의 번역은 산출물에서 제외됩니다)
-curl -X POST $API/projects -H "$AUTH" -H "$JSON" \
+curl -fsS -X POST "$API/projects" -H "$AUTH" -H "$JSON" \
   -d '{"id":"myapp","name":"My App","defaultLocale":"en","locales":["en","ko"]}'
 
 # 2. 키 등록 — namespace.key 형식, 플레이스홀더 서명 포함
-curl -X PUT $API/projects/myapp/keys/home.greeting -H "$AUTH" -H "$JSON" \
-  -d '{"placeholders":["name"]}'
+curl -fsS -X PUT "$API/projects/myapp/keys/home.greeting" -H "$AUTH" -H "$JSON" \
+  -d '{"signature":"name:simple"}'
 
 # 3. 번역 입력 (로케일별)
-curl -X PUT $API/projects/myapp/translations/home.greeting/en -H "$AUTH" -H "$JSON" \
+curl -fsS -X PUT "$API/projects/myapp/translations/home.greeting/en" -H "$AUTH" -H "$JSON" \
   -d '{"value":"Hello, {name}!"}'
-curl -X PUT $API/projects/myapp/translations/home.greeting/ko -H "$AUTH" -H "$JSON" \
+curl -fsS -X PUT "$API/projects/myapp/translations/home.greeting/ko" -H "$AUTH" -H "$JSON" \
   -d '{"value":"안녕하세요, {name}님!"}'
 
 # 번역 JSON 일괄 입력 — 기존 (키, 로케일)은 갱신, 나머지는 유지
-curl -X POST $API/projects/myapp/translations/import -H "$AUTH" -H "$JSON" \
+curl -fsS -X POST "$API/projects/myapp/translations/import" -H "$AUTH" -H "$JSON" \
   -d '{"keys":[{"name":"home.title","description":"홈 화면 제목","translations":[{"locale":"en","value":"Home","state":"reviewed"},{"locale":"ko","value":"홈"}]}]}'
 
 # 4. 릴리스 생성 — 앱 버전 범위 매핑
 #    전략 3종: semver-range(명시적 하한·상한 필수) · integer-range(빌드넘버) · exact-label
 #    값이 그 전략의 문법이 아니면 이 시점에 400 — publish까지 갔다가 실패하지 않습니다.
-curl -X POST $API/projects/myapp/releases -H "$AUTH" -H "$JSON" \
+curl -fsS -X POST "$API/projects/myapp/releases" -H "$AUTH" -H "$JSON" \
   -d '{"name":"1.x","versionMatch":{"strategy":"semver-range","value":">=1.0.0 <2.0.0"},"keys":["home.greeting"]}'
 # → {"id":"R1","state":"draft"}
 
 # 5. publish — 스냅샷·manifest 생성 + 배포 플레인 게시 (202 + jobId)
 #    나갈 번역이 하나도 없으면 쓰기 전에 422(empty_release) — 빈 스냅샷을 게시하면
 #    그 버전대 앱의 번역이 전부 사라지기 때문입니다. 릴리스는 draft로 남습니다.
-curl -X POST $API/projects/myapp/releases/R1/publish -H "$AUTH"
+curl -fsS -X POST "$API/projects/myapp/releases/R1/publish" -H "$AUTH"
 
 # 6. 배포 플레인에서 확인 — SDK가 읽는 경로 그대로 (정적 파일, 인증 없음)
-curl $CDN/myapp/manifest.json
-curl $CDN/myapp/releases/R1/snapshot-<manifest의 base 해시>.json
+curl -fsS "$CDN/myapp/manifest.json"
+SNAPSHOT=$(curl -fsS "$CDN/myapp/manifest.json" | node -p 'JSON.parse(require("node:fs").readFileSync(0,"utf8")).releases.find(r => r.id === "R1").snapshot')
+curl -fsS "$CDN/myapp/$SNAPSHOT"
 
 # 7. OTA 수정 — 번역을 고쳐 재게시하면 변경분만 담긴 델타가 생성되고
 #    manifest의 overlay 포인터가 새 해시로 이동합니다 (앱 업데이트 불필요)
-curl -X PUT $API/projects/myapp/translations/home.greeting/ko -H "$AUTH" -H "$JSON" \
+curl -fsS -X PUT "$API/projects/myapp/translations/home.greeting/ko" -H "$AUTH" -H "$JSON" \
   -d '{"value":"반갑습니다, {name}님!"}'
-curl -X POST $API/projects/myapp/releases/R1/publish -H "$AUTH"
-curl $CDN/myapp/manifest.json   # → "delta": "releases/R1/delta-<base>-<overlay>.json"
+curl -fsS -X POST "$API/projects/myapp/releases/R1/publish" -H "$AUTH"
+curl -fsS "$CDN/myapp/manifest.json"   # → "delta": "releases/R1/delta-<base>-<overlay>.json"
 ```
 
 문제가 생기면 롤백 한 번으로 이전 overlay로 무손실 복귀합니다:
 
 ```bash
-curl -X POST $API/projects/myapp/releases/R1/rollback -H "$AUTH" -H "$JSON" \
+curl -fsS -X POST "$API/projects/myapp/releases/R1/rollback" -H "$AUTH" -H "$JSON" \
   -d '{"to":"<이전 overlay 해시>"}'
 ```
 
@@ -210,10 +221,10 @@ npm test                 # 코어 참조 구현 테스트
 npm run test:backend     # 관리 백엔드 테스트
 npm run test:mcp-stdio   # 앱 개발자용 stdio MCP 서버 테스트
 npm run gen:golden       # 골든 벡터 재생성 (스키마/알고리즘 변경 시)
-swift test               # sdks/ios
-gradle test              # sdks/android
-node --test "test/*.test.ts"   # sdks/web
-dart test                # sdks/flutter
+swift test               # 루트 Package.swift
+(cd sdks/android && ./gradlew test)
+(cd sdks/web && npm test)
+(cd sdks/flutter && dart pub get && dart test)
 
 ./tools/ci-local.sh      # 위 전부를 한 번에 — PR·푸시 전 게이트
 ```

@@ -22,30 +22,32 @@
 
 ## 1. 서버에 프로젝트 만들기
 
-서버를 아직 안 띄웠다면 `docker compose up`(또는 `npm run backend`). 대시보드는
+서버를 아직 안 띄웠다면 로컬 예제 토큰으로 `RYNL10N_ADMIN_TOKEN=dev-admin-token docker compose up`
+(또는 `npm run backend`). 대시보드는
 <http://localhost:8787>, 배포 플레인은 <http://localhost:8788>.
 
 대시보드에서 프로젝트·키·번역을 넣고 릴리스를 publish하면 된다. curl로도 동일하다:
 
 ```bash
 API=http://localhost:8787
-AUTH='Authorization: Bearer dev-admin-token'   # 운영 토큰으로 교체
+TOKEN=dev-admin-token   # 운영 토큰으로 교체
+AUTH="Authorization: Bearer $TOKEN"
 JSON='content-type: application/json'
 
-curl -X POST $API/projects -H "$AUTH" -H "$JSON" \
+curl -fsS -X POST "$API/projects" -H "$AUTH" -H "$JSON" \
   -d '{"id":"myapp","name":"My App","defaultLocale":"en","locales":["en","ko"]}'
 
-curl -X PUT $API/projects/myapp/keys/home.title -H "$AUTH" -H "$JSON" \
+curl -fsS -X PUT "$API/projects/myapp/keys/home.title" -H "$AUTH" -H "$JSON" \
   -d '{"description":"홈 탭 상단 제목"}'
-curl -X PUT $API/projects/myapp/translations/home.title/en -H "$AUTH" -H "$JSON" -d '{"value":"Home"}'
-curl -X PUT $API/projects/myapp/translations/home.title/ko -H "$AUTH" -H "$JSON" -d '{"value":"홈"}'
+curl -fsS -X PUT "$API/projects/myapp/translations/home.title/en" -H "$AUTH" -H "$JSON" -d '{"value":"Home"}'
+curl -fsS -X PUT "$API/projects/myapp/translations/home.title/ko" -H "$AUTH" -H "$JSON" -d '{"value":"홈"}'
 
 # 릴리스 = 앱 버전 범위 매핑. semver-range는 명시적 하한·상한이 필수다.
-curl -X POST $API/projects/myapp/releases -H "$AUTH" -H "$JSON" \
+curl -fsS -X POST "$API/projects/myapp/releases" -H "$AUTH" -H "$JSON" \
   -d '{"name":"1.x","versionMatch":{"strategy":"semver-range","value":">=1.0.0 <2.0.0"},
        "keys":["home.title"]}'          # → {"id":"R1","state":"draft"}
 
-curl -X POST $API/projects/myapp/releases/R1/publish -H "$AUTH"
+curl -fsS -X POST "$API/projects/myapp/releases/R1/publish" -H "$AUTH"
 curl http://localhost:8788/myapp/manifest.json    # SDK가 읽는 경로 그대로
 ```
 
@@ -96,7 +98,8 @@ Xcode에서는 **File → Add Package Dependencies… → Add Local…** 로 **�
 앱 타깃 소스 트리에 `rynl10n/release-snapshot.json`을 둔다. 내용은 서버에서 받는다:
 
 ```bash
-curl -H "$AUTH" $API/projects/myapp/releases/R1/snapshot \
+mkdir -p YourApp/rynl10n
+curl -fsS -H "$AUTH" "$API/projects/myapp/releases/R1/snapshot" \
   > YourApp/rynl10n/release-snapshot.json
 ```
 
@@ -120,12 +123,19 @@ vendored 스냅샷이 없거나 타깃 멤버십에 없으면 플러그인은 **
 vendored 파일을 매번 갱신하기 싫으면 CI가 서버에서 직접 받아 굽는다. **서버가 죽어 있으면 마지막
 캐시로 진행**하므로 빌드가 서버 가용성에 묶이지 않는다.
 
+`swift run rynl10n-bake`는 SDK 실행파일이 정의된 RynL10n 소스 패키지에서 실행해야 한다.
+아래는 앱 저장소 루트에서 SDK 소스를 별도로 받아 실행하는 예제다(`TOKEN`은 §1에서 설정).
+
 ```bash
-swift run rynl10n-bake \
+APP="$PWD"
+RYNL10N_SOURCE=/tmp/rynl10n-ios
+# CI의 새 작업 디렉터리에서 한 번 체크아웃한다.
+git clone --depth 1 --branch v0.2.2 https://github.com/devryner/RynL10n.git "$RYNL10N_SOURCE"
+swift run --package-path "$RYNL10N_SOURCE" rynl10n-bake \
   --fetch "$API/projects/myapp/releases/R1/snapshot" --token "$TOKEN" \
-  --cache .rynl10n-cache.json \
+  --cache "$APP/.rynl10n-cache.json" \
   --descriptions "$API/projects/myapp/releases/R1/descriptions" \
-  --emit-native ./Generated
+  --emit-native "$APP/Generated"
 ```
 
 `--emit-native`는 `Localizable.xcstrings`도 함께 방출한다 — `String(localized:)`를 쓰는 기존 코드에
@@ -350,15 +360,15 @@ reporter.start(client, every: 300)                          // ② 5분마다 �
 대시보드에서 값을 고치고 publish하면 끝이다. 앱은 다음 `update(_:)` 때 델타를 받아 반영한다.
 
 ```bash
-curl -X PUT $API/projects/myapp/translations/home.title/ko -H "$AUTH" -H "$JSON" \
+curl -fsS -X PUT "$API/projects/myapp/translations/home.title/ko" -H "$AUTH" -H "$JSON" \
   -d '{"value":"홈 화면"}'
-curl -X POST $API/projects/myapp/releases/R1/publish -H "$AUTH"
+curl -fsS -X POST "$API/projects/myapp/releases/R1/publish" -H "$AUTH"
 ```
 
 문제가 생기면 롤백은 포인터 되돌리기라 즉시·무손실이다:
 
 ```bash
-curl -X POST $API/projects/myapp/releases/R1/rollback -H "$AUTH" -H "$JSON" \
+curl -fsS -X POST "$API/projects/myapp/releases/R1/rollback" -H "$AUTH" -H "$JSON" \
   -d '{"to":"<이전 overlay 해시>"}'
 ```
 
@@ -368,6 +378,8 @@ curl -X POST $API/projects/myapp/releases/R1/rollback -H "$AUTH" -H "$JSON" \
 
 [`../../examples/ios-consumer`](../../examples/ios-consumer)가 위 전 과정을 담고 있다.
 플러그인 연결 → 번들 로드 → 원격 갱신까지 한 파일에서 볼 수 있다.
+
+다음 명령은 RynL10n 저장소 루트에서 실행한다.
 
 ```bash
 cd examples/ios-consumer

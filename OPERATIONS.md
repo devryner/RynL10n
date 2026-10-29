@@ -131,13 +131,20 @@ CORS·ETag 헤더는 오리진 응답에 포함돼 그대로 통과한다 — `a
 
 #### 배포 후 검증 (셋 다 1분이면 끝난다)
 
+curl과 Node.js가 있는 터미널에서 실행한다. Node.js는 manifest의 스냅샷 경로 추출에만 쓴다.
+
 ```bash
 CDN=https://cdn.example.com; P=my-project
 
 # ① CORS 3종이 살아서 나오는가
 curl -sI "$CDN/$P/manifest.json" -H "Origin: https://app.example.com" \
   | grep -i "access-control"
-# 기대: allow-origin + expose-headers: ETag + (preflight 시) allow-headers: If-None-Match
+# 기대: allow-origin + expose-headers: ETag
+curl -fsS -D - -o /dev/null -X OPTIONS "$CDN/$P/manifest.json" \
+  -H "Origin: https://app.example.com" \
+  -H "Access-Control-Request-Method: GET" \
+  -H "Access-Control-Request-Headers: If-None-Match" | grep -i "access-control"
+# 기대: allow-headers: If-None-Match + allow-methods: GET, HEAD, OPTIONS
 
 # ② ETag 조건부 요청이 304로 끝나는가
 ETAG=$(curl -sI "$CDN/$P/manifest.json" | awk -F': ' 'tolower($1)=="etag"{print $2}' | tr -d '\r')
@@ -145,7 +152,8 @@ curl -s -o /dev/null -w "%{http_code}\n" "$CDN/$P/manifest.json" -H "If-None-Mat
 # 기대: 304
 
 # ③ 산출물이 엣지에서 immutable로 캐시되는가
-curl -sI "$CDN/$P/releases/R1/snapshot-<hash>.json" | grep -i "cache-control"
+SNAPSHOT=$(curl -fsS "$CDN/$P/manifest.json" | node -p 'JSON.parse(require("node:fs").readFileSync(0,"utf8")).releases[0].snapshot')
+curl -fsSI "$CDN/$P/$SNAPSHOT" | grep -i "cache-control"
 # 기대: public, max-age=31536000, immutable
 ```
 
@@ -162,12 +170,21 @@ curl -sI "$CDN/$P/releases/R1/snapshot-<hash>.json" | grep -i "cache-control"
 - **파일 백업**: `RYNL10N_DB` 파일(또는 프로덕션 Postgres) 정기 백업.
 - **논리 백업 / 이관(데이터 이식성 9.2)**:
   ```bash
-  curl -H "authorization: Bearer $ADMIN" $API/projects/{p}/export > backup.json     # 전체 export(락인 없음)
-  curl -X POST -H "authorization: Bearer $ADMIN" $API/projects/import -d @backup.json # 복원
+  API=http://localhost:8787
+  PROJECT=myapp
+  # ADMIN에 관리자 토큰을 설정한 뒤 실행한다.
+  curl -fsS -H "authorization: Bearer $ADMIN" "$API/projects/$PROJECT/export" > backup.json
+  ```
+  복원은 새 프로젝트 생성이다. 같은 ID가 이미 있으면 409이므로 빈 복원 대상 DB를 사용하거나
+  백업의 `project.id`를 다른 ID로 바꾼다(기존 프로젝트를 덮어쓰지 않는다).
+  ```bash
+  RESTORE_API=http://localhost:8787   # 복원 대상 서버 주소로 변경
+  curl -fsS -X POST -H "authorization: Bearer $ADMIN" -H "content-type: application/json" \
+    "$RESTORE_API/projects/import" --data-binary @backup.json
   ```
 - **재해 복구(스토리지 유실)**: DB만 있으면
   ```bash
-  curl -X POST -H "authorization: Bearer $ADMIN" $API/projects/{p}/rebuild
+  curl -fsS -X POST -H "authorization: Bearer $ADMIN" "$API/projects/$PROJECT/rebuild"
   ```
   → 모든 스냅샷·델타·manifest를 DB로부터 재생성. 결정적이라 같은 DB → 같은 산출물.
   (base는 현재 상태로 재베이스라인 — 2계층 구조 덕분에 구버전 앱은 풀 스냅샷을 받아 번역 공백 0.)
@@ -175,7 +192,9 @@ curl -sI "$CDN/$P/releases/R1/snapshot-<hash>.json" | grep -i "cache-control"
 ## 롤백 (8.3)
 
 ```bash
-curl -X POST -H "authorization: Bearer $ADMIN" $API/projects/{p}/releases/{r}/rollback -d '{"to":"<이전 overlay 해시>"}'
+RELEASE=R1
+curl -fsS -X POST -H "authorization: Bearer $ADMIN" -H "content-type: application/json" \
+  "$API/projects/$PROJECT/releases/$RELEASE/rollback" -d '{"to":"<이전 overlay 해시>"}'
 ```
 manifest overlay 포인터를 이전 target으로 되돌리고 재게시. 산출물 불변이라 즉시·무손실. 보존 창 = 최근 20개.
 
@@ -186,9 +205,17 @@ manifest overlay 포인터를 이전 target으로 되돌리고 재게시. 산출
 ## 에어갭 운영 (9.4)
 
 완전 폐쇄망: 빌드 플러그인 vendored 모드(커밋된 스냅샷으로 bake, 6.3) + 사내 스토리지/CDN.
+빌드 도구·의존성을 사전 준비한 저장소 루트에서 실행한다. 입력과 출력은 작업 디렉터리를 바꿔도
+유지되도록 절대 경로로 지정한다.
+
 ```bash
-swift run rynl10n-bake vendored-snapshot.json ./out     # 외부 접근 없이 bake
-gradle rynl10nBake -Psource=vendored-snapshot.json -Pout=./out
+SNAPSHOT="$PWD/vendored-snapshot.json"
+OUT="$PWD/out"
+swift run rynl10n-bake "$SNAPSHOT" "$OUT/ios"
+(
+  cd sdks/android
+  ./gradlew --offline rynl10nBake -Psource="$SNAPSHOT" -Pout="$OUT/android"
+)
 ```
 
 ## 관측성 (9.3)
@@ -201,7 +228,7 @@ gradle rynl10nBake -Psource=vendored-snapshot.json -Pout=./out
   overlay_applied / format_guard_rejected / key_unresolved / delta_failed) 카운트만 리포트.
   값·키명·기기 식별자 없음. `release_applied`는 오버레이 없이 적용된 경우까지 세므로 "이 릴리스가
   아직 쓰이나"에 답한다(거부율의 분모는 그대로 overlay_applied다).
-  ```bash
+  ```http
   POST /projects/{p}/telemetry   # 정의된 5개 필드 외 유입은 거부(프라이버시 가드)
   GET  /projects/{p}/releases/{r}/health   # 카나리 판정(8.4) 입력: 포맷 가드 거부율 등
   ```

@@ -68,7 +68,7 @@ Craft 기획서**이고(아래 참조), 이 저장소는 그 기획서를 구현
   TS 참조·백엔드 재실행 — 골든 벡터·산출물은 무변경이라 SDK 코어는 영향 없음.
   2026-08-20 **4개 SDK 전부에 폴링·SSE 푸시·텔레메트리 업로드**를 맞추고 전 컴포넌트 재실행 +
   iOS는 실제 백엔드 대상 왕복 확인.)
-  `npm run typecheck` · `npm run typecheck:backend` · `tsc -p sdks/web` · `dart analyze` 클린.
+  `npm run typecheck` · `npm run typecheck:backend` · `npm --prefix sdks/web run typecheck` · `dart analyze` 클린.
 - 기획서의 모든 확정 설계가 구현·검증됨. 남은 것은 실제 앱/외부 환경 의존 항목뿐이다
   (아래 "열려 있는 항목" 참조 — 관리 API의 UI 격차는 2026-08-25에 마감했다).
 - 스파이크에서 발견한 스펙 조정 1건(11.3 superseded 라우팅)은 **Craft 기획서에 이미 반영**됨.
@@ -146,8 +146,8 @@ LICENSE · NOTICE      Apache-2.0
 | 골든 벡터 재생성 | 루트 | `npm run gen:golden` | Node |
 | 백엔드 | 루트 | `npm run test:backend` · `npm run typecheck:backend` · `npm run backend` | Node ≥ 23.6 |
 | stdio MCP 서버 | 루트 | `npm run test:mcp-stdio` · `npm run typecheck:mcp-stdio` · `npm run mcp:stdio` | Node ≥ 23.6 |
-| iOS SDK | `sdks/ios` | `swift test` · `swift run rynl10n-bake …` | Swift 6 |
-| Android SDK | `sdks/android` | `gradle test` · `gradle rynl10nBake …` | Gradle 9 / JDK 21 |
+| iOS SDK | 루트 (`Package.swift`) | `swift test` · `swift run rynl10n-bake …` | Swift 6 |
+| Android SDK | `sdks/android` | `./gradlew test` · `./gradlew rynl10nBake …` | Gradle 8.11.1 래퍼 / JDK 21 |
 | Web SDK | `sdks/web` | `node --test "test/*.test.ts"` | Node ≥ 23.6 |
 | Flutter SDK | `sdks/flutter` | `dart pub get && dart test` | Dart 3.5+ |
 | 셀프호스트 | 루트 | `docker compose up` | Docker |
