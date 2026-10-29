@@ -195,6 +195,8 @@ Web·Android·Flutter 소비자는 `0.2.2` 게시본을 사용했고, SwiftPM은
 
 ### 반복 실행과 로컬 CI 연결
 
+구현 커밋 **`adae80f`**(2026-10-29), 원격 `main` 반영 완료.
+
 임시 검증을 `tools/sdk-guides/`에 옮겼다. `npm run check:sdk-guides`는 가이드의 고유 HTML 마커로
 코드 블록 **37개**를 추출해 임시 소비자 프로젝트를 생성하고 위 검증을 실행한다. README 코드가
 원본이고 템플릿은 앱·함수 틀과 기대 결과를 제공한다. 마커 누락·중복·오타·언어 변경·검증 미연결은 실패한다.
@@ -205,6 +207,16 @@ SDK 선택 실행은 `npm run check:sdk-guides -- --only=web`, 프로젝트·로
 전체 실행에는 기존 도구에 더해 전체 Xcode·Android SDK 35·Flutter·Chrome이 필요하다. 필수 도구가
 없으면 건너뛰지 않고 실패하며, 실패한 프로젝트·로그는 자동 보관한다. 임시 서버와 자식 프로세스는
 실행 후 정리한다. 환경 설정·예제 추가 방법은 [`tools/sdk-guides/README.md`](tools/sdk-guides/README.md).
+
+검증 결과(2026-10-29):
+
+- 인자 없는 `./tools/ci-local.sh`가 `reference web ios android flutter guides` 전 단계에서
+  **종료 코드 0**으로 통과했다. 골든 벡터 재생성 후 diff도 없었다.
+- 네 SDK의 가이드 코드 블록 **37개**를 추출해 컴파일·실행했고, 도구 타입 검사와 추출 가드
+  회귀 **3개**도 통과했다. SDK 선택 실행에서도 Web·iOS·Android·Flutter를 각각 확인했다.
+- 잘못된 Web SDK API 호출을 넣은 소비자 코드가 실제 TypeScript 컴파일에서 실패했다.
+  Flutter가 없는 환경에서는 종료 코드 **1**로 실패하고 프로젝트·로그 보관 경로를 출력했다.
+  필수 도구 누락을 성공이나 SKIP으로 처리하지 않는 것을 확인했다.
 
 이 단계는 가이드에 적힌 **게시본** 설치 선언을 사용하므로 로컬 전용 추가 게이트다. 미게시 버전을
 만드는 태그 Actions에는 기존 컴포넌트 게이트를 유지한다. 가이드 검증·게시 직후 소비자 스모크·실기기

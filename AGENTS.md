@@ -37,8 +37,11 @@ SwiftPM 플러그인 실행, Android AAR·Robolectric·Compose 재구성, Web �
 Flutter 위젯·IO·Chrome의 HTTP·localStorage 검증을 통과했다. 로컬 CI도 전 컴포넌트 통과.
 가이드 검증은 임시 소비자 프로젝트에서 수행했으며, 실기기·배포 앱의 전체 통합 검증은 남아 있다.
 수정 내역·검증 범위는 `HANDOVER.md`의 "SDK 가이드 코드 검증" 절. SDK 최신 버전은 `0.2.2`다.
-이 가이드 검증은 `tools/sdk-guides/`에 반복 실행 도구로 옮겼다. README의 코드 블록 37개를 직접
-추출하며, 기본 로컬 CI의 `guides` 추가 단계에서 컴파일·실행한다. 요구 도구·선택 실행은 해당 README 참조.
+2026-10-29 **SDK 가이드 반복 검증·로컬 CI 연결 완료**(`adae80f`) — `tools/sdk-guides/`가 README의
+코드 블록 37개를 직접 추출하며, 기본 로컬 CI의 `guides` 단계에서 컴파일·실행한다. 추출 가드 3개·
+도구 타입 검사와 `reference web ios android flutter guides` 전체 실행이 종료 코드 0으로 통과했다.
+잘못된 API의 컴파일 실패·필수 도구 누락 시 실패와 로그 보관도 확인했다. 상세 결과는 `HANDOVER.md`,
+요구 도구·선택 실행은 `tools/sdk-guides/README.md` 참조.
 남은 것은 실제 앱/외부 환경 의존 항목뿐(아래 "열려 있는 항목" 참조). 전체 지도는 `HANDOVER.md`.
 
 - **코어 스택**: TypeScript/Node ≥ 23.6 (네이티브 타입 스트리핑, 빌드 스텝 없음). 참조 구현·백엔드 모두
