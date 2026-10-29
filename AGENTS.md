@@ -37,6 +37,8 @@ SwiftPM 플러그인 실행, Android AAR·Robolectric·Compose 재구성, Web �
 Flutter 위젯·IO·Chrome의 HTTP·localStorage 검증을 통과했다. 로컬 CI도 전 컴포넌트 통과.
 가이드 검증은 임시 소비자 프로젝트에서 수행했으며, 실기기·배포 앱의 전체 통합 검증은 남아 있다.
 수정 내역·검증 범위는 `HANDOVER.md`의 "SDK 가이드 코드 검증" 절. SDK 최신 버전은 `0.2.2`다.
+이 가이드 검증은 `tools/sdk-guides/`에 반복 실행 도구로 옮겼다. README의 코드 블록 37개를 직접
+추출하며, 기본 로컬 CI의 `guides` 추가 단계에서 컴파일·실행한다. 요구 도구·선택 실행은 해당 README 참조.
 남은 것은 실제 앱/외부 환경 의존 항목뿐(아래 "열려 있는 항목" 참조). 전체 지도는 `HANDOVER.md`.
 
 - **코어 스택**: TypeScript/Node ≥ 23.6 (네이티브 타입 스트리핑, 빌드 스텝 없음). 참조 구현·백엔드 모두
@@ -49,7 +51,7 @@ Flutter 위젯·IO·Chrome의 HTTP·localStorage 검증을 통과했다. 로컬 
   - `swift test` (저장소 루트 `Package.swift`, Swift 6) · `./gradlew test` (`sdks/android`, Gradle 8.11 래퍼/JDK 21 고정) ·
     `node --test "test/*.test.ts"` (`sdks/web`) · `dart pub get && dart test` (`sdks/flutter`, Dart 3.5+)
   - `docker compose up` — 단일 노드 셀프호스트 (관리 API :8787 + 배포 플레인 :8788)
-  - `./tools/ci-local.sh [reference|web|ios|android|flutter]` — **로컬 CI**. 2026-09-10 부터 `ci.yml` 은
+  - `./tools/ci-local.sh [reference|web|ios|android|flutter|guides]` — **로컬 CI**. 2026-09-10 부터 `ci.yml` 은
     push·PR 에서 돌지 않는다(Actions 한도 절약). **PR·푸시 전에 이것이 평상시 유일한 게이트다.**
     `workflow_call` 은 남아 있어 태그 게시(`release.yml`) 때만 Actions 에서 전 컴포넌트가 다시 돈다.
     로컬 도구 버전이 CI 고정값(Node 24.x·Java 21·Dart 3.5)과 다를 수 있다 — 다만 `android` 단계가
@@ -59,6 +61,10 @@ Flutter 위젯·IO·Chrome의 HTTP·localStorage 검증을 통과했다. 로컬 
     플러그인 버전으로는 닫히지 않는다(`HANDOVER.md` 의 해당 항목). Kotlin 버전은 루트
     `sdks/android/build.gradle.kts` 한 곳에서만 선언하고 `:library` 는 클래스로더를 공유해 상속한다 —
     한쪽만 올리면 KGP 와 AGP 가 어긋난다.
+  - `npm run check:sdk-guides -- [--only=web,ios,android,flutter] [--keep]` — **가이드 코드 검증**.
+    `./tools/ci-local.sh guides`는 도구 타입 검사·추출 가드 테스트도 실행하고, 인자 없는 로컬 CI에도 포함된다.
+    전체 실행에는 Xcode·Android SDK 35·Flutter·Chrome이 필요하며 도구가 없으면 실패한다.
+    README의 게시본 설치 선언을 쓰므로 이 추가 단계는 로컬 전용이다(태그 게시 전 Actions 게이트와 구분).
   - `npm run smoke:consumer` — **소비자 스모크**(`tools/consumer-smoke/`). 네 채널의 **게시본**을
     저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 549개는 전부 소스를
     보므로 게시본에만 있는 실패(패키징 누락·`exports` 경로·POM 스코프·태그가 가리키는 커밋)를 볼
@@ -70,7 +76,8 @@ Flutter 위젯·IO·Chrome의 HTTP·localStorage 검증을 통과했다. 로컬 
   `src/mcp/`=MCP 도구 표면) ·
   `sdks/`(ios·android·web·flutter) ·
   `mcp-stdio/`(앱 개발자용 stdio MCP 서버 — 소비자 앱 저장소에서 돈다, 미게시) ·
-  `tools/gen-golden.ts` + `fixtures/golden/`(크로스언어 계약) · `tools/consumer-smoke/`(게시본 소비 검증) · `examples/ios-consumer/`(SPM 플러그인 소비 예제) ·
+  `tools/gen-golden.ts` + `fixtures/golden/`(크로스언어 계약) · `tools/consumer-smoke/`(게시본 소비 검증) ·
+  `tools/sdk-guides/`(README 코드 추출·컴파일·실행) · `examples/ios-consumer/`(SPM 플러그인 소비 예제) ·
   `OPERATIONS.md`(운영 가이드). 상세는 `HANDOVER.md`와 각 디렉토리 README.
 - **골든 벡터 = 크로스언어 계약**: TS 참조 구현이 정규화·해시·resolve·매칭·카나리의 기대 출력을 언어 무관
   JSON으로 방출하고, 4개 언어 SDK가 이를 로드해 바이트·해시·동작 정합을 기계 검증한다.

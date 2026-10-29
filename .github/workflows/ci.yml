@@ -16,7 +16,8 @@ name: CI
 # `tools/ci-local.sh` 로 옮겼다(iOS 잡은 macOS 러너라 분당 과금이 Linux 의 10배).
 # **`workflow_call` 은 지우지 말 것** — `release.yml` 이 태그에서 이 워크플로를 게시 전 게이트로
 # 부른다. 지우면 게이트 없이 게시가 나가거나 release.yml 자체가 깨진다.
-# 이 파일과 로컬 스크립트는 같은 검사를 한다. 한쪽을 고치면 다른 쪽도 고친다.
+# 컴포넌트 검사는 로컬 스크립트와 같다. 로컬 전용 `guides` 추가 게이트는 README의 게시본 설치
+# 예제·Flutter UI·Chrome을 검증한다. 미게시 버전을 만드는 태그 게이트에는 연결하지 않는다.
 on:
   workflow_call: # release.yml이 게이트로 호출한다
   workflow_dispatch: # 필요할 때 Actions 탭에서 직접 돌린다

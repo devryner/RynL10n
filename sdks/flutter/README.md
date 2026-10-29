@@ -29,6 +29,7 @@ dependencies:
 아래는 Flutter 위젯에서 쓰는 예제다. 순수 Dart 실행 예제는
 [`example/example.dart`](example/example.dart)를 본다.
 
+<!-- sdk-guide:flutter.client -->
 ```dart
 import 'package:flutter/widgets.dart';
 import 'package:rynl10n/rynl10n.dart';
@@ -83,6 +84,7 @@ flutter:
     - assets/rynl10n/
 ```
 
+<!-- sdk-guide:flutter.io -->
 ```dart
 import 'dart:async';                         // unawaited
 import 'package:flutter/services.dart';     // rootBundle
@@ -134,6 +136,7 @@ Future<RynL10nClient> loadClient({required String locale, String telemetry = 'of
 웹을 포함해 하나로 가려면 `rynl10n_http.dart`를 쓴다 — `package:http`가 플랫폼마다 백엔드를
 알아서 고른다(웹=`BrowserClient`/fetch, 그 외=`dart:io`).
 
+<!-- sdk-guide:flutter.web -->
 ```dart
 import 'package:rynl10n/rynl10n.dart';
 import 'package:rynl10n/rynl10n_http.dart';
@@ -169,6 +172,7 @@ final store = RemoteDeliveryStore(
 아래는 `rynl10n.dart`·`rynl10n_io.dart`를 import한 파일에서, 위 초기화 함수 안의
 `store`·`client`를 사용하는 코드다. 앱이 `push`를 보관해 생명주기에 맞춰 중단한다.
 
+<!-- sdk-guide:flutter.automation -->
 ```dart
 // ① 주기 폴링(기본 60초) — 갱신의 보장선. 배터리·트래픽은 앱이 정한다.
 store.startPolling(client, interval: const Duration(seconds: 60));
@@ -200,6 +204,7 @@ push.startUpdating(client, store);         // 신호 → store.update(client)
 위 `loadClient`에서는 `telemetry: 'aggregate'`를 넘긴다. 아래는 같은 초기화 범위에서
 `client`를 사용하는 코드이며 `reporter`도 앱이 보관한다.
 
+<!-- sdk-guide:flutter.telemetry -->
 ```dart
 final reporter = TelemetryReporter(
   endpoint: 'https://admin.example.com',   // 관리 플레인(업로드는 쓰기 경로)

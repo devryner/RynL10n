@@ -188,9 +188,25 @@ Web·Android·Flutter 소비자는 `0.2.2` 게시본을 사용했고, SwiftPM은
 | Flutter | analyze 통과. Flutter 위젯·IO 테스트 2개(로케일·Text, 자산·파일 캐시·HTTP·폴링·푸시·텔레메트리)와 Chrome 테스트 1개(`package:http`·프로젝트 범위 localStorage 캐시) 통과. | 파일 캐시 경로는 테스트용 `path_provider` 플랫폼 구현으로 제공했다. 실제 앱 플러그인·모바일 생명주기 통합은 별도다. |
 
 `./tools/ci-local.sh`의 reference·web·ios·android·flutter도 전부 통과했고, 골든 벡터 재생성 후 diff가
-없었다. Swift 툴체인이 바뀌어 iOS는 `swift package clean` 후 실행했다. 가이드 검증 하네스는 임시
-프로젝트이며 상시 CI에 추가한 테스트가 아니다. 저장소의 **549개 테스트**와 게시본 **24/24 소비자 스모크**
-집계에 가이드 테스트를 더하지 않는다.
+없었다. Swift 툴체인이 바뀌어 iOS는 `swift package clean` 후 실행했다. 최초 가이드 검증은 임시
+프로젝트에서 수행했으며, 이 시점의 **549개 테스트**와 게시본 **24/24 소비자 스모크** 집계와 구분한다.
+
+### 반복 실행과 로컬 CI 연결
+
+임시 검증을 `tools/sdk-guides/`에 옮겼다. `npm run check:sdk-guides`는 가이드의 고유 HTML 마커로
+코드 블록 **37개**를 추출해 임시 소비자 프로젝트를 생성하고 위 검증을 실행한다. README 코드가
+원본이고 템플릿은 앱·함수 틀과 기대 결과를 제공한다. 마커 누락·중복·오타·언어 변경·검증 미연결은 실패한다.
+추출 가드 회귀 테스트 3개와 도구 타입 검사는 별도 명령으로 실행한다.
+
+기본 `./tools/ci-local.sh`에 **`guides` 추가 단계**를 연결했다. 단독 실행은 `./tools/ci-local.sh guides`,
+SDK 선택 실행은 `npm run check:sdk-guides -- --only=web`, 프로젝트·로그 보관은 `--keep`이다.
+전체 실행에는 기존 도구에 더해 전체 Xcode·Android SDK 35·Flutter·Chrome이 필요하다. 필수 도구가
+없으면 건너뛰지 않고 실패하며, 실패한 프로젝트·로그는 자동 보관한다. 임시 서버와 자식 프로세스는
+실행 후 정리한다. 환경 설정·예제 추가 방법은 [`tools/sdk-guides/README.md`](tools/sdk-guides/README.md).
+
+이 단계는 가이드에 적힌 **게시본** 설치 선언을 사용하므로 로컬 전용 추가 게이트다. 미게시 버전을
+만드는 태그 Actions에는 기존 컴포넌트 게이트를 유지한다. 가이드 검증·게시 직후 소비자 스모크·실기기
+전체 통합의 범위는 구분한다.
 
 ## SDK 배포 채널 (기획서 6.5) — **`v0.2.2` 게시·4채널 검증 완료 (2026-10-29)**
 

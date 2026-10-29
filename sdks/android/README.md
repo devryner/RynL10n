@@ -51,6 +51,7 @@ sdk.dir=/path/to/project-android-sdk
 
 ## 2. 의존성 추가
 
+<!-- sdk-guide:android.dependency -->
 ```kotlin
 // 앱 모듈 build.gradle.kts
 dependencies {
@@ -118,6 +119,7 @@ cd /tmp/rynl10n/sdks/android
 >   -PemitNative=true -Pout="$APP/<앱 모듈>/build/rynl10n-native" -PstableName=true
 > ```
 >
+> <!-- sdk-guide:android.resources -->
 > ```kotlin
 > // 앱 모듈 build.gradle.kts
 > android { sourceSets["main"].res.srcDir("build/rynl10n-native/rynl10n/res") }
@@ -141,6 +143,7 @@ cd /tmp/rynl10n/sdks/android
 `Application.onCreate`에서 한 번. 번들 로드는 assets 디스크 I/O뿐이라 스플래시에서 네트워크를
 기다릴 일이 없다.
 
+<!-- sdk-guide:android.application -->
 ```kotlin
 import android.app.Application
 import com.rynl10n.RynL10n
@@ -160,6 +163,7 @@ class App : Application() {
 `AndroidManifest.xml`의 기존 `<application>`에 `android:name=".App"`을 설정하고,
 원격 갱신을 쓴다면 인터넷 권한도 선언한다(`App`은 앱 패키지에 둔다):
 
+<!-- sdk-guide:android.manifest -->
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
@@ -189,6 +193,7 @@ API 28 미만은 `versionCode`)를 쓴다. 릴리스 매칭을 다른 값으로 
 
 ### 4-b. 조회
 
+<!-- sdk-guide:android.lookup -->
 ```kotlin
 import com.rynl10n.RynL10n
 import com.rynl10n.rynl10n
@@ -207,6 +212,7 @@ textView.text = context.rynl10n("home.title")
 
 ### 4-c. Compose
 
+<!-- sdk-guide:android.compose -->
 ```kotlin
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -232,6 +238,7 @@ fun CatalogText(count: Int) {
 아래는 앱의 기존 Activity에 넣는 코드다. 앱에는 `androidx.activity:activity-ktx`와
 `androidx.lifecycle:lifecycle-runtime-ktx` 의존성이 필요하다.
 
+<!-- sdk-guide:android.activity -->
 ```kotlin
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
@@ -259,6 +266,7 @@ class MainActivity : ComponentActivity() {
 `ProcessLifecycleOwner`는 SDK가 끌고 오지 않는다 — 앱에 `androidx.lifecycle:lifecycle-process`
 의존성을 추가한다.
 
+<!-- sdk-guide:android.lifecycle -->
 ```kotlin
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -283,6 +291,7 @@ ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObser
 publish 즉시 반영되게 하려면 알림 채널을 붙인다. **프레임은 "manifest가 바뀌었다"는 신호뿐이고,
 번역 데이터는 여전히 배포 플레인에서 받는다** — 데이터 경로는 정적으로 유지된다(플레인 분리).
 
+<!-- sdk-guide:android.push -->
 ```kotlin
 RynL10n.connectServerPush("https://admin.example.com")  // 알림(관리) 플레인 — CDN이 아니다
 // 백그라운드 전환 등에서 RynL10n.disconnectServerPush()
@@ -296,6 +305,7 @@ RynL10n.connectServerPush("https://admin.example.com")  // 알림(관리) 플레
 대시보드 **관측성** 탭과 `releases/{r}/health`(카나리 판정의 입력)를 채우는 익명 집계다.
 두 번 옵트인해야 한다 — **수집**(`configure(telemetry = "aggregate")`)과 **전송**(`startTelemetry`).
 
+<!-- sdk-guide:android.telemetry -->
 ```kotlin
 // Application.onCreate 안. §4-a의 configure 호출에 telemetry 옵션을 더한다.
 RynL10n.configure(this, project = "myapp", endpoint = "https://cdn.example.com", telemetry = "aggregate")  // ① 수집

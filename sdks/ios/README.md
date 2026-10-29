@@ -65,6 +65,7 @@ curl http://localhost:8788/myapp/manifest.json    # SDK가 읽는 경로 그대�
 정규 경로 — **태그 `v0.2.2`가 올라가 있어 원격 참조가 그대로 동작한다**(2026-10-29 ·
 4개 SDK lockstep 6.5 · **태그가 곧 SPM 배포**라 레지스트리 게시 절차가 없다):
 
+<!-- sdk-guide:ios.package-remote -->
 ```swift
 dependencies: [.package(url: "https://github.com/devryner/RynL10n", from: "0.2.2")],
 targets: [
@@ -74,6 +75,7 @@ targets: [
 
 로컬 체크아웃을 참조(코어를 함께 고치는 중일 때):
 
+<!-- sdk-guide:ios.package-local -->
 ```swift
 dependencies: [.package(path: "../RynL10n")],
 targets: [
@@ -157,6 +159,7 @@ fallback을 주고 싶을 때만 쓰면 된다(선택). 대시보드에 적은 *
 
 앱 시작 시 한 번. 번들 로드는 동기라 스플래시에서 네트워크를 기다릴 일이 없다.
 
+<!-- sdk-guide:ios.client -->
 ```swift
 import Foundation
 import RynL10n
@@ -188,6 +191,7 @@ enum L10n {
 > rollout이 100 미만인 릴리스의 오버레이를 **하나도 받지 않는다**(번들로 남고 `overlay_applied`도 세지
 > 않는다). 값은 앱이 처음 실행될 때 만든 익명 UUID를 저장해 두고 쓰면 된다 — 서버로는 보내지 않는다.
 >
+> <!-- sdk-guide:ios.install-id -->
 > ```swift
 > let installId = UserDefaults.standard.string(forKey: "rynl10n.installId") ?? {
 >     let id = UUID().uuidString
@@ -205,6 +209,7 @@ enum L10n {
 SwiftUI 뷰 파일에는 `import SwiftUI`와 `import RynL10n`을 추가한다. 아래 코드는
 `View.body` 안에서 사용하며 `count`는 화면이 가진 `Int` 값이다.
 
+<!-- sdk-guide:ios.lookup -->
 ```swift
 Text(L10n.client.t("home.title"))
 Text(L10n.client.t("cart.items", args: ["n": .int(count)]))   // CLDR 복수형
@@ -234,6 +239,7 @@ Text(L10n.client.t("home.title", locale: "ja"))               // 로케일 강�
 
 기본 시점은 **앱 시작 직후**와 **포그라운드 복귀**다.
 
+<!-- sdk-guide:ios.foreground -->
 ```swift
 // SwiftUI
 .task { _ = try? await L10n.remote.update(L10n.client) }
@@ -243,6 +249,7 @@ Text(L10n.client.t("home.title", locale: "ja"))               // 로케일 강�
 }
 ```
 
+<!-- sdk-guide:ios.app-delegate -->
 ```swift
 // UIKit — AppDelegate
 import UIKit
@@ -261,6 +268,7 @@ func applicationDidBecomeActive(_ application: UIApplication) {
 
 앱이 오래 떠 있는 동안에도 갱신을 받고 싶으면 폴링을 켠다. 즉시 한 번 돌고 간격마다 반복한다.
 
+<!-- sdk-guide:ios.polling -->
 ```swift
 L10n.remote.startPolling(L10n.client, interval: 60)   // 기본 60초
 ```
@@ -271,6 +279,7 @@ L10n.remote.startPolling(L10n.client, interval: 60)   // 기본 60초
 SwiftUI 뷰에 `@Environment(\.scenePhase) private var scenePhase`를 선언하고,
 `body` 안의 뷰에 아래 modifier를 연결한다.
 
+<!-- sdk-guide:ios.scene-phase -->
 ```swift
 // iOS 15·16도 받는 한 인자 형태. iOS 17+만 지원한다면 `{ _, phase in }` 형태를 써도 된다.
 .onChange(of: scenePhase) { phase in
@@ -287,6 +296,7 @@ SwiftUI 뷰에 `@Environment(\.scenePhase) private var scenePhase`를 선언하�
 publish 즉시 반영되게 하려면 알림 채널을 붙인다. **프레임은 "manifest가 바뀌었다"는 신호뿐이고,
 번역 데이터는 여전히 배포 플레인에서 받는다** — 데이터 경로는 정적으로 유지된다(플레인 분리).
 
+<!-- sdk-guide:ios.push -->
 ```swift
 let push = ServerPushChannel(
     endpoint: URL(string: "https://admin.example.com")!,   // 알림(관리) 플레인 — CDN이 아니다
@@ -303,6 +313,7 @@ push.start(updating: L10n.client, via: L10n.remote)        // 신호 → 즉시 
 
 `RynL10nObservable`이 카탈로그 갱신 때 `version`을 올려 뷰를 다시 그린다.
 
+<!-- sdk-guide:ios.app -->
 ```swift
 import SwiftUI
 import RynL10n
@@ -339,6 +350,7 @@ struct ContentView: View {
 §4-a의 `telemetry: "off"`를 `telemetry: "aggregate"`로 바꾼 뒤,
 앱이 아래 `reporter`를 보관한다. 화면과 같은 `L10n.client`를 사용한다.
 
+<!-- sdk-guide:ios.telemetry -->
 ```swift
 import Foundation
 import RynL10n

@@ -225,12 +225,15 @@ swift test               # 루트 Package.swift
 (cd sdks/android && ./gradlew test)
 (cd sdks/web && npm test)
 (cd sdks/flutter && dart pub get && dart test)
+npm run check:sdk-guides  # 가이드 코드 추출 → 4개 SDK 소비자 컴파일·실행
 
-./tools/ci-local.sh      # 위 전부를 한 번에 — PR·푸시 전 게이트
+./tools/ci-local.sh      # 위 전부와 가이드 검증을 한 번에 — PR·푸시 전 게이트
 ```
 
 GitHub Actions는 태그 게시(`release.yml`)와 수동 실행에서만 돕니다. **평상시 검증은
 `./tools/ci-local.sh`** 이고, 컴포넌트를 지정해 부분 실행할 수 있습니다(`./tools/ci-local.sh reference web`).
+가이드 검증만 실행하려면 `./tools/ci-local.sh guides`를 사용합니다. 이 단계에는 Xcode·Android SDK·
+Flutter·Chrome이 필요합니다. SDK별 선택 실행과 로그 확인은 [검증 도구 안내](tools/sdk-guides/README.md)를 따릅니다.
 
 ## 라이선스
 

@@ -7,13 +7,15 @@
 # 이 워크플로를 게시 전 게이트로 부르므로, 게시만큼은 여전히 Actions 에서 전부 검증된다.
 #
 # 그래서 **PR 을 올리거나 main 에 푸시하기 전에 이 스크립트를 돌리는 것이 평상시 유일한 게이트다.**
-# `ci.yml` 의 잡과 같은 검사를 한다. 한쪽을 고치면 다른 쪽도 고친다.
+# 컴포넌트 검사는 `ci.yml`과 같다. `guides`는 게시본·Flutter UI·Chrome을 쓰는 로컬 전용 추가 게이트다.
+# 가이드 설치 예제의 게시본을 검사하므로, 미게시 버전을 만드는 태그 CI에는 연결하지 않는다.
 #
 #   reference  TS 참조 구현 · 백엔드 · mcp-stdio 타입체크·테스트 + 골든 벡터 결정성
 #   web        Web SDK 타입체크 · 테스트 · 게시 빌드
 #   ios        iOS SDK swift test · SPM 플러그인 소비 예제 빌드
 #   android    Android SDK gradle test · AAR assembleRelease
 #   flutter    Flutter SDK pub get · test · 예제 실행 · analyze --fatal-infos
+#   guides     README 코드 추출 · 4개 SDK 소비자 컴파일·실행(Flutter·Chrome·Xcode 필요)
 #
 # 사용법 (저장소 루트에서):
 #   ./tools/ci-local.sh                 # 전부
@@ -43,7 +45,7 @@
 set -uo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-targets="${*:-reference web ios android flutter}"
+targets="${*:-reference web ios android flutter guides}"
 failed=""
 
 step() {
@@ -146,6 +148,13 @@ run_flutter() {
     step "Flutter SDK analyze"   in_dir sdks/flutter dart analyze --fatal-infos    || return 1
 }
 
+run_guides() {
+    ensure_npm || return 1
+    step "SDK 가이드 검증 도구 타입 검사" in_dir . npm run -s typecheck:sdk-guides || return 1
+    step "SDK 가이드 추출 가드 테스트"    in_dir . npm run -s test:sdk-guides      || return 1
+    step "SDK 가이드 컴파일·실행"         in_dir . npm run -s check:sdk-guides     || return 1
+}
+
 for target in $targets; do
     case "$target" in
         reference) run_reference || failed="$failed reference" ;;
@@ -153,7 +162,8 @@ for target in $targets; do
         ios)       run_ios       || failed="$failed ios" ;;
         android)   run_android   || failed="$failed android" ;;
         flutter)   run_flutter   || failed="$failed flutter" ;;
-        *) echo "모르는 대상: $target  (reference | web | ios | android | flutter)" >&2; exit 2 ;;
+        guides)    run_guides    || failed="$failed guides" ;;
+        *) echo "모르는 대상: $target  (reference | web | ios | android | flutter | guides)" >&2; exit 2 ;;
     esac
 done
 

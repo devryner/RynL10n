@@ -47,6 +47,7 @@ cd ../RynL10n/sdks/web && npm run build:publish   # 코어를 고칠 때마다 �
 번들러 프로젝트의 `config.ts`에 공통 설정을 둔다. TypeScript는 `resolveJsonModule: true`와
 DOM 타입을 사용한다. `snapshot.json`은 아래 번들 로더 절의 bake 산출물이다.
 
+<!-- sdk-guide:web.config -->
 ```ts
 import { BakedBundle, type WebConfig } from "@rynl10n/web";
 import raw from "./rynl10n/snapshot.json"; // 빌드타임 bake된 번들(fallback)
@@ -72,6 +73,7 @@ function installId(): string | undefined {
 
 `l10n.ts`에서 초기 렌더와 갱신을 연결한다. HTML에는 `<span id="cart-title"></span>`을 둔다.
 
+<!-- sdk-guide:web.dom -->
 ```ts
 import { HttpRynL10n } from "@rynl10n/web";
 import { cfg } from "./config";
@@ -113,6 +115,7 @@ Android(`./gradlew rynl10nBake … -PstableName=true -Pout=<out>`, JDK 21만 있
 빌드 산출물(`snapshot.json`)을 쓰는 길은 두 갈래이고 둘 다 같은 검증 관문을 지난다 — 잘못된 JSON을
 import해도 런타임 깊은 곳이 아니라 여기서 안내 메시지와 함께 실패한다.
 
+<!-- sdk-guide:web.bundle-import -->
 ```ts
 import { BakedBundle } from "@rynl10n/web";
 import raw from "./rynl10n/snapshot.json";
@@ -121,6 +124,7 @@ import raw from "./rynl10n/snapshot.json";
 const bundle = BakedBundle.parse(raw);
 ```
 
+<!-- sdk-guide:web.bundle-fetch -->
 ```ts
 import { BakedBundle } from "@rynl10n/web";
 
@@ -134,6 +138,7 @@ const lock = await BakedBundle.loadLockfile("/assets"); // 어느 릴리스가 �
 배포 플레인 산출물은 **내용해시 URL이라 한 번 받으면 영구 유효**하다. 기본값은 `localStorage`이며
 탭을 새로 열거나 오프라인으로 다시 들어와도 마지막 카탈로그가 그대로 살아 있다.
 
+<!-- sdk-guide:web.cache -->
 ```ts
 import { HttpRynL10n, memoryCache } from "@rynl10n/web";
 import { cfg } from "./config";
@@ -165,6 +170,7 @@ sdk.clearCache();                                   // 로그아웃·프로젝�
 
 ### 실시간 푸시 (옵트인, M4)
 
+<!-- sdk-guide:web.push -->
 ```ts
 import { HttpRynL10n } from "@rynl10n/web";
 import { cfg } from "./config";
@@ -184,6 +190,7 @@ void sdk.connectServerPush(); // SSE 'manifest' 신호 → 즉시 refresh
 대시보드 **관측성** 탭과 `releases/{r}/health`(카나리 판정의 입력)를 채운다. 옵트인이 두 겹이다 —
 **수집**(`telemetry: "aggregate"`)과 **전송**(`telemetryEndpoint`). 하나라도 없으면 아무것도 나가지 않는다.
 
+<!-- sdk-guide:web.telemetry -->
 ```ts
 import { HttpRynL10n } from "@rynl10n/web";
 import { cfg } from "./config";
@@ -212,6 +219,7 @@ document.addEventListener("visibilitychange", () => {
 
 `createStore`는 `useSyncExternalStore` 계약(subscribe + getVersion)과 호환된다:
 
+<!-- sdk-guide:web.react -->
 ```tsx
 import { useSyncExternalStore } from "react";
 import { createStore } from "@rynl10n/web";

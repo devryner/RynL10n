@@ -18,7 +18,10 @@
     "test:mcp-stdio": "node --test \"mcp-stdio/test/*.test.ts\"",
     "typecheck:mcp-stdio": "tsc --noEmit -p mcp-stdio/tsconfig.json",
     "backend": "node backend/src/main.ts",
-    "smoke:consumer": "node tools/consumer-smoke/run.ts"
+    "smoke:consumer": "node tools/consumer-smoke/run.ts",
+    "check:sdk-guides": "node tools/sdk-guides/run.ts",
+    "test:sdk-guides": "node --test tools/sdk-guides/examples.test.ts",
+    "typecheck:sdk-guides": "tsc --noEmit -p tools/sdk-guides/tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

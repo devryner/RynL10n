@@ -54,6 +54,7 @@ M0 TS 참조 구현이 정규화·해시·resolve·매칭·포맷·라우팅의 
   오프라인이면 마지막 캐시로 진행한다. 동기 프로토콜(`DeliveryStore`) 조회는 **캐시만** 본다(네트워크 대기 없음).
 - 빌드·테스트: 저장소 루트에서 `swift test` (51개: 골든 9 + 원격 배포 12 + 폴링·푸시·텔레메트리 10 + **로케일 축 5** + 시나리오 A/B/C·충돌 검사 4 + M4 5 + 변환 3 + bake 2 + 반응형 1).
 
+<!-- sdk-guide:ios.core -->
 ```swift
 let client = RynL10nClient(bundle: bakedSnapshot, store: cdnStore,
                            context: .init(appVersion: "3.2.1"))
@@ -184,6 +185,7 @@ swift run rynl10n-bake --fetch "$API/projects/$PROJECT/releases/$RELEASE/snapsho
 **iOS — SPM build tool plugin.** 소비 패키지가 vendored 스냅샷(`Sources/<Target>/rynl10n/release-snapshot.json`)을
 두고 플러그인 한 줄만 추가하면 `swift build`가 자동으로 bake해 **앱 리소스 번들에 포함**한다(에어갭·샌드박스 적합):
 
+<!-- sdk-guide:ios.plugin-target -->
 ```swift
 .executableTarget(
     name: "App",
