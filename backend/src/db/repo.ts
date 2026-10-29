@@ -4,11 +4,13 @@
  */
 import type { DatabaseSync } from "node:sqlite";
 import type { TranslationValue, VersionMatch, ReleaseState } from "../../../src/core/types.ts";
+import { requirePublishPolicy, type PublishPolicy } from "../pipeline/publish-policy.ts";
 
 export interface ProjectRow {
   readonly id: string;
   readonly name: string;
   readonly defaultLocale: string;
+  readonly publishPolicy: PublishPolicy;
 }
 export interface ReleaseRow {
   readonly id: string;
@@ -48,7 +50,7 @@ export interface KeyDetail {
 
 /** 프로젝트 전체 export(데이터 이식성 9.2 / 백업 9.4) — id 비의존, 참조는 이름 기반. */
 export interface ProjectExport {
-  readonly project: ProjectRow;
+  readonly project: Omit<ProjectRow, "publishPolicy"> & { readonly publishPolicy?: PublishPolicy };
   readonly locales: ReadonlyArray<{ tag: string; fallbackParent: string | null }>;
   readonly keys: ReadonlyArray<{
     name: string; signature: string; isPlural: boolean;
@@ -120,14 +122,18 @@ export class Repo {
     for (const tag of new Set([defaultLocale, ...locales])) ins.run(id, tag);
   }
   getProject(id: string): ProjectRow | undefined {
-    const r = this.db.prepare("SELECT id,name,default_locale FROM projects WHERE id=?").get(id) as
-      | { id: string; name: string; default_locale: string } | undefined;
-    return r ? { id: r.id, name: r.name, defaultLocale: r.default_locale } : undefined;
+    const r = this.db.prepare("SELECT id,name,default_locale,require_reviewed,require_default_locale FROM projects WHERE id=?").get(id) as
+      | ProjectDbRow | undefined;
+    return r ? mapProject(r) : undefined;
   }
   listProjects(): ProjectRow[] {
-    return (this.db.prepare("SELECT id,name,default_locale FROM projects ORDER BY id").all() as
-      { id: string; name: string; default_locale: string }[])
-      .map((r) => ({ id: r.id, name: r.name, defaultLocale: r.default_locale }));
+    return (this.db.prepare("SELECT id,name,default_locale,require_reviewed,require_default_locale FROM projects ORDER BY id").all() as ProjectDbRow[])
+      .map(mapProject);
+  }
+  setPublishPolicy(projectId: string, policy: PublishPolicy): void {
+    const valid = requirePublishPolicy(policy);
+    this.db.prepare("UPDATE projects SET require_reviewed=?,require_default_locale=? WHERE id=?")
+      .run(valid.requireReviewed ? 1 : 0, valid.requireDefaultLocale ? 1 : 0, projectId);
   }
   /**
    * 프로젝트 완전 삭제 — 하위 엔티티까지 한 트랜잭션으로.
@@ -397,6 +403,7 @@ export class Repo {
     this.db.exec("BEGIN");
     try {
       this.createProject(data.project.id, data.project.name, data.project.defaultLocale, []);
+      if (data.project.publishPolicy !== undefined) this.setPublishPolicy(data.project.id, data.project.publishPolicy);
       for (const l of data.locales) this.addLocale(data.project.id, l.tag, l.fallbackParent ?? undefined);
       const keyId = new Map<string, number>();
       for (const k of data.keys) {
@@ -527,6 +534,16 @@ function mapUser(r: any): UserRow {
     id: r.id, name: r.name, role: r.role,
     projects: r.projects === "*" ? "*" : (JSON.parse(r.projects) as string[]),
     disabled: !!r.disabled, createdAt: r.created_at,
+  };
+}
+
+type ProjectDbRow = {
+  id: string; name: string; default_locale: string; require_reviewed: number; require_default_locale: number;
+};
+function mapProject(r: ProjectDbRow): ProjectRow {
+  return {
+    id: r.id, name: r.name, defaultLocale: r.default_locale,
+    publishPolicy: { requireReviewed: !!r.require_reviewed, requireDefaultLocale: !!r.require_default_locale },
   };
 }
 

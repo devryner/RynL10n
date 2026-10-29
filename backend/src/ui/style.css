@@ -53,6 +53,13 @@
   color-scheme: light dark;
 }
 
+.translation-import .import-file { margin-top: 10px; }
+.translation-import .import-value { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 160px; }
+.translation-import .import-warning { color: var(--warn); }
+.translation-import .import-overwrite { margin: 14px 0; padding: 10px; background: var(--warn-tint); border-radius: var(--radius-control); }
+.translation-import .import-description { display: grid; gap: 4px; margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.publish-policy > .row { margin-top: 10px; }
+
 /* 다크 — 같은 민트 계열을 **역할 그대로** 옮긴 것이다. 표면 순서(bg가 가장 어둡고 카드가 그 위)와
    액센트 짝만 다시 정의하면 되고, 컴포넌트 규칙은 하나도 덮어쓰지 않는다. */
 @media (prefers-color-scheme: dark) {

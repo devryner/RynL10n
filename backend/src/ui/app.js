@@ -90,6 +90,9 @@ const EXPLAIN = {
   signature_mismatch: "422 — 플레이스홀더 서명 불일치",
   range_conflict: "409 — 앱 버전 범위 충돌",
   empty_release: "422 — 나갈 번역이 없는 릴리스",
+  publish_policy_failed: "422 — 게시 품질 정책을 충족하지 못했습니다",
+  import_conflict: "409 — 가져올 번역과 현재 상태가 충돌합니다",
+  stale_import: "409 — 미리보기 이후 번역이 바뀌었습니다",
   conflict: "409 — 현재 상태와 충돌",
   forbidden: "403 — 권한 부족",
   not_found: "404 — 대상을 찾을 수 없음",
@@ -116,7 +119,7 @@ const state = {
   live: false,
   filter: emptyFilter(), // 번역 탭 검색·필터(클라이언트 측 — 키 목록은 이미 전부 받아온다)
   pendingImport: null,   // {fileName, data} — 파일을 고른 뒤 복원 전까지 들고 있는 export(9.2)
-  pendingTranslationImport: null, // {fileName, data} — 현재 프로젝트에 키·번역을 병합하기 전 미리보기
+  pendingTranslationImport: null, // {format, files, preview, overwrite} — 서버 미리보기 후에만 반영
   users: [],             // 사용자 관리(7.3) — admin일 때만 채운다
   issuedToken: null,     // {userId, token} — 방금 발급한 토큰 평문. **이 화면이 유일한 노출**이다
   instanceView: "projects", // 프로젝트에 들어가 있지 않을 때 어느 인스턴스 화면인가: projects | mcp
@@ -1121,66 +1124,170 @@ function tabTranslations() {
   ];
 }
 
-/**
- * 현재 프로젝트에 키·번역만 병합하는 JSON import. 전체 프로젝트 import와 달리 기존 값은
- * 같은 (키, 로케일)이 있으면 갱신되고, 파일에 없는 값은 그대로 남는다.
- */
+/** 파일 선택은 로컬 상태만 바꾼다. 서버 검증·기존 값 비교 후 명시적으로 반영한다. */
 function translationImportPanel() {
-  const picker = el("input", { type: "file", accept: "application/json,.json" });
+  const pending = state.pendingTranslationImport ??= {
+    format: "rynl10n", files: [], preview: null, overwrite: false, busy: false, page: 0, warningPage: 0,
+  };
+  const projectId = state.projectId;
+  const current = () => state.projectId === projectId && state.pendingTranslationImport === pending;
+  const invalidate = () => { pending.preview = null; pending.overwrite = false; pending.page = 0; pending.warningPage = 0; };
+  const source = () => ({
+    format: pending.format,
+    files: pending.files.map((file) => pending.format === "xcstrings" || pending.format === "rynl10n"
+      ? { name: file.name, content: file.content } : { ...file }),
+  });
+  const format = el("select", { "aria-label": "가져오기 형식", disabled: pending.busy },
+    ...[
+      ["rynl10n", "RynL10n JSON"], ["xcstrings", "Apple .xcstrings"],
+      ["android-xml", "Android strings.xml"], ["arb", "Flutter .arb"], ["i18next", "i18next JSON"],
+    ].map(([value, text]) => el("option", { value, text })),
+  );
+  format.value = pending.format;
+  format.addEventListener("change", () => {
+    if (pending.busy) return;
+    pending.format = format.value; invalidate(); renderProject();
+  });
+  const picker = el("input", {
+    type: "file", multiple: true, accept: ".json,.xcstrings,.xml,.arb,application/json,text/xml",
+    "aria-label": "번역 파일", disabled: pending.busy,
+  });
   picker.addEventListener("change", async () => {
-    const file = picker.files?.[0];
-    if (!file) return;
-    let data;
-    try { data = JSON.parse(await file.text()); } catch (e) {
-      toast("error", "JSON을 읽지 못했습니다", String(e.message ?? e));
-      return;
-    }
-    if (!Array.isArray(data?.keys) || !data.keys.length) {
-      toast("error", "번역 import 파일이 아닙니다", "비어 있지 않은 keys 배열이 필요합니다.");
-      return;
-    }
-    state.pendingTranslationImport = { fileName: file.name ?? "translations.json", data };
+    if (pending.busy || !picker.files?.length) return;
+    const selectedFormat = pending.format;
+    const files = [];
+    try {
+      for (const file of Array.from(picker.files)) {
+        const content = await file.text();
+        if (selectedFormat !== "android-xml") {
+          const data = JSON.parse(content);
+          if (selectedFormat === "rynl10n" && (!Array.isArray(data?.keys) || !data.keys.length)) {
+            throw new Error("비어 있지 않은 keys 배열이 필요합니다.");
+          }
+        }
+        files.push({ name: file.name ?? "translations.json", content });
+      }
+    } catch (e) { toast("error", "번역 파일을 읽지 못했습니다", String(e.message ?? e)); return; }
+    if (!current() || selectedFormat !== pending.format) return;
+    pending.files.push(...files); invalidate();
     renderProject();
   });
 
-  if (!state.pendingTranslationImport) {
-    return el("div", { class: "panel" },
-      el("h2", {}, "번역 JSON 가져오기",
-        el("span", { class: "hint", text: "현재 프로젝트에 키·번역만 일괄 추가·갱신" })),
-      el("div", { class: "row" },
-        el("label", { class: "field grow" }, "JSON 파일", picker),
-      ),
-      el("p", { class: "small muted" },
-        "형식: ", el("code", { text: '{"keys":[{"name":"home.title","translations":[{"locale":"ko","value":"홈","state":"reviewed"}]}]}' }),
-      ),
-    );
-  }
-
-  const { fileName, data } = state.pendingTranslationImport;
-  const translationCount = data.keys.reduce((n, k) => n + (Array.isArray(k?.translations) ? k.translations.length : 0), 0);
-  const localeCount = new Set(data.keys.flatMap((k) => Array.isArray(k?.translations)
-    ? k.translations.map((t) => t?.locale).filter(Boolean) : [])).size;
-  const counts = `키 ${data.keys.length} · 번역 ${translationCount} · 로케일 ${localeCount}`;
-
+  const needsLocale = pending.format === "android-xml" || pending.format === "i18next";
+  const preview = async () => {
+    if (!pending.files.length || pending.busy || (needsLocale && pending.files.some((file) => !file.locale))) return;
+    pending.busy = true; invalidate(); renderProject();
+    const result = await run(null, () => api("POST", `/projects/${enc(projectId)}/translations/import/preview`, source()));
+    if (!current()) return;
+    pending.busy = false; pending.preview = result ?? null; renderProject();
+  };
   const apply = async () => {
-    const out = await run(null, () => api(
-      "POST", `/projects/${enc(state.projectId)}/translations/import`, data,
-    ));
-    if (!out) return;
+    if (!pending.preview || pending.busy || ((pending.preview.conflicts.length || pending.preview.metadataChanges?.length) && !pending.overwrite)) return;
+    pending.busy = true; renderProject();
+    const out = await run(null, async () => {
+      try {
+        return await api("POST", `/projects/${enc(projectId)}/translations/import`, {
+          ...source(), revision: pending.preview.revision, overwrite: pending.overwrite,
+        });
+      } catch (e) {
+        if (e.status === 409 && current()) {
+          invalidate();
+          e.message = `다시 미리보기 하세요 — ${e.message}`;
+        }
+        throw e;
+      }
+    });
+    if (!current()) return;
+    pending.busy = false;
+    if (!out) { renderProject(); return; }
     state.pendingTranslationImport = null;
     toast("ok", "번역을 가져왔습니다",
       `새 키 ${out.createdKeys} · 기존 키 ${out.updatedKeys} · 번역 ${out.translations}`);
     await refresh({ delivery: false });
   };
 
-  return el("div", { class: "panel", style: "border-color:var(--accent)" },
-    el("h2", {}, "번역 가져오기 확인", el("span", { class: "hint", text: fileName })),
-    el("p", { class: "small", text: counts }),
-    el("p", { class: "small muted",
-      text: "같은 키·로케일의 기존 값은 갱신됩니다. 파일에 없는 번역은 유지되며, 하나라도 잘못되면 전부 반영되지 않습니다." }),
+  const files = pending.files.map((file, index) => {
+    const locale = el("select", { "aria-label": `${file.name} 로케일 ${index + 1}`, disabled: pending.busy },
+      el("option", { value: "", text: needsLocale ? "로케일 선택 (필수)" : "파일에 기록된 로케일" }),
+      ...state.project.locales.map((tag) => el("option", { value: tag, text: tag })),
+    );
+    locale.value = file.locale ?? "";
+    locale.addEventListener("change", () => {
+      if (pending.busy) return;
+      if (locale.value) file.locale = locale.value; else delete file.locale;
+      invalidate(); renderProject();
+    });
+    return el("div", { class: "row import-file" },
+      el("span", { class: "mono grow", text: file.name }),
+      pending.format !== "rynl10n" && pending.format !== "xcstrings" ? locale : null,
+      el("button", { class: "tiny", text: "제거", disabled: pending.busy, onClick: () => {
+        if (pending.busy) return;
+        pending.files.splice(index, 1); invalidate(); renderProject();
+      } }),
+    );
+  });
+  const checked = pending.preview;
+  const needsOverwrite = !!(checked && (checked.conflicts.length || checked.metadataChanges?.length));
+  const overwrite = el("input", { type: "checkbox", "aria-label": "기존 번역 덮어쓰기 확인", disabled: pending.busy });
+  overwrite.checked = pending.overwrite;
+  overwrite.addEventListener("change", () => { pending.overwrite = overwrite.checked; renderProject(); });
+  const rows = checked?.changes ?? [];
+  const pageSize = 100;
+  const warnings = checked?.warnings ?? [];
+  const warningsPerPage = 20;
+  const value = (v) => v === undefined ? "—" : typeof v === "string" ? (v === "" ? '""' : v) : JSON.stringify(v);
+  return el("div", { class: "panel translation-import" },
+    el("h2", {}, checked ? "번역 가져오기 확인" : "번역 가져오기",
+      el("span", { class: "hint", text: "파일 선택 → 미리보기·충돌 확인 → 반영" })),
     el("div", { class: "row" },
-      el("button", { class: "primary", text: "가져오기", onClick: apply }),
-      el("button", { text: "취소", onClick: () => { state.pendingTranslationImport = null; renderProject(); } }),
+      el("label", { class: "field" }, "파일 형식", format),
+      el("label", { class: "field grow" }, "번역 파일 (여러 개 선택 가능)", picker)),
+    ...files,
+    needsLocale ? el("p", { class: "small muted", text: "각 파일의 로케일을 선택하세요. 다른 언어 파일은 추가로 선택해 함께 가져올 수 있습니다." }) : null,
+    el("p", { class: "small muted", text: "파일에 없는 번역은 유지됩니다. 네이티브 파일의 새 값·변경 값은 검수 전 초안으로 가져옵니다." }),
+    checked ? el("div", {},
+      el("p", { class: "small", text: `새 키 ${checked.createdKeys} · 기존 키 ${checked.updatedKeys} · 번역 ${checked.translations} · 로케일 ${checked.locales.length}` }),
+      warnings.length ? el("div", {},
+        el("h3", { text: `변환 안내 ${warnings.length}건` }),
+        ...warnings.slice(pending.warningPage * warningsPerPage, (pending.warningPage + 1) * warningsPerPage)
+          .map((warning) => el("p", { class: "small import-warning", text:
+            `${warning.file}${warning.key ? ` · ${warning.key}` : ""}: ${warning.message}` })),
+        warnings.length > warningsPerPage ? el("div", { class: "row" },
+          el("button", { text: "이전 안내", disabled: pending.warningPage === 0, onClick: () => {
+            if (pending.warningPage > 0) { pending.warningPage--; renderProject(); }
+          } }),
+          el("span", { class: "small", text: `안내 ${pending.warningPage + 1} / ${Math.ceil(warnings.length / warningsPerPage)}` }),
+          el("button", { text: "다음 안내", disabled: (pending.warningPage + 1) * warningsPerPage >= warnings.length, onClick: () => {
+            if ((pending.warningPage + 1) * warningsPerPage < warnings.length) { pending.warningPage++; renderProject(); }
+          } })) : null,
+      ) : null,
+      el("div", { class: "tablewrap" }, el("table", {},
+        el("thead", {}, el("tr", {}, ...["구분", "키", "로케일", "이전 값", "가져올 값", "검수 상태"].map((text) => el("th", { text })))),
+        el("tbody", {}, ...rows.slice(pending.page * pageSize, (pending.page + 1) * pageSize).map((change) => el("tr", {},
+          el("td", { text: change.type === "added" ? "추가" : change.type === "changed" ? "수정" : "동일" }),
+          el("td", { class: "mono", text: change.key }), el("td", { text: change.locale }),
+          el("td", { class: "import-value", text: value(change.before) }), el("td", { class: "import-value", text: value(change.after) }),
+          el("td", { class: "small", text: `${change.beforeState ?? "신규"} → ${change.afterState ?? "draft"}` }),
+        ))))),
+      rows.length > pageSize ? el("div", { class: "row" },
+        el("button", { text: "이전 변경", disabled: pending.page === 0, onClick: () => { if (pending.page > 0) { pending.page--; renderProject(); } } }),
+        el("span", { class: "small", text: `${pending.page + 1} / ${Math.ceil(rows.length / pageSize)} (전체 ${rows.length}건)` }),
+        el("button", { text: "다음 변경", disabled: (pending.page + 1) * pageSize >= rows.length, onClick: () => {
+          if ((pending.page + 1) * pageSize < rows.length) { pending.page++; renderProject(); }
+        } })) : null,
+      checked.metadataChanges?.length ? el("div", {},
+        el("h3", { text: "키 설명 변경" }),
+        ...checked.metadataChanges.map((change) => el("div", { class: "import-description" },
+          el("b", { class: "mono", text: change.key }),
+          el("span", { text: `${value(change.beforeDescription)} → ${value(change.afterDescription)}` }),
+        ))) : null,
+      needsOverwrite ? el("label", { class: "row import-overwrite" }, overwrite,
+        `기존 번역 ${checked.conflicts.length}건·키 설명 ${checked.metadataChanges?.length ?? 0}건을 위 내용으로 덮어쓰겠습니다`) : null,
+    ) : null,
+    el("div", { class: "row" },
+      el("button", { text: checked ? "미리보기 새로고침" : "미리보기", disabled: pending.busy || !pending.files.length || (needsLocale && pending.files.some((file) => !file.locale)), onClick: preview }),
+      checked ? el("button", { class: "primary", text: "가져오기", disabled: pending.busy || (needsOverwrite && !pending.overwrite), onClick: apply }) : null,
+      pending.files.length ? el("button", { text: "취소", disabled: pending.busy, onClick: () => { state.pendingTranslationImport = null; renderProject(); } }) : null,
     ),
   );
 }
@@ -1279,7 +1386,7 @@ function translationCell(key, locale, editable) {
   let last = raw;
   async function save(nextState) {
     const text = input.value;
-    const target = nextState ?? t?.state ?? "draft";
+    const target = nextState ?? "draft"; // 값 수정은 다시 검수한다. 상태 칩 클릭만 명시적 승인이다.
     if (text === last && nextState === undefined) return;      // 변경 없음
     if (text === "" && t === undefined) return;                // 빈 칸 그대로면 요청 없음
 
@@ -1342,6 +1449,36 @@ function keyAdder() {
 
 // ── 탭: 릴리스 ──────────────────────────────────────────────────────────────
 
+function publishPolicyPanel() {
+  const policy = state.project.publishPolicy ?? { requireReviewed: false, requireDefaultLocale: false };
+  const editable = can("manage_release");
+  const reviewed = el("input", { type: "checkbox", disabled: !editable, "aria-label": "미검수 번역 게시 차단" });
+  const complete = el("input", { type: "checkbox", disabled: !editable, "aria-label": "기본 로케일 누락 게시 차단" });
+  reviewed.checked = policy.requireReviewed;
+  complete.checked = policy.requireDefaultLocale;
+  const save = el("button", { text: "게시 정책 저장", onClick: async () => {
+    if (!editable || save.disabled) return;
+    save.disabled = true;
+    const out = await run("게시 품질 정책을 저장했습니다", () => api("PATCH", `/projects/${enc(state.projectId)}`, {
+      publishPolicy: { requireReviewed: reviewed.checked, requireDefaultLocale: complete.checked },
+    }));
+    save.disabled = false;
+    if (out) await refresh({ delivery: false });
+  } });
+  return el("section", { class: "panel publish-policy" },
+    el("h2", {}, "게시 품질 정책", !editable ? el("span", { class: "hint", text: "읽기 전용" }) : null),
+    el("p", { class: "small muted", text: "선택한 규칙을 충족하지 못하면 릴리스 전체 게시를 막습니다. 초안 번역을 빼고 게시하지 않습니다." }),
+    el("label", { class: "row" }, reviewed, "미검수 번역이 있으면 게시 차단"),
+    el("label", { class: "row" }, complete, `릴리스 키에 기본 로케일(${state.project.defaultLocale}) 번역이 없으면 게시 차단`),
+    editable ? el("div", { class: "row" }, save) : null,
+  );
+}
+
+function publishPolicyIssueText(issue) {
+  const reason = issue.code === "unreviewed_translation" ? "검수 필요" : issue.code === "default_locale_missing" ? "기본 로케일 번역 누락" : issue.code;
+  return `${issue.key} · ${issue.locale}: ${reason}`;
+}
+
 function tabReleases() {
   const manage = can("manage_release");
   const rows = state.releases.map((r) => el("tr", {},
@@ -1358,6 +1495,7 @@ function tabReleases() {
   ));
 
   return [
+    publishPolicyPanel(),
     el("div", { class: "panel" },
       el("h2", {}, "릴리스",
         el("span", { class: "hint", text: "publish 시 범위가 겹치면 409로 차단됩니다" })),
@@ -1431,6 +1569,15 @@ function releaseActions(r, manage) {
 }
 
 async function publishReleaseFromUi(r) {
+  const policy = state.project.publishPolicy;
+  if (policy?.requireReviewed || policy?.requireDefaultLocale) {
+    const diff = await run(null, () => api("GET", `/projects/${enc(state.projectId)}/releases/${enc(r.id)}/changes`));
+    if (!diff) return;
+    if (diff.publishCheck?.ok === false) {
+      toast("error", "게시 품질 정책을 충족하지 못했습니다", diff.publishCheck.issues.map(publishPolicyIssueText).join("\n"));
+      return;
+    }
+  }
   const res = await run(null, () => api("POST", `/projects/${enc(state.projectId)}/releases/${enc(r.id)}/publish`));
   if (!res) return;
   const job = await run(null, () => api("GET", `/projects/${enc(state.projectId)}/jobs/${enc(res.jobId)}`));
@@ -1461,6 +1608,7 @@ async function openReleaseCatalog(r) {
   // 게시 전 판정 둘 — 서버 publishRelease와 같은 기준이다. 빈 릴리스는 서버가 422로 거절하므로 게시
   // 단추를 내지 않는다. 빠진 키는 서버도 막지 않으므로(새 앱 버전에서 걷어낸 키일 수 있다) 이름만 보여 준다.
   const emptyRelease = diff.target.entries === 0;
+  const policyBlocked = diff.publishCheck?.ok === false;
   const droppedKeys = [...new Set(diff.changes.filter((c) => c.type === "deleted").map((c) => c.key))].sort();
   const DROPPED_SHOWN = 20;
   const search = el("input", { type: "search", placeholder: "키 또는 로케일 검색", "aria-label": "변경사항 검색" });
@@ -1541,6 +1689,10 @@ async function openReleaseCatalog(r) {
               ...droppedKeys.slice(0, DROPPED_SHOWN).map((n) => el("span", { class: "badge mono", text: n })),
               droppedKeys.length > DROPPED_SHOWN ? el("span", { class: "small muted", text: `외 ${droppedKeys.length - DROPPED_SHOWN}개` }) : null))
           : null,
+      policyBlocked ? el("div", { class: "release-check-note bad" },
+        el("b", { text: "게시할 수 없습니다 — 프로젝트 게시 품질 정책" }),
+        ...diff.publishCheck.issues.map((issue) => el("span", { text: publishPolicyIssueText(issue) })),
+      ) : null,
       el("div", { class: "row filters release-diff-tools" }, search, filter),
       el("div", { class: "tablewrap release-diff-table" },
         el("table", {},
@@ -1569,7 +1721,7 @@ async function openReleaseCatalog(r) {
       ),
     ),
     el("div", { class: "row end", style: "margin-top:10px" },
-      can("manage_release") && !emptyRelease ? el("button", { class: "primary", text: "이 변경사항 게시", onClick: () => publishReleaseFromUi(r) }) : null,
+      can("manage_release") && !emptyRelease && !policyBlocked ? el("button", { class: "primary", text: "이 변경사항 게시", onClick: () => publishReleaseFromUi(r) }) : null,
       el("button", { text: "닫기", onClick: () => renderProject() })),
   );
   document.querySelector("main").replaceChildren(panel);

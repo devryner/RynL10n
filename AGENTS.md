@@ -5,7 +5,7 @@ This file provides guidance to coding agents when working with code in this repo
 ## 저장소 현재 상태 (중요)
 
 **로드맵 M0~M4 전 마일스톤 완주 + 파리티 마감 + 대시보드 구현 상태다.** 기획서(SoT)의 모든 확정 설계가 구현·검증됐다.
-테스트 591개(TS 참조 78 · 백엔드 253 · mcp-stdio 45 · Web 33 · iOS 58 · Android 70 · Flutter 54 —
+테스트 655개(TS 참조 78 · 백엔드 317 · mcp-stdio 45 · Web 33 · iOS 58 · Android 70 · Flutter 54 —
 2026-08-13 전 컴포넌트 재실행, 2026-08-20 번역 import·관측성 탭 추가 후 TS·백엔드 재실행,
 같은 날 **4개 SDK 전부에 폴링·푸시·텔레메트리 전송**을 맞추고 전 컴포넌트 재실행 +
 iOS는 실제 백엔드 대상 왕복 확인. 2026-08-25 빈 문자열 처리 3건 수정 + 회귀 10개 추가 후
@@ -69,7 +69,7 @@ Flutter 위젯·IO·Chrome의 HTTP·localStorage 검증을 통과했다. 로컬 
     전체 실행에는 Xcode·Android SDK 35·Flutter·Chrome이 필요하며 도구가 없으면 실패한다.
     README의 게시본 설치 선언을 쓰므로 이 추가 단계는 로컬 전용이다(태그 게시 전 Actions 게이트와 구분).
   - `npm run smoke:consumer` — **소비자 스모크**(`tools/consumer-smoke/`). 네 채널의 **게시본**을
-    저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 591개는 전부 소스를
+    저장소 밖 빈 프로젝트에서 실 좌표로 설치해 `t()`까지 굴린다. 저장소 테스트 655개는 전부 소스를
     보므로 게시본에만 있는 실패(패키징 누락·`exports` 경로·POM 스코프·태그가 가리키는 커밋)를 볼
     자리가 여기뿐이다. CI 아님 — **태그를 민 직후 로컬 1회**. 케이스는 `run.ts`의 `CHECKS` 한 곳에
     있고 네 언어가 같은 `checks.json`을 읽는다(골든 벡터와 같은 원리). 전제는 하나 — 소비자 쪽에
@@ -189,6 +189,17 @@ publish 지표에는 `result="empty"`가 따로 있다(입력 거절이 오류�
 파일 내부 서명 불일치와 **기존 키의 서명·복수형 불일치는 422**), 적용은 `Repo.importTranslations`의
 단일 트랜잭션. 서명 검사를 건너뛰면 포맷 가드(3.1)가 무력화된 카탈로그가 대량으로 들어와 런타임이 깨지고,
 트랜잭션이 없으면 대량 입력 도중 실패했을 때 무엇을 다시 올려야 하는지 알 수 없다.
+
+**네이티브 가져오기·게시 정책(2026-10-29)**: 번역 탭에서 `.xcstrings`·Android XML·ARB·i18next JSON을
+다중 파일로 미리보기한다. `POST .../translations/import/preview`가 변환 후 같은 검증기를 쓰고,
+실제 import는 원본 파일과 `revision`·`overwrite`로 대상 값·검수·설명 변경을 재확인한다(409).
+새·변경 네이티브 값은 draft, 동일 값의 검수는 유지한다. 복합 서식은 손실 없이 지원할 수 없으면
+400으로 거절한다. 세부 포맷·인자 변환은 `backend/README.md`의 "기존 번역 파일 가져오기"가 원천이다.
+프로젝트 `publishPolicy`의 `requireReviewed`·`requireDefaultLocale`은 기본 false. Maintainer+가 릴리스
+탭/프로젝트 PATCH에서 설정하고, `pipeline/publish-policy.ts` 한 검사기를 미리보기·게시·MCP·rebuild가
+쓴다. 422 `publish_policy_failed`는 전체 릴리스를 막고 초안만 빼서 게시하지 않는다. rollback은 기존
+산출물 복구이므로 현재 draft와 무관하다. 정책은 백업에 포함하며 구 백업은 기본값으로 복원한다.
+백엔드 회귀 64개 추가, 로컬 CI `reference` 대상. 코어·SDK·골든 벡터는 바뀌지 않았다.
 
 ### 데이터 모델 (기획서 5)
 

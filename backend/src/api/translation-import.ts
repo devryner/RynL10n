@@ -60,6 +60,7 @@ export function requireTranslationImport(body: any, repo: Repo, projectId: strin
   for (const [keyIndex, rawKey] of body.keys.entries()) {
     const name = typeof rawKey?.name === "string" ? rawKey.name.trim() : "";
     if (!name) bad(`keys[${keyIndex}].name이 필요합니다`);
+    if (name === "__proto__") bad("__proto__는 번역 키로 사용할 수 없습니다");
     if (names.has(name)) bad(`키 "${name}"가 중복되었습니다`);
     names.add(name);
     if (rawKey.description !== undefined && typeof rawKey.description !== "string") bad(`키 "${name}"의 description은 문자열이어야 합니다`);
@@ -73,6 +74,7 @@ export function requireTranslationImport(body: any, repo: Repo, projectId: strin
       const where = `키 "${name}" translations[${translationIndex}]`;
       const locale = typeof rawTranslation?.locale === "string" ? rawTranslation.locale.trim() : "";
       if (!locale) bad(`${where}.locale이 필요합니다`);
+      if (locale === "__proto__") bad(`${where}.locale은 유효한 로케일이어야 합니다`);
       if (!supportedLocales.has(locale)) bad(`${where}.locale "${locale}"는 프로젝트 지원 로케일이 아닙니다`);
       if (locales.has(locale)) bad(`키 "${name}"의 로케일 "${locale}"가 중복되었습니다`);
       locales.add(locale);

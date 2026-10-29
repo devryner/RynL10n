@@ -14,6 +14,7 @@ import type { ArtifactStore } from "../storage/store.ts";
 import { type Metrics, METRIC } from "../observability/metrics.ts";
 import type { Notifier } from "../observability/notifier.ts";
 import { publishAtomically } from "./publication.ts";
+import { checkPublishPolicy, PublishPolicyError, type PublishCheck } from "./publish-policy.ts";
 
 export { RangeConflictError };
 export class NotFoundError extends Error {
@@ -118,6 +119,7 @@ export interface ReleaseChange {
 }
 export interface ReleaseChanges {
   readonly releaseId: string;
+  readonly publishCheck: PublishCheck;
   /** null이면 비교할 게시본이 없다 — 이 매칭 전략의 첫 게시다. */
   readonly baseline: { readonly releaseId: string; readonly hash: string; readonly entries: number } | null;
   readonly target: { readonly releaseId: string; readonly hash: string; readonly entries: number };
@@ -176,6 +178,7 @@ export function releaseChanges(repo: Repo, store: ArtifactStore, projectId: stri
 
   return {
     releaseId,
+    publishCheck: checkPublishPolicy(repo, project, releaseId),
     baseline: baseline && base
       ? { releaseId: base.release.id, hash: baseline.base, entries: snapshotEntryCount(baseline.locales) }
       : null,
@@ -229,6 +232,8 @@ function publishReleaseWithJob(
   if (snapshotEntryCount(newSnap.locales) === 0) {
     throw new EmptyReleaseError(releaseId, repo.listReleaseKeys(projectId, releaseId).length);
   }
+  const publishCheck = checkPublishPolicy(repo, project, releaseId);
+  if (!publishCheck.ok) throw new PublishPolicyError(publishCheck);
   const baseline = baselineOf(repo, store, projectId, release)?.snapshot;
   const droppedKeys = baseline ? droppedKeyNames(baseline, newSnap) : [];
 
@@ -294,7 +299,8 @@ export function publishReleaseJob(
   } catch (e) {
     deps.repo.finishJob(jobId, "failed", { error: (e as Error).message });
     // 빈 릴리스는 서버 고장이 아니라 입력 거절이다 — error에 섞으면 오류율 경보가 사람의 실수로 울린다.
-    const result = e instanceof RangeConflictError ? "conflict" : e instanceof EmptyReleaseError ? "empty" : "error";
+    const result = e instanceof RangeConflictError ? "conflict" : e instanceof EmptyReleaseError ? "empty"
+      : e instanceof PublishPolicyError ? "policy" : "error";
     deps.metrics.inc(METRIC.publishTotal, { result });
     throw e;
   }

@@ -11,10 +11,17 @@ import type { Repo } from "../db/repo.ts";
 import type { ArtifactStore } from "../storage/store.ts";
 import type { Manifest } from "../../../src/core/types.ts";
 import { publishAtomically } from "../pipeline/publication.ts";
+import { checkPublishPolicy, PublishPolicyError } from "../pipeline/publish-policy.ts";
 
 export function rebuildAllArtifacts(repo: Repo, store: ArtifactStore, projectId: string): Manifest {
   const project = repo.getProject(projectId);
   if (!project) throw new Error(`없는 프로젝트: ${projectId}`);
+
+  for (const release of repo.listReleases(projectId)) {
+    if (release.state === "draft" || release.state === "archived") continue;
+    const check = checkPublishPolicy(repo, project, release.id);
+    if (!check.ok) throw new PublishPolicyError(check);
+  }
 
   return publishAtomically(repo, store, projectId, () => {
     const records: ReleaseRecord[] = [];

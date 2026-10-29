@@ -18,6 +18,7 @@ import type { Notifier } from "../observability/notifier.ts";
 import { authorize, AuthError, type Capability, type Principal } from "../auth/rbac.ts";
 import { HttpError, BadRequestError } from "../api/errors.ts";
 import { publishReleaseJob, NotFoundError } from "../pipeline/publish.ts";
+import { PublishPolicyError } from "../pipeline/publish-policy.ts";
 import { validateTranslation } from "./validate.ts";
 import { resolvePreview } from "./preview.ts";
 
@@ -202,6 +203,7 @@ export const MCP_TOOLS: readonly McpTool[] = [
       "나갈 번역이 하나도 없는 릴리스(키를 안 담았거나 담은 키에 번역이 없음)는 422로 거부된다 — 그 버전대 앱의 번역이 전부 사라지기 때문이다. " +
       "직전 게시본에 있던 키가 이번 카탈로그에 없으면 **막지 않고** 결과의 droppedKeys로 알린다 — 새 앱 버전에서 걷어낸 키일 수도 있어서다. " +
       "의도한 제거가 아니면 그 키를 릴리스에 담아 다시 게시할 것. " +
+      "프로젝트가 검수 완료·기본 로케일 완비를 요구하면 위반한 키·로케일을 고치기 전에는 게시할 수 없다. " +
       "maintainer 이상(manage_release) 토큰에서만 목록에 나타난다 — 역할 상한을 viewer·translator로 발급한 토큰에는 이 도구가 없다.",
     capability: "manage_release",
     inputSchema: {
@@ -305,7 +307,12 @@ export function handleMcpMessage(deps: McpDeps, principal: Principal, msg: any):
       } catch (e) {
         const err = e as HttpError & AuthError;
         const status = typeof err.status === "number" ? err.status : 500;
-        return ok(id, toolResult(`오류(${status}): ${err.message}`, { error: { status, message: err.message } }, true));
+        return ok(id, toolResult(`오류(${status}): ${err.message}`, {
+          error: {
+            status, message: err.message,
+            ...(e instanceof PublishPolicyError ? { code: "publish_policy_failed", publishCheck: e.publishCheck } : {}),
+          },
+        }, true));
       }
     }
     default:

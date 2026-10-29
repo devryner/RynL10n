@@ -227,8 +227,8 @@ swift run rynl10n-bake "$SNAPSHOT" "$OUT/ios"
 ## 관측성 (9.3)
 
 - **Prometheus**: `GET /metrics` — publish 카운트·소요시간, API 요청·지연, 텔레메트리 이벤트.
-  `rynl10n_publish_total`의 `result`는 **`success` / `conflict` / `empty` / `error`** — 나갈 번역이 없어
-  거절된 publish(422 `empty_release`)는 `empty`라 입력 거절이 오류율에 섞이지 않는다.
+  `rynl10n_publish_total`의 `result`는 **`success` / `conflict` / `empty` / `policy` / `error`** — 빈 릴리스는
+  `empty`, 프로젝트 게시 품질 정책 위반은 `policy`라 입력 거절이 서버 오류율에 섞이지 않는다.
 - **구조화 로그**: stdout JSON 라인(5xx 등). 기존 로그 파이프라인에 그대로 물림.
 - **텔레메트리(옵트인·익명·집계)**: SDK `telemetry: 'aggregate'` → 5개 이벤트(release_applied /
   overlay_applied / format_guard_rejected / key_unresolved / delta_failed) 카운트만 리포트.

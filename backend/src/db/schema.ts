@@ -37,6 +37,9 @@ const MIGRATIONS: readonly string[] = [
   // 기본값이 곧 기존 동작이라 이미 발급된 토큰은 그대로 살아 있다.
   "ALTER TABLE user_tokens ADD COLUMN surface TEXT NOT NULL DEFAULT 'all'",
   "ALTER TABLE user_tokens ADD COLUMN max_role TEXT",
+  // 기존 프로젝트는 opt-in 전까지 기존 게시 동작을 유지한다.
+  "ALTER TABLE projects ADD COLUMN require_reviewed INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE projects ADD COLUMN require_default_locale INTEGER NOT NULL DEFAULT 0",
 ];
 
 function migrate(db: DatabaseSync): void {
@@ -49,7 +52,9 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
   id             TEXT PRIMARY KEY,
   name           TEXT NOT NULL,
-  default_locale TEXT NOT NULL
+  default_locale TEXT NOT NULL,
+  require_reviewed INTEGER NOT NULL DEFAULT 0,
+  require_default_locale INTEGER NOT NULL DEFAULT 0
 );
 
 -- 지원 로케일(BCP 47). fallback_parent는 명시적 override(5.1), 없으면 태그 절단.

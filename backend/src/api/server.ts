@@ -25,6 +25,8 @@ import { handleMcpMessage, listMcpTools } from "../mcp/server.ts";
 
 import { HttpError, SignatureMismatchError, BadRequestError, ConflictError } from "./errors.ts";
 import { requireTranslationImport } from "./translation-import.ts";
+import { previewNativeImport, applyNativeImport } from "./native-import-preview.ts";
+import { requirePublishPolicy, PublishPolicyError } from "../pipeline/publish-policy.ts";
 
 interface Ctx {
   readonly params: Record<string, string>;
@@ -144,6 +146,7 @@ function requireProjectExport(body: any): ProjectExport {
 
   const p = body?.project;
   if (!str(p?.id) || !str(p?.name) || !str(p?.defaultLocale)) bad("project.id · project.name · project.defaultLocale 필요(문자열)");
+  if (p.publishPolicy !== undefined) requirePublishPolicy(p.publishPolicy);
   for (const f of ["locales", "keys", "releases"] as const) {
     if (!Array.isArray(body[f])) bad(`${f} 배열 필요`);
   }
@@ -218,7 +221,11 @@ const routes: Route[] = [
   // 프로젝트 생성 — Admin
   route("POST", "/projects", "admin", ({ body, repo }) => {
     if (!body?.id || !body?.name || !body?.defaultLocale) throw new BadRequestError("id, name, defaultLocale 필요");
-    repo.createProject(body.id, body.name, body.defaultLocale, body.locales ?? []);
+    const policy = body.publishPolicy === undefined ? undefined : requirePublishPolicy(body.publishPolicy);
+    repo.transaction(() => {
+      repo.createProject(body.id, body.name, body.defaultLocale, body.locales ?? []);
+      if (policy !== undefined) repo.setPublishPolicy(body.id, policy);
+    });
     return { status: 201, body: { id: body.id, state: "created" } };
   }),
 
@@ -234,6 +241,16 @@ const routes: Route[] = [
     const project = repo.getProject(params.p!);
     if (!project) throw new NotFoundError(`project ${params.p}`);
     return { status: 200, body: { ...project, locales: repo.listLocales(params.p!) } };
+  }),
+
+  route("PATCH", "/projects/:p", "manage_release", ({ params, body, repo, principal }) => {
+    if (!repo.getProject(params.p!)) throw new NotFoundError(`project ${params.p}`);
+    const publishPolicy = requirePublishPolicy(body?.publishPolicy);
+    repo.transaction(() => {
+      repo.setPublishPolicy(params.p!, publishPolicy);
+      repo.audit(params.p!, principal!.actor, "project.publish_policy", publishPolicy);
+    });
+    return { status: 200, body: repo.getProject(params.p!) };
   }),
 
   // 프로젝트 삭제 — Admin. 되돌릴 수 없다(DB + 산출물).
@@ -312,8 +329,16 @@ const routes: Route[] = [
   }),
 
   // 기존 프로젝트에 키·번역 JSON 일괄 upsert — Translator+. 전체 검증 후 단일 트랜잭션 적용.
+  route("POST", "/projects/:p/translations/import/preview", "edit_translation", ({ params, body, repo }) => {
+    if (!repo.getProject(params.p!)) throw new NotFoundError(`project ${params.p}`);
+    return { status: 200, body: previewNativeImport(body, repo, params.p!) };
+  }),
+
   route("POST", "/projects/:p/translations/import", "edit_translation", ({ params, body, repo }) => {
     if (!repo.getProject(params.p!)) throw new NotFoundError(`project ${params.p}`);
+    if (body?.format !== undefined || body?.files !== undefined) {
+      return { status: 200, body: applyNativeImport(body, repo, params.p!) };
+    }
     const normalized = requireTranslationImport(body, repo, params.p!);
     repo.importTranslations(params.p!, normalized.data);
     return {
@@ -726,11 +751,14 @@ export function createManagementHandler(deps: ServerDeps): ManagementHandler {
       const code = err.name === "AuthError" ? (status === 401 ? "unauthorized" : "forbidden")
         : err instanceof RangeConflictError ? "range_conflict"
         : err instanceof EmptyReleaseError ? "empty_release"
+        : err instanceof PublishPolicyError ? "publish_policy_failed"
         : status === 422 ? "signature_mismatch"
         : status === 409 ? "conflict"
         : status === 404 ? "not_found"
         : status === 400 ? "bad_request" : "internal";
-      send(status, { error: { code, message: err.message ?? "error" } });
+      send(status, { error: { code, message: err.message ?? "error",
+        ...(err instanceof PublishPolicyError ? { publishCheck: err.publishCheck } : {}),
+      } });
     }
   };
 }

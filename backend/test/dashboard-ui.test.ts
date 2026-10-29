@@ -268,11 +268,16 @@ test("값을 바꾸지 않고 포커스만 빠져나가면 요청을 보내지 �
   assert.equal(calls.length, before, "변경 없는 blur는 네트워크를 타면 안 된다");
 });
 
-test("번역 JSON 파일은 미리보기 후 현재 프로젝트 import API로 그대로 보낸다", async () => {
+test("번역 JSON 파일은 서버 미리보기·덮어쓰기 확인 후 import API로 보낸다", async () => {
   const { byId, store } = installDom();
   store["rynl10n.token"] = "tok-admin";
   const table = projectTable();
   table["POST /projects/shop/translations/import"] = { createdKeys: 1, updatedKeys: 1, translations: 3 };
+  table["POST /projects/shop/translations/import/preview"] = {
+    createdKeys: 1, updatedKeys: 1, translations: 3, locales: ["en", "ko"], warnings: [], revision: "json-preview",
+    changes: [{ key: "cart.title", locale: "ko", type: "changed", before: "장바구니", after: "카트", beforeState: "draft", afterState: "reviewed" }],
+    conflicts: [{ key: "cart.title", locale: "ko", before: "장바구니", after: "카트" }],
+  };
   const calls = installFetch(table);
   await loadApp();
   tags(byId.app, "button").find((b) => b.textContent === "shop")!.fire("click");
@@ -290,14 +295,22 @@ test("번역 JSON 파일은 미리보기 후 현재 프로젝트 import API로 �
   picker.fire("change");
   await settle();
 
-  assert.match(byId.app!.textContent, /번역 가져오기 확인/);
-  assert.match(byId.app!.textContent, /키 2 · 번역 3 · 로케일 2/);
+  assert.match(byId.app!.textContent, /translations\.json/);
   assert.equal(calls.filter((c) => c.method === "POST").length, before, "파일 선택만으로 쓰지 않는다");
 
+  tags(byId.app, "button").find((b) => b.textContent === "미리보기")!.fire("click");
+  await settle();
+  assert.match(byId.app!.textContent, /번역 가져오기 확인/);
+  assert.match(byId.app!.textContent, /새 키 1 · 기존 키 1 · 번역 3 · 로케일 2/);
+  const acknowledge = tags(byId.app, "input").find((i) => i.attrs["aria-label"] === "기존 번역 덮어쓰기 확인")!;
+  (acknowledge as any).checked = true;
+  acknowledge.fire("change");
   tags(byId.app, "button").find((b) => b.textContent === "가져오기")!.fire("click");
   await settle();
   const post = calls.find((c) => c.method === "POST" && c.path === "/projects/shop/translations/import")!;
-  assert.deepEqual(post.body, data);
+  assert.deepEqual(post.body, {
+    format: "rynl10n", files: [{ name: "translations.json", content: JSON.stringify(data) }], revision: "json-preview", overwrite: true,
+  });
   assert.match((globalThis as any).document.getElementById("toasts").textContent, /새 키 1 · 기존 키 1 · 번역 3/);
 });
 
@@ -313,7 +326,7 @@ test("깨진 번역 JSON은 로컬에서 막고 viewer에게는 파일 선택기
   picker.fire("change");
   await settle();
   assert.ok(!calls.some((c) => c.method === "POST"));
-  assert.match((globalThis as any).document.getElementById("toasts").textContent, /JSON을 읽지 못했습니다/);
+  assert.match((globalThis as any).document.getElementById("toasts").textContent, /번역 파일을 읽지 못했습니다/);
 
   const viewer = installDom();
   viewer.store["rynl10n.token"] = "tok-viewer";

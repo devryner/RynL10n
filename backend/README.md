@@ -8,7 +8,7 @@
 ```bash
 npm run backend            # 대시보드 + 관리 API :8787 · 배포 플레인 :8788 (node:sqlite 내장, 외부 의존성 0)
                            # → 브라우저로 http://localhost:8787 접속, 토큰으로 로그인
-npm run test:backend       # node --test — 파이프라인 + API 통합 + 대시보드 + 사용자 관리 (233 tests)
+npm run test:backend       # node --test — 파이프라인 + API 통합 + 대시보드 + 사용자 관리
 npm run typecheck:backend  # tsc --noEmit
 docker compose up          # 단일 노드 셀프호스트 (9.1)
 ```
@@ -79,6 +79,7 @@ export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없
 | `POST /projects` | Admin | 201 | 403 |
 | `GET /projects` | Viewer+ | 200 (토큰 스코프 내 프로젝트만) | 401 |
 | `GET /projects/{p}` | Viewer+ | 200 `{…,locales}` | 404 |
+| `PATCH /projects/{p}` | Maintainer+ | 200 (게시 정책 설정) | 400 · 404 |
 | `POST /projects/{p}/locales` | Maintainer+ | 200 `{locales}` | 400 · 404 |
 | `GET /projects/{p}/keys` | Viewer+ | 200 (키 + 로케일별 번역 + refCount) | 404 |
 | `GET /projects/{p}/releases/{r}/keys` | Viewer+ | 200 `{keys}` | 404 |
@@ -87,10 +88,11 @@ export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없
 | `GET /projects/{p}/telemetry` | Viewer+ | 200 (릴리스·앱 버전군·이벤트별 익명 집계) | 404 |
 | `PUT /projects/{p}/keys/{key}` | Translator+ | 200 `{id,name,signature,isPlural,description}` | — |
 | `PUT /projects/{p}/translations/{key}/{locale}` | Translator+ | 200 | **422** 서명 불일치 · 404 |
-| `POST /projects/{p}/translations/import` | Translator+ | 200 `{createdKeys,updatedKeys,translations}` | 400 형식·로케일 · **422** 서명/복수형 불일치 |
+| `POST /projects/{p}/translations/import/preview` | Translator+ | 200 (변환·충돌·검수 상태·설명·revision, 쓰기 없음) | 400 형식·로케일 · **422** 서명/복수형 불일치 |
+| `POST /projects/{p}/translations/import` | Translator+ | 200 `{createdKeys,updatedKeys,translations}` | 400 · **409** 미리보기 변경/덮어쓰기 미확인 · **422** 서명/복수형 불일치 |
 | `POST /projects/{p}/releases` | Maintainer+ | 201 | 400 |
 | `POST /projects/{p}/releases/{r}/keys` | Maintainer+ | 200 | 404 |
-| `POST /projects/{p}/releases/{r}/publish` | Maintainer+ | **202** {jobId} | **409** 범위 충돌 · **422** 나갈 번역 없음(`empty_release`) |
+| `POST /projects/{p}/releases/{r}/publish` | Maintainer+ | **202** {jobId} | **409** 범위 충돌 · **422** 빈 릴리스/게시 정책 위반 |
 | `PATCH /projects/{p}/releases/{r}` | Maintainer+ | 200 | 404 |
 | `POST /projects/{p}/releases/{r}/rollback` | Maintainer+ | 200 | 404 |
 | `POST /projects/{p}/translations/{key}/backport` | Maintainer+ | 200 · **207** 부분 | 404 |
@@ -102,6 +104,74 @@ export/import에는 포함된다(9.2 락인 없음). 구 export에 필드가 없
 | `DELETE /users/{id}/tokens/{tid}` | Admin | 200 (즉시 무효) | 404 |
 
 인증 없음 → **401**. 권한 부족 → **403**.
+
+## 기존 번역 파일 가져오기
+
+대시보드 **번역 › 번역 가져오기**에서 형식을 고르고 파일을 여러 개 선택한다. Android·i18next는
+파일별로 등록된 로케일을 지정한다. 서버 미리보기에서 이전 값·가져올 값·검수 상태·설명 변경과
+변환 경고를 확인한 뒤 가져온다. 기존 값·검수 상태·설명을 바꾸려면 덮어쓰기 체크가 필요하다.
+파일 선택·미리보기는 저장하지 않는다. 변환 결과는 기존 `requireTranslationImport`로 검증하며,
+적용은 `Repo.importTranslations`의 단일 트랜잭션이다.
+
+| `format` | 입력 | 지원 범위 |
+| --- | --- | --- |
+| `xcstrings` | Apple `.xcstrings` | sourceLanguage·다국어 stringUnit·CLDR plural·comment. 파일별 locale은 지정하지 않음 |
+| `android-xml` | `strings.xml` + locale | string·plurals·주석·CDATA·XML 엔터티·Android escape와 인용 공백 |
+| `arb` | Flutter `.arb` | `@@locale` 또는 파일별 locale·description·단순 ICU 인자·단일 CLDR plural |
+| `i18next` | JSON + locale | 중첩 키의 점 구분 평탄화·`{{name}}` 보간·v4 `_one`/`_other` 등 복수형 |
+| `rynl10n` | 기존 `{keys:[…]}` JSON | 기존 키·번역·명시적 검수 상태·설명 |
+
+미리보기 요청 예:
+
+```json
+{
+  "format": "android-xml",
+  "files": [{
+    "name": "strings.xml",
+    "locale": "ko",
+    "content": "<resources><string name=\"hello\">안녕</string></resources>"
+  }]
+}
+```
+
+이를 `POST /projects/{p}/translations/import/preview`로 보내면 `createdKeys`·`updatedKeys`·`translations`·
+`locales`·`warnings`·`changes`·`conflicts`·`metadataChanges`·`revision`을 받는다. 적용할 때 같은
+`format`·`files`에 반환된 `revision`과 boolean `overwrite`를 붙여 `POST …/translations/import`로 보낸다.
+미리보기 뒤 대상 번역·검수 상태·키 설명·지원 로케일이 바뀌면 **409**이며 다시 미리보기해야 한다.
+파일에 없는 키·번역은 유지한다. 기존 `{keys:[…]}` 직접 import 요청도 호환된다.
+
+네이티브 파일의 새 값·변경 값은 `draft`다. 동일한 값을 재수입하면 기존 검수 상태를 유지한다.
+Xcode 등의 원본 검수 표시는 승인으로 이전하지 않는다. printf 인자는 `arg1`·`arg2` 등으로 변환하며,
+네이티브 복수형의 선택 수량은 SDK 호출에서 `count`로 **별도** 전달한다(예: `{count: n, arg1: n}`).
+변환된 인자 이름은 미리보기와 경고에서 확인한다. ARB plural의 별도 수량 이름은 `count`로 정규화한다.
+
+조용한 손실을 막기 위해 device/substitutions variation, 중첩·offset·`=n` ICU, 숫자·날짜 서식,
+Android HTML/리소스 참조, i18next ordinal·format·재사용·모델 경로 보간 등은 **400**으로 거절한다.
+i18next context는 별도 라우팅으로 이전하지 않고 리터럴 키 이름을 유지한다. 일반 `one`/`other`
+중첩 객체도 리터럴 키이며, `_zero`의 정확한 0 동작을 CLDR zero로 표현할 수 없는 언어는 거절한다.
+기본 locale 값이 없는 일반 xcstrings 키는 키 자체를 원문으로 사용하고 경고한다(복수형은 명시적 원문 필요).
+DTD·외부 엔터티·중복 키/로케일·모호한 입력은 거절한다. 파일 100개, 파일당 5MiB·전체 10MiB,
+JSON 중첩 64단계·XML 요소 8단계까지 받는다. 키 설명 외의 코드 생성·검수·escape 메타데이터는 경고와 함께 생략한다.
+
+## 프로젝트별 게시 품질 정책
+
+릴리스 탭의 **게시 품질 정책**에서 Maintainer 이상이 선택한다. 기본값은 두 규칙 모두 꺼짐이다.
+API는 프로젝트 생성 또는 `PATCH /projects/{p}`에서 아래 전체 객체를 받는다(둘 다 boolean 필수):
+
+```json
+{"publishPolicy":{"requireReviewed":true,"requireDefaultLocale":true}}
+```
+
+- `requireReviewed`: 릴리스에 포함된 키의 지원 로케일 번역 중 `reviewed`가 아닌 값이 있으면 게시 차단.
+- `requireDefaultLocale`: 릴리스 키에 프로젝트 기본 로케일 번역 엔트리가 없으면 게시 차단.
+
+다른 로케일의 미번역 칸은 기본 로케일 규칙으로 막지 않는다. 검수 전 값을 빼고 나머지만 게시하는
+방식이 아니라 릴리스 전체를 거절한다. 대시보드에서 검수된 값의 내용을 수정하면 `draft`로 돌아간다.
+`GET …/releases/{r}/changes`의 `publishCheck`와 실제 publish·MCP가 같은 판정을 사용하고,
+위반 시 **422 `publish_policy_failed`**와 `error.publishCheck.issues`의 키·로케일 목록을 반환한다.
+상태·범위·산출물을 쓰기 전에 막으며 `rynl10n_publish_total{result="policy"}`로 구분한다.
+현재 DB로 산출물을 만드는 rebuild에도 적용한다. 이전 불변 산출물을 되살리는 rollback은 현재 초안과 무관하다.
+정책은 export/import에 포함되며 구 백업에 없으면 기본값으로 복원한다. SDK 산출물에는 포함하지 않는다.
 
 ## 인증 & RBAC (7.3)
 
