@@ -9,6 +9,8 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import kotlin.system.exitProcess
 
+private val bakeJson = Json { ignoreUnknownKeys = true }
+
 /**
  * bake CLI — Gradle 태스크가 호출하는 엔트리(빌드타임 자동 번들링, 6.3).
  * 사용:
@@ -50,7 +52,7 @@ fun main(args: Array<String>) {
     }
 
     val snap = try {
-        Json { ignoreUnknownKeys = true }.decodeFromString<Snapshot>(snapText)
+        bakeJson.decodeFromString<Snapshot>(snapText)
     } catch (e: Exception) {
         System.err.println("[rynl10n] 스냅샷 파싱 실패: ${e.message}"); exitProcess(1)
     }
@@ -104,10 +106,9 @@ internal fun loadDescriptions(source: String?, token: String?): Map<String, Stri
         System.err.println("[rynl10n] 경고: 설명 소스를 읽지 못함 → 주석 없이 진행: $source")
         return emptyMap()
     }
-    val json = Json { ignoreUnknownKeys = true }
     // 봉투를 먼저 본다 — `release` 같은 부가 필드가 섞여 있어 평평한 맵으로는 디코딩되지 않는다.
-    runCatching { json.decodeFromString<DescriptionEnvelope>(text) }.getOrNull()?.let { return it.descriptions }
-    runCatching { json.decodeFromString<Map<String, String>>(text) }.getOrNull()?.let { return it }
+    runCatching { bakeJson.decodeFromString<DescriptionEnvelope>(text) }.getOrNull()?.let { return it.descriptions }
+    runCatching { bakeJson.decodeFromString<Map<String, String>>(text) }.getOrNull()?.let { return it }
     System.err.println("[rynl10n] 경고: 설명 JSON 형식을 해석하지 못함 → 주석 없이 진행")
     return emptyMap()
 }

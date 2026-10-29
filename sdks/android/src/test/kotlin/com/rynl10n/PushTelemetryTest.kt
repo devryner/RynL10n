@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class PushTelemetryTest {
 
+    private val json = Json { ignoreUnknownKeys = true }
+
     private val bundle = Snapshot(
         1, "R42", "b0", "en",
         mapOf("en" to mapOf("pay.button" to TranslationValue.Text("Pay"))),
@@ -59,7 +61,7 @@ class PushTelemetryTest {
     /** 릴리스가 정해진 클라이언트 + 미해결 키 1건. */
     private fun reportingClient(): RynL10nClient {
         val c = RynL10nClient(bundle, InMemoryDeliveryStore(), Matching.ClientContext(appVersion = "1.2.3"), telemetry = "aggregate")
-        c.refresh(Json { ignoreUnknownKeys = true }.decodeFromString<Manifest>(manifestJson))
+        c.refresh(json.decodeFromString<Manifest>(manifestJson))
         c.t("missing.key")
         return c
     }
@@ -179,7 +181,7 @@ class PushTelemetryTest {
     @Test fun `수집이 off면 보낼 것이 없다`() = runBlocking {
         plane.route("/projects/demo/telemetry", """{"accepted":0,"rejected":0}""")
         val c = client(telemetry = "off")
-        c.refresh(Json { ignoreUnknownKeys = true }.decodeFromString<Manifest>(manifestJson))
+        c.refresh(json.decodeFromString<Manifest>(manifestJson))
         c.t("missing.key")
 
         assertTrue(TelemetryReporter(plane.baseUrl, "demo").flush(c))

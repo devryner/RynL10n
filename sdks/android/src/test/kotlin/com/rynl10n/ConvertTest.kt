@@ -8,6 +8,8 @@ import java.io.File
 
 /** Android strings.xml 변환 정합성 — fixtures/golden/convert.json (기획서 5.3). */
 class ConvertTest {
+    private val json = Json { ignoreUnknownKeys = true }
+
     private fun goldenDir(): File {
         var dir = File(System.getProperty("user.dir"))
         repeat(12) { val c = File(dir, "fixtures/golden"); if (c.isDirectory) return c; dir = dir.parentFile ?: return@repeat }
@@ -22,7 +24,7 @@ class ConvertTest {
         val androidXmlWithDescriptions: AndroidXml,
     )
 
-    private fun load(): ConvertFile = Json { ignoreUnknownKeys = true }
+    private fun load(): ConvertFile = json
         .decodeFromString(File(goldenDir(), "convert.json").readText())
 
     @Test fun androidStringsXml() {

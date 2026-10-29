@@ -5,7 +5,20 @@
 [`../../OPERATIONS.md`](../../OPERATIONS.md)를 참조한다.
 
 **요구 사항**: 앱은 minSdk 26 / JDK 17+ / Kotlin 2.1+. bake 태스크(§3)는 이 저장소의 루트 JVM 모듈에서
-돌기 때문에 **JDK 21이 설치돼 있어야 한다**(`jvmToolchain(21)`, 툴체인 자동 다운로드 없음).
+돌기 때문에 **JDK 21이 설치돼 있어야 한다**(`jvmToolchain(21)`). AAR 빌드용 JDK 17이 없으면
+Gradle이 Foojay 툴체인 저장소를 통해 다운로드한다.
+
+**SDK XML 버전 경고가 나는 개발 환경**: Android Studio가 설치한 SDK의 `package.xml`이 XML 4인
+경우 AGP 8.7.3의 XML 3 파서와 충돌한다. 이 저장소는 프로젝트 전용 SDK를
+`sdks/android/local.properties`의 `sdk.dir`로 지정할 수 있다(이 파일은 gitignore 대상).
+기존 SDK의 `platforms/android-35`·`build-tools/34.0.0`·`platform-tools`·`licenses`를 별도 SDK 디렉터리로 복사하되
+`package.xml`은 복사하지 않는다. AGP가 각 패키지의 `source.properties`로 설치 정보를 읽는다.
+공용 SDK의 메타데이터는 수정하지 않는다. 예:
+
+```properties
+# sdks/android/local.properties — 개발 환경의 실제 절대 경로
+sdk.dir=/path/to/project-android-sdk
+```
 
 ---
 
